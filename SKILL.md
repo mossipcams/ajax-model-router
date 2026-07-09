@@ -42,16 +42,13 @@ Evaluate in order. First match wins.
 | User explicitly asked Codex to implement | `codex-delegate` implementation, `gpt-5.5` high |
 | User explicitly asked Codex to delegate | `codex-delegate` delegator mode, `gpt-5.5` high |
 | Allowed files are docs-only, tests-only, generated-code cleanup, repeated exact replacements, or boilerplate with named anchors | `opencode-delegate`, `opencode-go/minimax-m3` |
-| Allowed files include frontend/Svelte/TypeScript/PWA files and production file count >2 | `cursor-delegate`, `grok-4.5-high` |
-| Allowed files include frontend/Svelte/TypeScript/PWA files and packet names layout, rendering, viewport, terminal UI, or cross-component state | `cursor-delegate`, `grok-4.5-high` |
 | Allowed files include frontend/Svelte/TypeScript/PWA files | `cursor-delegate`, Composer 2.5 |
 | Allowed files include Rust/backend/server/auth/session/PTY/supervisor code | `opencode-delegate`, `opencode-go/glm-5.2` |
 | Packet names a bug but not the source file to edit | `opencode-delegate`, `opencode-go/glm-5.2` |
-| No lane matched | Use `codex-delegate` packet critique. |
+| No lane matched | `cursor-delegate`, Composer 2.5 |
 
 Model ID rules:
 
-- Use `grok-4.5-high`, never `grok-4.5-fast-high`.
 - Use `opencode-go/minimax-m3`, not provider-specific aliases.
 - Use `opencode-go/glm-5.2`, not provider-specific aliases.
 - Do not use Haiku.
