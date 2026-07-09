@@ -89,7 +89,8 @@ START
       - docs cleanup,
       - simple test expansion,
       - obvious localized change,
-      - cheap retry is acceptable.
+      - cheap retry is acceptable,
+      - and the model id is `opencode-go/minimax-m3`.
    D. Use opencode-delegate with GLM 5.2 when:
       - task needs deeper code reasoning,
       - tricky backend behavior,
@@ -97,7 +98,8 @@ START
       - bug isolation,
       - refactor validation,
       - implementation depends on understanding module boundaries,
-      - failure mode must be reasoned through before editing.
+      - failure mode must be reasoned through before editing,
+      - and the model id is `opencode-go/glm-5.2`.
    E. Use codex-delegate for implementation only when:
       - the user explicitly asks Codex to implement,
       - or all other implementation delegates are unavailable,
@@ -125,8 +127,8 @@ END
 | Local orchestrator | Default for trivial, exploratory, or smaller-than-handoff work. |
 | Cursor / Grok 4.5 High | Preferred Cursor lane for complex tasks: frontend, Svelte, TypeScript, PWA, terminal behavior, repo-aware Rust edits, normal bounded bug fixes where Composer 2.5 is too weak. Use `grok-4.5-high`, not High Fast. |
 | Cursor / Composer 2.5 | Routine bounded Cursor lane; not the default for complex tasks. |
-| OpenCode / MiniMax-M3 | Cheap mechanical worker. Best for boring, repetitive, low-risk, boilerplate, docs, simple test additions. |
-| OpenCode / GLM 5.2 | Reasoning-heavy implementer. Best for tricky backend behavior, Rust architecture, bug isolation, refactor validation. |
+| OpenCode / MiniMax-M3 | Cheap mechanical worker. Best for boring, repetitive, low-risk, boilerplate, docs, simple test additions. Use `opencode-go/minimax-m3`. |
+| OpenCode / GLM 5.2 | Reasoning-heavy implementer. Best for tricky backend behavior, Rust architecture, bug isolation, refactor validation. Use `opencode-go/glm-5.2`. |
 | Codex / GPT-5.5 high | Default reviewer. Best for adversarial review, packet critique, test adequacy, hidden risks, patch narrowing. |
 | Codex / GPT-5.5 xhigh | Expensive final reviewer. Use for disputed output, high-risk diff, or user-requested deep review. |
 
