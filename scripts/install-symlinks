@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/install-symlinks [--target PATH] [--force]
+EOF
+}
+
+TARGET="."
+FORCE=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --target)
+      TARGET="${2:?--target requires a path}"
+      shift 2
+      ;;
+    --force)
+      FORCE=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "error: unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+CANONICAL="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+
+if [[ ! -d "$TARGET" ]]; then
+  echo "error: target repo does not exist: $TARGET" >&2
+  exit 1
+fi
+TARGET="$(cd "$TARGET" && pwd -P)"
+
+resolve_path() {
+  python3 - "$1" <<'PY'
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY
+}
+
+timestamp() {
+  date -u +%Y%m%dT%H%M%SZ
+}
+
+install_one() {
+  local base="$1"
+  local parent="$TARGET/$base/skills"
+  local dest="$parent/model-router"
+  local resolved backup
+
+  if [[ ! -d "$parent" ]]; then
+    mkdir -p "$parent"
+    echo "created-dir: $parent"
+  fi
+
+  if [[ -L "$dest" ]]; then
+    resolved="$(resolve_path "$dest")"
+    if [[ "$resolved" == "$CANONICAL" ]]; then
+      echo "skipped: $dest -> $CANONICAL"
+      return
+    fi
+
+    if [[ -e "$dest" && "$FORCE" -ne 1 ]]; then
+      echo "blocked: $dest points to $resolved; use --force to replace"
+      return 1
+    fi
+
+    if [[ ! -e "$dest" ]]; then
+      rm "$dest"
+      ln -s "$CANONICAL" "$dest"
+      echo "replaced-broken-symlink: $dest -> $CANONICAL"
+      return
+    fi
+
+    backup="$dest.backup.$(timestamp)"
+    mv "$dest" "$backup"
+    echo "backed-up: $dest -> $backup"
+    ln -s "$CANONICAL" "$dest"
+    echo "replaced: $dest -> $CANONICAL"
+    return
+  fi
+
+  if [[ -e "$dest" ]]; then
+    if [[ "$FORCE" -ne 1 ]]; then
+      echo "blocked: $dest exists; use --force to replace"
+      return 1
+    fi
+    backup="$dest.backup.$(timestamp)"
+    mv "$dest" "$backup"
+    echo "backed-up: $dest -> $backup"
+    ln -s "$CANONICAL" "$dest"
+    echo "replaced: $dest -> $CANONICAL"
+    return
+  fi
+
+  ln -s "$CANONICAL" "$dest"
+  echo "created: $dest -> $CANONICAL"
+}
+
+echo "canonical: $CANONICAL"
+echo "target: $TARGET"
+
+install_one ".agents"
+install_one ".cursor"
+install_one ".claude"

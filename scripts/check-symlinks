@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/check-symlinks [--target PATH]
+EOF
+}
+
+TARGET="."
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --target)
+      TARGET="${2:?--target requires a path}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "error: unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+CANONICAL="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+
+if [[ ! -d "$TARGET" ]]; then
+  echo "error: target repo does not exist: $TARGET" >&2
+  exit 1
+fi
+TARGET="$(cd "$TARGET" && pwd -P)"
+
+resolve_path() {
+  python3 - "$1" <<'PY'
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY
+}
+
+check_one() {
+  local dest="$TARGET/$1/skills/model-router"
+  local resolved
+
+  if [[ ! -L "$dest" ]]; then
+    echo "missing-or-not-symlink: $dest"
+    return 1
+  fi
+
+  if [[ ! -e "$dest" ]]; then
+    echo "broken: $dest"
+    return 1
+  fi
+
+  resolved="$(resolve_path "$dest")"
+  if [[ "$resolved" != "$CANONICAL" ]]; then
+    echo "wrong-target: $dest -> $resolved"
+    return 1
+  fi
+
+  echo "ok: $dest -> $CANONICAL"
+}
+
+echo "canonical: $CANONICAL"
+echo "target: $TARGET"
+
+check_one ".agents"
+check_one ".cursor"
+check_one ".claude"
