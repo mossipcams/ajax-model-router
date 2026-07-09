@@ -10,7 +10,7 @@ This skill executes a selected Cursor lane. It does not choose the lane.
 Required inputs:
 
 - mode: `implement`, `small-fix`, `test-only`, `resume`, or `review`
-- model: `grok-4.5-high` or `composer-2.5`
+- model: `composer-2.5`
 - complete `tdd-implementation-packet` for write modes
 - optional `CHAT_ID` for resume
 
@@ -34,7 +34,7 @@ Missing `cursor-agent` means stop and report.
 | write modes | `cursor-agent -p -f --trust --model <model> --resume "$CHAT_ID"` |
 | review | `cursor-agent -p --plan --trust --resume "$CHAT_ID"` |
 
-Use `grok-4.5-high`, never `grok-4.5-fast-high`.
+Use `composer-2.5`.
 
 Redirect output and read only the final report:
 
