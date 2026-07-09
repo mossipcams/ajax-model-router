@@ -1,0 +1,6 @@
+interface:
+  display_name: "Cursor Delegate"
+  short_description: "Delegate bounded work to Cursor CLI"
+  default_prompt: "Use $cursor-delegate to delegate this bounded implementation task to Cursor CLI, then review the resulting diff."
+policy:
+  allow_implicit_invocation: true

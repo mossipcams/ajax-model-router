@@ -53,11 +53,37 @@ timestamp() {
   date -u +%Y%m%dT%H%M%SZ
 }
 
+source_for() {
+  local base="$1"
+  local name="$2"
+
+  case "$base/$name" in
+    .agents/model-router|.cursor/model-router)
+      echo "$CANONICAL"
+      ;;
+    .codex/*|.claude/*)
+      echo "$CANONICAL/$base/skills/$name"
+      ;;
+    *)
+      echo "error: no source configured for $base/skills/$name" >&2
+      return 1
+      ;;
+  esac
+}
+
 install_one() {
   local base="$1"
+  local name="$2"
   local parent="$TARGET/$base/skills"
-  local dest="$parent/model-router"
-  local resolved backup
+  local dest="$parent/$name"
+  local source resolved source_resolved backup
+
+  source="$(source_for "$base" "$name")"
+  if [[ ! -e "$source" ]]; then
+    echo "error: source skill does not exist: $source" >&2
+    return 1
+  fi
+  source_resolved="$(resolve_path "$source")"
 
   if [[ ! -d "$parent" ]]; then
     mkdir -p "$parent"
@@ -66,8 +92,8 @@ install_one() {
 
   if [[ -L "$dest" ]]; then
     resolved="$(resolve_path "$dest")"
-    if [[ "$resolved" == "$CANONICAL" ]]; then
-      echo "skipped: $dest -> $CANONICAL"
+    if [[ "$resolved" == "$source_resolved" ]]; then
+      echo "skipped: $dest -> $source"
       return
     fi
 
@@ -78,16 +104,16 @@ install_one() {
 
     if [[ ! -e "$dest" ]]; then
       rm "$dest"
-      ln -s "$CANONICAL" "$dest"
-      echo "replaced-broken-symlink: $dest -> $CANONICAL"
+      ln -s "$source" "$dest"
+      echo "replaced-broken-symlink: $dest -> $source"
       return
     fi
 
     backup="$dest.backup.$(timestamp)"
     mv "$dest" "$backup"
     echo "backed-up: $dest -> $backup"
-    ln -s "$CANONICAL" "$dest"
-    echo "replaced: $dest -> $CANONICAL"
+    ln -s "$source" "$dest"
+    echo "replaced: $dest -> $source"
     return
   fi
 
@@ -99,18 +125,28 @@ install_one() {
     backup="$dest.backup.$(timestamp)"
     mv "$dest" "$backup"
     echo "backed-up: $dest -> $backup"
-    ln -s "$CANONICAL" "$dest"
-    echo "replaced: $dest -> $CANONICAL"
+    ln -s "$source" "$dest"
+    echo "replaced: $dest -> $source"
     return
   fi
 
-  ln -s "$CANONICAL" "$dest"
-  echo "created: $dest -> $CANONICAL"
+  ln -s "$source" "$dest"
+  echo "created: $dest -> $source"
 }
 
 echo "canonical: $CANONICAL"
 echo "target: $TARGET"
 
-install_one ".agents"
-install_one ".cursor"
-install_one ".claude"
+install_one ".agents" "model-router"
+install_one ".cursor" "model-router"
+
+for skill in \
+  "model-router" \
+  "tdd-implementation-packet" \
+  "cursor-delegate" \
+  "opencode-delegate" \
+  "codex-delegate"
+do
+  install_one ".codex" "$skill"
+  install_one ".claude" "$skill"
+done

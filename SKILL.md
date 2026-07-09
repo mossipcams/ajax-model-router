@@ -1,140 +1,67 @@
 ---
 name: model-router
-description: Decide whether to handle a bounded code behavior change locally, create a TDD packet, delegate implementation to Cursor or OpenCode, delegate review to Codex, or stop. Use when choosing between local orchestrator work, Cursor with Grok 4.5 High (not High Fast) or Composer 2.5, OpenCode MiniMax-M3 or GLM 5.2, and Codex GPT-5.5 high for one bounded coding task.
+description: Pick the workflow for one bounded coding task: local, packet, delegate lane, review gate, revise, discard, or stop.
 ---
 
 # Model Router
 
-## Primary Role
+Use this skill for one bounded code behavior change. Do not use it for pure
+Q&A, broad planning, or unrelated cleanup.
 
-The router decides the workflow. Do not delegate by default.
-
-It does not implement non-trivial changes itself once invoked unless every suitable delegate is unavailable or unsuitable. It may keep trivial one-liners, direct Q&A, exploration, and changes smaller than a useful handoff local.
-
-It integrates with existing skills:
-
-- `tdd-implementation-packet` = canonical packet creator
-- `cursor-delegate` = Cursor implementation lane, with Grok 4.5 High for complex tasks and Composer 2.5 for routine bounded tasks
-- `opencode-delegate` = MiniMax-M3 or GLM 5.2 implementation lane
-- `codex-delegate` = GPT-5.5 high review, packet critique, patch narrowing, or explicit implementation
-
-## Global Rules
+## Invariants
 
 - Current directory is already the task worktree.
-- Never create worktrees, create branches, change branches, commit, push, merge, or rebase.
-- Never delegate implementation from a vague prompt.
-- Implementation requires a complete tdd-implementation-packet. The packet is the source of truth; delegates must not invent their own.
-- All implementation must be test-first when applicable.
-- Parent agent must review the resulting git diff before accepting.
+- Never create worktrees, branches, commits, pushes, merges, rebases, or branch
+  switches.
+- Do not delegate from a vague prompt.
+- Implementation delegates require a complete `tdd-implementation-packet`.
+- The packet is the source of truth.
+- Parent reviews every delegate diff before accepting it.
 - Empty diff plus success claim is failure.
-- Out-of-scope edits trigger Revise or Discard.
-- Two failed delegate rounds means stop and report.
+- Stop after two failed delegate rounds.
 
-## Decision Tree
+## Route
 
-Use this exact decision tree:
+Follow the first matching rule.
 
-```text
-START
-1. Is the user asking for a code behavior change?
-   - No:
-     - If asking for review, go to review decision (step 4 / codex-delegate).
-     - If asking for planning, create or critique a packet only if useful.
-     - Otherwise answer directly.
-   - Yes:
-     - Continue.
-1a. Is the change trivial or smaller than a useful handoff?
-   - Yes:
-     - Implement locally.
-   - No:
-     - Continue.
-2. Is there exactly one behavior change?
-   - No:
-     - Split into one behavior change.
-     - Route only the first bounded change.
-     - Stop if it cannot be split safely.
-   - Yes:
-     - Continue.
-3. Is a complete tdd-implementation-packet available?
-   - No:
-     - Use existing tdd-implementation-packet skill.
-     - If Graphify, Serena, ast-grep, or desired behavior context is missing
-       and cannot be gathered, stop.
-   - Yes:
-     - Continue.
-4. Is the packet ambiguous, risky, or intended for a weaker model?
-   - Yes:
-     - Use codex-delegate in packet critique mode before implementation.
-   - No:
-     - Continue.
-5. Choose implementation delegate:
-   A. Use cursor-delegate with Grok 4.5 High when:
-      - complex frontend, Svelte, TypeScript, UI behavior, PWA layout,
-        viewport, terminal rendering,
-      - multi-file repo-aware edits,
-      - tricky UI behavior,
-      - normal bug fixes where Cursor is useful but Composer 2.5 is too weak,
-      - existing repo patterns matter,
-      - and the model id is `grok-4.5-high`, never `grok-4.5-fast-high`.
-   B. Use cursor-delegate with Composer 2.5 when:
-      - routine bounded frontend, Svelte, TypeScript, UI behavior, or PWA work,
-      - straightforward bug fixes,
-      - well-anchored repo-aware changes,
-      - the packet leaves little judgment to the model.
-   C. Use opencode-delegate with MiniMax-M3 when:
-      - task is mechanical,
-      - low-risk,
-      - repetitive,
-      - boilerplate,
-      - docs cleanup,
-      - simple test expansion,
-      - obvious localized change,
-      - cheap retry is acceptable,
-      - and the model id is `opencode-go/minimax-m3`.
-   D. Use opencode-delegate with GLM 5.2 when:
-      - task needs deeper code reasoning,
-      - tricky backend behavior,
-      - Rust architecture reasoning,
-      - bug isolation,
-      - refactor validation,
-      - implementation depends on understanding module boundaries,
-      - failure mode must be reasoned through before editing,
-      - and the model id is `opencode-go/glm-5.2`.
-   E. Use codex-delegate for implementation only when:
-      - the user explicitly asks Codex to implement,
-      - or all other implementation delegates are unavailable,
-      - and the packet is complete.
-      - Default Codex role is review, not implementation.
-   F. Use codex-delegate in delegator mode when:
-      - the user explicitly asks Codex to delegate / hand off the work,
-      - and the packet is complete.
-      - Codex then picks the sub-lane and runs cursor-agent or opencode itself;
-        this router's parent still runs the final review gate.
-6. After implementation:
-   - Always review git diff.
-   - If patch is clean and verification passes, Accept.
-   - If patch is narrow but incomplete, Revise once.
-   - If patch is out-of-scope, too large, ignores anchors, skips test-first,
-     or changes forbidden behavior, Discard.
-   - After two failed rounds, stop and report.
-END
-```
-
-## Routing Table
-
-| Delegate / model | Role |
+| Condition | Action |
 |---|---|
-| Local orchestrator | Default for trivial, exploratory, or smaller-than-handoff work. |
-| Cursor / Grok 4.5 High | Preferred Cursor lane for complex tasks: frontend, Svelte, TypeScript, PWA, terminal behavior, repo-aware Rust edits, normal bounded bug fixes where Composer 2.5 is too weak. Use `grok-4.5-high`, not High Fast. |
-| Cursor / Composer 2.5 | Routine bounded Cursor lane; not the default for complex tasks. |
-| OpenCode / MiniMax-M3 | Cheap mechanical worker. Best for boring, repetitive, low-risk, boilerplate, docs, simple test additions. Use `opencode-go/minimax-m3`. |
-| OpenCode / GLM 5.2 | Reasoning-heavy implementer. Best for tricky backend behavior, Rust architecture, bug isolation, refactor validation. Use `opencode-go/glm-5.2`. |
-| Codex / GPT-5.5 high | Default reviewer. Best for adversarial review, packet critique, test adequacy, hidden risks, patch narrowing. |
-| Codex / GPT-5.5 xhigh | Expensive final reviewer. Use for disputed output, high-risk diff, or user-requested deep review. |
+| Request is not a code behavior change | Answer directly. If it is a review request, use `codex-delegate` review. |
+| Candidate edit is one file, <=10 changed lines, and adds no conditional, loop, parser, auth, security, or data-loss path | Implement locally. |
+| Request contains multiple independent behaviors | Route only the first requested behavior. Stop if it cannot be expressed as one packet. |
+| No complete packet exists | Use `tdd-implementation-packet`. |
+| Packet is missing allowed files, forbidden changes, goal, code anchors, test instructions, verification, acceptance criteria, or stop conditions | Use `codex-delegate` packet critique. |
+| Packet is complete | Pick one implementation lane below. |
+
+## Implementation Lane
+
+Evaluate in order. First match wins.
+
+| Packet facts | Lane |
+|---|---|
+| User explicitly asked Codex to implement | `codex-delegate` implementation, `gpt-5.5` high |
+| User explicitly asked Codex to delegate | `codex-delegate` delegator mode, `gpt-5.5` high |
+| Allowed files are docs-only, tests-only, generated-code cleanup, repeated exact replacements, or boilerplate with named anchors | `opencode-delegate`, `opencode-go/minimax-m3` |
+| Allowed files include frontend/Svelte/TypeScript/PWA files and production file count >2 | `cursor-delegate`, `grok-4.5-high` |
+| Allowed files include frontend/Svelte/TypeScript/PWA files and packet names layout, rendering, viewport, terminal UI, or cross-component state | `cursor-delegate`, `grok-4.5-high` |
+| Allowed files include frontend/Svelte/TypeScript/PWA files | `cursor-delegate`, Composer 2.5 |
+| Allowed files include Rust/backend/server/auth/session/PTY/supervisor code | `opencode-delegate`, `opencode-go/glm-5.2` |
+| Packet names a bug but not the source file to edit | `opencode-delegate`, `opencode-go/glm-5.2` |
+| No lane matched | Use `codex-delegate` packet critique. |
+
+Model ID rules:
+
+- Use `grok-4.5-high`, never `grok-4.5-fast-high`.
+- Use `opencode-go/minimax-m3`, not provider-specific aliases.
+- Use `opencode-go/glm-5.2`, not provider-specific aliases.
+- Do not use Haiku.
+
+If the selected implementation tool is unavailable, implement locally under the
+packet constraints and still run the review gate.
 
 ## Review Gate
 
-After any delegate finishes, the router must require:
+After a delegate finishes, require:
 
 ```bash
 git status --short
@@ -142,16 +69,16 @@ git diff --stat
 git diff -- <allowed files>
 ```
 
-Then run the verification commands from the packet itself.
+Run the packet verification commands.
 
-Accept only if:
+Accept only when all are true:
 
 - changed files are inside Allowed files,
-- test-first behavior is proven or validly explained,
-- verification passes,
+- test-first behavior happened or the packet says it does not apply,
+- verification passed,
 - production edits match packet anchors,
-- Graphify boundaries are preserved,
-- no forbidden behavior changed,
-- no broad formatting/refactor sweep happened.
+- forbidden behavior did not change,
+- no broad formatting or refactor sweep happened.
 
-Otherwise Revise (once, with specific findings) or Discard. Two failed rounds: stop, summarize both attempts, report the blocker.
+Revise once for incomplete work inside Allowed files. Discard forbidden or
+out-of-scope work. After two failed rounds, stop and report both attempts.

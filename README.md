@@ -1,9 +1,20 @@
-# model-router
+# ajax-model-router
 
-Canonical shared model-router skill folder.
+Canonical shared router skill bundle.
+
+Included skills:
+
+- `model-router`
+- `tdd-implementation-packet`
+- `cursor-delegate`
+- `opencode-delegate`
+- `codex-delegate`
+
+The repo root is still the canonical `model-router` skill. `.codex/skills` and
+`.claude/skills` contain the full Codex / Claude Code bundle.
 
 ```bash
-# From the canonical model-router folder
+# From this repo
 scripts/install-symlinks --target ../ajax-cli
 
 # Verify

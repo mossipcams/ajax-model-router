@@ -44,9 +44,36 @@ print(os.path.realpath(sys.argv[1]))
 PY
 }
 
+source_for() {
+  local base="$1"
+  local name="$2"
+
+  case "$base/$name" in
+    .agents/model-router|.cursor/model-router)
+      echo "$CANONICAL"
+      ;;
+    .codex/*|.claude/*)
+      echo "$CANONICAL/$base/skills/$name"
+      ;;
+    *)
+      echo "error: no source configured for $base/skills/$name" >&2
+      return 1
+      ;;
+  esac
+}
+
 check_one() {
-  local dest="$TARGET/$1/skills/model-router"
-  local resolved
+  local base="$1"
+  local name="$2"
+  local dest="$TARGET/$base/skills/$name"
+  local source resolved source_resolved
+
+  source="$(source_for "$base" "$name")"
+  if [[ ! -e "$source" ]]; then
+    echo "missing-source: $source"
+    return 1
+  fi
+  source_resolved="$(resolve_path "$source")"
 
   if [[ ! -L "$dest" ]]; then
     echo "missing-or-not-symlink: $dest"
@@ -59,17 +86,27 @@ check_one() {
   fi
 
   resolved="$(resolve_path "$dest")"
-  if [[ "$resolved" != "$CANONICAL" ]]; then
+  if [[ "$resolved" != "$source_resolved" ]]; then
     echo "wrong-target: $dest -> $resolved"
     return 1
   fi
 
-  echo "ok: $dest -> $CANONICAL"
+  echo "ok: $dest -> $source"
 }
 
 echo "canonical: $CANONICAL"
 echo "target: $TARGET"
 
-check_one ".agents"
-check_one ".cursor"
-check_one ".claude"
+check_one ".agents" "model-router"
+check_one ".cursor" "model-router"
+
+for skill in \
+  "model-router" \
+  "tdd-implementation-packet" \
+  "cursor-delegate" \
+  "opencode-delegate" \
+  "codex-delegate"
+do
+  check_one ".codex" "$skill"
+  check_one ".claude" "$skill"
+done
