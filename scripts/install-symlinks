@@ -139,7 +139,15 @@ echo "canonical: $CANONICAL"
 echo "target: $TARGET"
 
 install_one ".agents" "model-router"
-install_one ".cursor" "model-router"
+for skill in \
+  "model-router" \
+  "tdd-implementation-packet" \
+  "cursor-delegate" \
+  "opencode-delegate" \
+  "codex-delegate"
+do
+  install_one ".cursor" "$skill"
+done
 
 for skill in \
   "model-router" \
