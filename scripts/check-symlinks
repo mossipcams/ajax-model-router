@@ -48,18 +48,19 @@ source_for() {
   local base="$1"
   local name="$2"
 
-  case "$base/$name" in
-    .agents/model-router|.cursor/model-router)
-      echo "$CANONICAL"
-      ;;
-    .codex/*|.claude/*)
-      echo "$CANONICAL/$base/skills/$name"
-      ;;
+  case "$base" in
+    .agents|.cursor|.codex|.claude) ;;
     *)
       echo "error: no source configured for $base/skills/$name" >&2
       return 1
       ;;
   esac
+
+  if [[ "$name" == "model-router" ]]; then
+    echo "$CANONICAL"
+  else
+    echo "$CANONICAL/skills/$name"
+  fi
 }
 
 check_one() {
