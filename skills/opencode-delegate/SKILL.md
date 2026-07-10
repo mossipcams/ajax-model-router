@@ -33,7 +33,7 @@ tool inside this adapter.
 cat > /tmp/opencode-task.txt <<'PROMPT'
 <router prompt plus packet or discovery scope>
 PROMPT
-opencode run --model "$MODEL" "$(cat /tmp/opencode-task.txt)" > /tmp/opencode-run.log 2>&1
+opencode run --model "$MODEL" "$(cat /tmp/opencode-task.txt)" </dev/null > /tmp/opencode-run.log 2>&1
 tail -80 /tmp/opencode-run.log
 ```
 
