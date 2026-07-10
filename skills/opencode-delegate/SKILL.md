@@ -1,19 +1,21 @@
 ---
 name: opencode-delegate
-description: Run OpenCode from the current worktree when model-router selected an OpenCode lane.
+description: Run OpenCode only from a model-router ROUTING_DECISION.
 ---
 
 # OpenCode Delegate
 
-Adapter for the OpenCode lanes. `model-router` picks the model, supplies the
-Delegate Prompt and packet, and runs the Review Gate. This skill only invokes
-the tool.
+Adapter for router-selected OpenCode lanes. Do not reconstruct routing from the
+user request. If no `ROUTING_DECISION` is supplied, return `STOP` and ask the
+parent to run `model-router`.
 
 Required inputs:
 
-- model: `opencode-go/minimax-m3` or `opencode-go/glm-5.2` (exact IDs, no
-  provider-specific aliases)
-- the router's Delegate Prompt plus complete packet
+- model: the exact `MODEL` from the router decision
+- mode: `discover`, `implement`, or `test-only`
+- allowed scope: the decision's `ALLOWED_SCOPE`
+- the router prompt and `READY` packet for write modes
+- read-only discovery prompt for `discover`
 
 ## Preflight
 
@@ -22,21 +24,26 @@ command -v opencode
 git status --short
 ```
 
-Missing `opencode` means stop and report.
+Missing `opencode` means return `STOP`; never substitute local work or another
+tool inside this adapter.
 
 ## Invocation
 
 ```bash
 cat > /tmp/opencode-task.txt <<'PROMPT'
-<Delegate Prompt + packet>
+<router prompt plus packet or discovery scope>
 PROMPT
 opencode run --model "$MODEL" "$(cat /tmp/opencode-task.txt)" > /tmp/opencode-run.log 2>&1
 tail -80 /tmp/opencode-run.log
 ```
 
-Model-specific line appended to the Delegate Prompt:
+Mode-specific line appended to the router prompt:
 
-- `opencode-go/glm-5.2`: `Before editing, state the likely failure mode and
-  smallest implementation path.`
+- `discover`: `Read only. Return exact source files, symbols, and anchors. Do
+  not edit files.`
+- `test-only`: `Do not edit production code.`
+- `implement`: `Before editing, state the likely failure mode and smallest
+  implementation path.`
 
-Then return to the router's Review Gate.
+For `discover`, return the read-only findings to the router and reroute. After a
+write mode, return to the router's Review Gate.

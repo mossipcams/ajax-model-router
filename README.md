@@ -5,7 +5,8 @@ Canonical shared router skill bundle.
 ## Layout
 
 - `SKILL.md` (repo root) — the `model-router` skill. Owns the pipeline:
-  route table, lanes, the shared Delegate Prompt, and the Review Gate.
+  structured routing decision, model registry, route table, shared Delegate
+  Prompt, report schemas, and Review Gate.
 - `skills/` — canonical sub-skills: `tdd-implementation-packet`,
   `cursor-delegate`, `opencode-delegate`, `codex-delegate`. The delegate
   skills are thin tool adapters; shared rules live only in the router.
@@ -20,6 +21,7 @@ scripts/install-symlinks --target ../ajax-cli
 
 # Verify
 scripts/check-symlinks --target ../ajax-cli
+scripts/check-contracts
 ```
 
 Use `--force` only when replacing an existing non-canonical install:

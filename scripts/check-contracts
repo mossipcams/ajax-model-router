@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+failures=0
+
+require_text() {
+  local file="$1" text="$2" label="$3"
+  if ! grep -Fq -- "$text" "$ROOT/$file"; then
+    echo "missing: $label" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+forbid_text() {
+  local file="$1" text="$2" label="$3"
+  if grep -Fq -- "$text" "$ROOT/$file"; then
+    echo "forbidden: $label" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+require_count() {
+  local text="$1" expected="$2" label="$3" actual
+  actual="$( (grep -RohF --include='SKILL.md' -- "$text" "$ROOT" || true) | wc -l | tr -d ' ')"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "wrong-count: $label (expected $expected, got $actual)" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+for field in ACTION LANE MODE MODEL PACKET_STATUS ALLOWED_SCOPE REASON ESCALATE_IF; do
+  require_text "SKILL.md" "$field:" "routing decision field $field"
+done
+
+require_text "SKILL.md" "## Model Registry" "central model registry"
+require_text "SKILL.md" "CRITIQUE_PACKET" "packet critique action"
+require_text "SKILL.md" "tdd-implementation-packet" "packet builder lane"
+require_text "SKILL.md" "Emit a new decision after each action." "single-step binding rule"
+for key in CODEX CURSOR MINIMAX GLM; do
+  model_id="$(awk -F'`' -v key="$key" '$2 == key {print $4; exit}' "$ROOT/SKILL.md")"
+  if [[ -z "$model_id" ]]; then
+    echo "missing: model registry key $key" >&2
+    failures=$((failures + 1))
+  else
+    require_count "$model_id" 1 "$key model ID outside registry"
+  fi
+done
+
+require_text "SKILL.md" "Risk and reasoning depth take precedence over file category." "routing precedence rule"
+require_text "SKILL.md" "Tests-only work keeps the lane selected by reasoning depth." "tests-only complexity rule"
+require_text "SKILL.md" 'Source file or code anchors are unknown' "unknown-source route"
+require_text "SKILL.md" '`DISCOVER`' "discovery action"
+require_text "SKILL.md" '`discover`' "discovery mode"
+
+risk_line="$(grep -nF 'Authentication, security, data-loss, backend, server, session, PTY, or supervisor work' "$ROOT/SKILL.md" | head -1 | cut -d: -f1 || true)"
+frontend_line="$(grep -nF 'Frontend UI behavior with bounded files and anchors' "$ROOT/SKILL.md" | head -1 | cut -d: -f1 || true)"
+if [[ -z "$risk_line" || -z "$frontend_line" || "$risk_line" -ge "$frontend_line" ]]; then
+  echo "wrong-order: risk/backend route must precede frontend route" >&2
+  failures=$((failures + 1))
+fi
+
+packet="skills/tdd-implementation-packet/SKILL.md"
+require_text "$packet" "PACKET_STATUS: READY | BLOCKED" "packet readiness status"
+require_text "$packet" "TASK_KIND: behavior | tests-only | docs-only | mechanical" "packet task kind"
+require_text "$packet" "TEST_FIRST: REQUIRED | NOT_APPLICABLE" "conditional test-first field"
+require_text "$packet" "PRODUCTION_EDIT: REQUIRED | FORBIDDEN" "conditional production field"
+require_text "$packet" 'A missing required input makes the packet `BLOCKED`' "blocked packet rule"
+require_text "$packet" '| `docs-only` | `NOT_APPLICABLE` | `FORBIDDEN` |' "docs-only requirements"
+require_text "$packet" '| `tests-only` | `NOT_APPLICABLE` | `FORBIDDEN` |' "tests-only requirements"
+forbid_text "$packet" "state the missing input as a stop condition" "missing context hidden in stop conditions"
+
+for adapter in cursor-delegate opencode-delegate codex-delegate; do
+  file="skills/$adapter/SKILL.md"
+  require_text "$file" "ROUTING_DECISION" "$adapter requires router binding"
+  require_text "$file" 'return `STOP`' "$adapter unavailable-tool behavior"
+done
+
+cursor="skills/cursor-delegate/SKILL.md"
+require_text "$cursor" 'mode: `implement`, `test-only`, or `review`' "Cursor mode contract"
+require_text "$cursor" 'Resume keeps the original mode' "Cursor resume semantics"
+require_text "$cursor" "REVIEW_REPORT" "Cursor structured review output"
+forbid_text "$cursor" '`small-fix`' "duplicate Cursor small-fix mode"
+
+implicit_false_count="$( (grep -RohF --include='openai.yaml' -- 'allow_implicit_invocation: false' "$ROOT/skills" || true) | wc -l | tr -d ' ')"
+if [[ "$implicit_false_count" != "3" ]]; then
+  echo "wrong-count: delegate implicit activation guards (expected 3, got $implicit_false_count)" >&2
+  failures=$((failures + 1))
+fi
+forbid_text "skills/cursor-delegate/agents/openai.yaml" "allow_implicit_invocation: true" "Cursor implicit activation"
+
+codex="skills/codex-delegate/SKILL.md"
+forbid_text "SKILL.md" "delegator" "second orchestrator route"
+forbid_text "$codex" "delegator" "Codex delegator mode"
+require_text "SKILL.md" 'Standalone review uses `PACKET_STATUS: NOT_REQUIRED`' "standalone review packet rule"
+require_text "$codex" '`packet-critique`, `diff-review`, `final-review`, or `implementation`' "Codex mode set"
+require_text "$codex" "contract compliance" "diff review scope"
+require_text "$codex" "correctness, regressions, security, error handling, test gaps, and cross-file integration" "final review scope"
+require_text "$codex" "A standalone review does not require a packet." "standalone review input"
+require_text "$codex" "PACKET_REVIEW" "Codex packet review schema"
+require_text "$codex" "REVIEW_REPORT" "Codex review schema"
+
+opencode="skills/opencode-delegate/SKILL.md"
+require_text "$opencode" 'For `discover`, return the read-only findings to the router and reroute.' "discovery reroute"
+
+require_text "SKILL.md" "DELEGATE_REPORT:" "structured delegate report"
+require_text "SKILL.md" "REVIEW_REPORT:" "structured review report"
+require_text "SKILL.md" "PHASE: RED | GREEN | VERIFY | OTHER" "command evidence phase"
+require_text "SKILL.md" "EXIT_CODE:" "command evidence exit code"
+require_text "SKILL.md" "OUTPUT_EXCERPT:" "command evidence output"
+require_text "SKILL.md" "A success claim without command evidence is failure." "evidence enforcement"
+require_text "SKILL.md" "## Pre-dispatch Snapshot" "delegate baseline snapshot"
+require_text "SKILL.md" "git ls-files -co --exclude-standard -z" "snapshot path inventory"
+require_text "SKILL.md" "DISCARD is a verdict, not permission to reset the worktree." "safe discard definition"
+require_text "SKILL.md" "current content still matches the captured post-dispatch hash" "concurrent edit guard"
+require_text "SKILL.md" 'Never use `git reset`, `git checkout`, `git clean`, or a blanket restore.' "destructive restore guard"
+forbid_text "SKILL.md" "Return a REPORT with:" "unstructured delegate report"
+forbid_text "SKILL.md" "Implement exactly one behavior change" "behavior-only delegate prompt"
+require_text "SKILL.md" "Complete exactly one bounded task from the packet below." "task-kind-neutral delegate prompt"
+require_text "README.md" "scripts/check-contracts" "contract validator documentation"
+
+if ((failures > 0)); then
+  exit 1
+fi
+
+echo "contract checks passed"

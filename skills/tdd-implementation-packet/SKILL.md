@@ -1,72 +1,93 @@
 ---
 name: tdd-implementation-packet
-description: Create a precise TDD implementation packet for one delegated behavior change after Graphify, Serena, ast-grep, and desired behavior context are available.
+description: Create a READY or BLOCKED implementation packet after required code context is collected.
 ---
 
 # TDD Implementation Packet
 
-Use this skill after collecting context from Graphify, Serena, and ast-grep. The output is not a high-level plan. It is an executable packet for an implementation delegate.
+Create one executable packet for one bounded task. The packet must expose
+whether it is dispatchable; completeness is never inferred from section count.
 
 ## Inputs
 
-Require or reconstruct these inputs before writing the packet:
+Collect or explicitly mark the applicability of:
 
-1. Graphify architecture map
-2. Serena semantic code context
+1. Graphify architecture boundaries
+2. Serena semantic code context and reusable patterns
 3. ast-grep code anchors
-4. Desired behavior change
+4. Desired behavior or artifact change
 
-If any input is missing, either gather it or state the missing input as a stop condition. Do not invent architecture boundaries, helpers, or anchors.
+A missing required input makes the packet `BLOCKED`. It is not a stop condition
+inside a `READY` packet. `NOT_REQUIRED` needs a task-specific reason; tool
+unavailability alone is not a reason.
 
-## Rules
+## Task Contract
 
-- Cover one behavior change only.
-- Name exact files allowed to change.
-- Include the exact test location.
-- Include the test case to add.
-- Include the production function, method, match arm, branch, or module section to edit.
-- Include code anchors from ast-grep.
-- Include existing helpers or patterns from Serena that should be reused.
-- Include architecture boundaries from Graphify.
-- Include forbidden changes.
-- Include verification commands.
-- Include stop conditions.
-- Prefer minimal implementation over cleanup.
-- Avoid vague instructions like "make robust", "clean up", "improve", or "refactor" unless converted into exact edits.
+Set these fields before writing instructions:
 
-## Output Format
+```yaml
+PACKET_STATUS: READY | BLOCKED
+TASK_KIND: behavior | tests-only | docs-only | mechanical
+TEST_FIRST: REQUIRED | NOT_APPLICABLE
+PRODUCTION_EDIT: REQUIRED | FORBIDDEN
+BLOCKERS: []
+```
+
+| `TASK_KIND` | `TEST_FIRST` | `PRODUCTION_EDIT` | Minimum evidence |
+|---|---|---|---|
+| `behavior` | `REQUIRED` | `REQUIRED` | Intended failing assertion, exact production anchor, red and green commands |
+| `tests-only` | `NOT_APPLICABLE` | `FORBIDDEN` | Existing behavior source and exact test anchor |
+| `docs-only` | `NOT_APPLICABLE` | `FORBIDDEN` | Named source of truth and exact document anchor |
+| `mechanical` | `NOT_APPLICABLE` | `REQUIRED` or `FORBIDDEN` | Exact search pattern, replacement, and expected match count |
+
+File category never determines reasoning depth or delegate lane.
+
+## Readiness
+
+`READY` requires:
+
+- exact allowed files and forbidden changes,
+- a bounded goal and task contract,
+- Graphify, Serena, and ast-grep evidence when applicable,
+- an explicit `NOT_REQUIRED` reason for each inapplicable context source,
+- exact edit anchors and instructions,
+- verification commands and acceptance criteria,
+- observable stop conditions.
+
+If any item is absent, return `BLOCKED`, list it in `BLOCKERS`, and stop. A
+`BLOCKED` packet contains no test or edit instructions and cannot be dispatched
+to a write mode.
+
+## READY Output
 
 Produce exactly these sections:
 
-1. Goal
-2. Allowed files
-3. Forbidden changes
-4. Architecture context
-5. Code anchors
-6. Test-first instructions
-7. Production edit instructions
-8. Verification commands
-9. Acceptance criteria
-10. Stop conditions
+1. Status and task contract
+2. Goal
+3. Allowed files
+4. Forbidden changes
+5. Context evidence
+6. Code anchors
+7. Test-first instructions
+8. Edit instructions
+9. Verification commands
+10. Acceptance criteria
+11. Stop conditions
 
-## Section Guidance
+`Context evidence` records Graphify, Serena, and ast-grep evidence or an
+explicit `NOT_REQUIRED` reason for each.
 
-`Goal`: State the single behavior change in one or two sentences.
+`Test-first instructions` names the test, failing assertion, and focused red
+command only when `TEST_FIRST` is `REQUIRED`; otherwise write
+`NOT_APPLICABLE: <reason>`.
 
-`Allowed files`: List only files the delegate may edit. Separate test files from production files.
+`Edit instructions` name the exact production symbol or document/test anchor.
+When `PRODUCTION_EDIT` is `FORBIDDEN`, state that constraint instead of
+inventing a production change.
 
-`Forbidden changes`: Name files, directories, APIs, tests, behaviors, data migrations, generated files, or refactors that are out of scope.
+`Verification commands` list focused checks first and broader checks only when
+the blast radius requires them.
 
-`Architecture context`: Summarize only the boundaries needed for this change. Cite the Graphify-derived module or dependency direction.
-
-`Code anchors`: Include concrete ast-grep patterns and matched symbols/locations. Add Serena-derived helpers, existing tests, constructors, fixtures, or patterns to reuse.
-
-`Test-first instructions`: Name the exact test file and test name. Describe the failing assertion and the focused command that must fail before implementation.
-
-`Production edit instructions`: Name the exact function/branch/module section to edit and the minimal intended logic.
-
-`Verification commands`: Include focused test commands first, then broader commands only when needed.
-
-`Acceptance criteria`: List observable pass conditions, including expected test failure before code and pass after code.
-
-`Stop conditions`: Tell the delegate when to stop and ask for help, such as missing anchors, conflicting architecture boundaries, unexpected test pass before code, failing unrelated tests, or required edits outside the allowed files.
+`Stop conditions` are future observable conflicts such as edits outside allowed
+files, changed anchors, unrelated failures, or scope growth. They never hide
+missing packet inputs.

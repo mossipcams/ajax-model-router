@@ -1,19 +1,25 @@
 ---
 name: codex-delegate
-description: Run Codex GPT-5.5 for a mode selected by model-router: packet critique, diff review, final review, implementation, or delegator mode.
+description: Run Codex only from a model-router ROUTING_DECISION.
 ---
 
 # Codex Delegate
 
-Adapter for the Codex lanes. `model-router` picks the mode, supplies the
-Delegate Prompt and packet for write modes, and runs the Review Gate. This
-skill only invokes the tool.
+Thin adapter for router-selected Codex work. Do not reconstruct routing from
+the user request. If no `ROUTING_DECISION` is supplied, return `STOP` and ask
+the parent to run `model-router`.
 
 Required inputs:
 
-- mode: `packet-critique`, `diff-review`, `final-review`, `implementation`,
-  or `delegator`
-- the relevant packet, diff, or review prompt
+- mode: `packet-critique`, `diff-review`, `final-review`, or `implementation`
+- model: the exact `MODEL` from the router decision
+- `READY` packet for `implementation` and `diff-review`
+- candidate packet for `packet-critique`
+- requested scope, repository diff, and verification evidence for
+  `final-review`
+
+A standalone review does not require a packet. Route it to `final-review` with
+`PACKET_STATUS: NOT_REQUIRED`.
 
 Never use `--yolo` or `danger-full-access`.
 
@@ -24,17 +30,18 @@ command -v codex
 git status --short
 ```
 
-Missing `codex` means stop and report.
+Missing `codex` means return `STOP`; never substitute local work or another tool
+inside this adapter.
 
 ## Invocation
 
-Write the prompt to `/tmp/codex-task.txt`, then run the mode's command:
+Write the prompt to `/tmp/codex-task.txt`, then run the selected command:
 
 | Mode | Command |
 |---|---|
-| `packet-critique`, `diff-review` | `codex exec --model gpt-5.5 --sandbox read-only --output-last-message /tmp/codex-report.md -` |
-| `final-review` | `codex exec --profile xhigh --model gpt-5.5 --sandbox read-only --output-last-message /tmp/codex-report.md -` |
-| `implementation`, `delegator` | `codex exec --model gpt-5.5 --sandbox workspace-write --output-last-message /tmp/codex-report.md -` |
+| `packet-critique`, `diff-review` | `codex exec --model "$MODEL" --sandbox read-only --output-last-message /tmp/codex-report.md -` |
+| `final-review` | `codex exec --profile xhigh --model "$MODEL" --sandbox read-only --output-last-message /tmp/codex-report.md -` |
+| `implementation` | `codex exec --model "$MODEL" --sandbox workspace-write --output-last-message /tmp/codex-report.md -` |
 
 ```bash
 codex exec <mode flags> - < /tmp/codex-task.txt > /tmp/codex-run.log 2>&1
@@ -45,38 +52,43 @@ Read only the report file, not the full run log.
 
 ## Prompts
 
-`implementation` uses the router's Delegate Prompt plus packet, unchanged.
+`implementation` uses the router's Delegate Prompt plus the `READY` packet.
 
 `packet-critique`:
 
 ```text
-Review the TDD implementation packet below before it is sent to an implementation delegate.
-Return BLOCK or PASS.
-Check only: allowed files, forbidden changes, behavior goal, code anchors, test-first proof, verification commands, stop conditions, and scope size.
+Audit this candidate packet. Return the router's PACKET_REVIEW schema.
+Check readiness status, allowed scope, forbidden changes, context evidence,
+anchors, task-kind requirements, verification, stop conditions, and scope size.
 
-<packet>
+<candidate packet>
 ```
 
-`diff-review` and `final-review`:
+`diff-review` checks contract compliance only:
 
 ```text
-Review this delegate diff against the packet.
-Return ACCEPT, REVISE, or DISCARD.
-Check only: allowed files, forbidden changes, test-first evidence, verification, code anchors, behavior match, and unrelated edits.
+Review this delegate delta against the READY packet.
+Return the router's REVIEW_REPORT schema with file:line findings.
+Check allowed scope, forbidden changes, evidence, anchors, behavior match, and
+unrelated edits. Do not claim broad final correctness.
 
 <packet>
-<git diff>
+<pre-dispatch to post-dispatch diff>
+<verification evidence>
 ```
 
-`delegator`:
+`final-review` is the broader gate:
 
 ```text
-Use the installed model-router skill to choose one sub-delegate lane for the packet below.
-Run that sub-delegate from the current worktree.
-Review its diff against the packet.
-Return ACCEPT, REVISE, or DISCARD plus commands run.
+Review the requested repository scope and current diff as a senior code reviewer.
+Return the router's REVIEW_REPORT schema with severity-ordered file:line findings.
+Assess correctness, regressions, security, error handling, test gaps, and cross-file integration.
+Use a packet when supplied, but do not require one for standalone review.
 
-<packet>
+<requested scope>
+<current diff>
+<verification evidence>
+<optional packet>
 ```
 
-After write modes, return to the router's Review Gate.
+After `implementation`, return to the router's Review Gate.
