@@ -33,9 +33,36 @@ tool inside this adapter.
 cat > /tmp/opencode-task.txt <<'PROMPT'
 <router prompt plus packet or discovery scope>
 PROMPT
-opencode run --model "$MODEL" "$(cat /tmp/opencode-task.txt)" </dev/null > /tmp/opencode-run.log 2>&1
+MAX_SECONDS=900
+TIMEOUT_MARKER="${TMPDIR:-/tmp}/opencode-timeout.$$"
+rm -f "$TIMEOUT_MARKER"
+opencode run --model "$MODEL" "$(cat /tmp/opencode-task.txt)" </dev/null > /tmp/opencode-run.log 2>&1 &
+OPENCODE_PID=$!
+(
+  sleep "$MAX_SECONDS"
+  if kill -0 "$OPENCODE_PID" 2>/dev/null; then
+    touch "$TIMEOUT_MARKER"
+    kill -TERM "$OPENCODE_PID" 2>/dev/null || true
+  fi
+) &
+WATCHDOG_PID=$!
+if wait "$OPENCODE_PID"; then STATUS=0; else STATUS=$?; fi
+pkill -P "$WATCHDOG_PID" 2>/dev/null || true
+kill "$WATCHDOG_PID" 2>/dev/null || true
+wait "$WATCHDOG_PID" 2>/dev/null || true
 tail -80 /tmp/opencode-run.log
+if [[ -f "$TIMEOUT_MARKER" ]]; then
+  rm -f "$TIMEOUT_MARKER"
+  echo "OpenCode timed out after ${MAX_SECONDS}s" >&2
+  exit 124
+fi
+rm -f "$TIMEOUT_MARKER"
+exit "$STATUS"
 ```
+
+Exit `124` is a failed delegation, not a completed empty diff. Return
+`DELEGATE_REPORT` with `STATUS: FAILED`, include the timeout in
+`STOP_CONDITIONS_HIT`, and reroute.
 
 Mode-specific line appended to the router prompt:
 
