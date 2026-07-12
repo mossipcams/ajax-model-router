@@ -36,6 +36,11 @@ PROMPT
 MAX_SECONDS=900
 TIMEOUT_MARKER="${TMPDIR:-/tmp}/opencode-timeout.$$"
 rm -f "$TIMEOUT_MARKER"
+# ponytail: ~/.claude skill scan follows symlinks into venv/nested copies and
+# pegs CPU; Claude Code skills aren't for OpenCode. Ceiling: misses any skill
+# intentionally shared via ~/.claude/skills. Upgrade: fix symlink targets or
+# drop OPENCODE_DISABLE_CLAUDE_CODE_SKILLS once upstream stops following them.
+export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
 opencode run --model "$MODEL" "$(cat /tmp/opencode-task.txt)" </dev/null > /tmp/opencode-run.log 2>&1 &
 OPENCODE_PID=$!
 (
