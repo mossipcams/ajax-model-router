@@ -75,7 +75,9 @@ Produce exactly these sections:
 11. Stop conditions
 
 `Context evidence` records Graphify, Serena, and ast-grep evidence or an
-explicit `NOT_REQUIRED` reason for each.
+explicit `NOT_REQUIRED` reason for each. Evidence is anchors and minimal
+excerpts, never whole files; the packet is resent on every critique, dispatch,
+and revise round, so every excess line is paid for repeatedly.
 
 `Test-first instructions` names the test, failing assertion, and focused red
 command only when `TEST_FIRST` is `REQUIRED`; otherwise write

@@ -75,13 +75,13 @@ Follow the first matching action rule. Copy a selected registry value into
 |---|---|---|---|---|---|
 | Pure Q&A or planning | `LOCAL` | `local` | `NONE` | none | `NOT_REQUIRED` |
 | Candidate edit is one file, at most 10 changed lines, and adds no branch, loop, parser, auth, security, or data-loss path | `LOCAL` | `local` | `NONE` | none | `NOT_REQUIRED` |
-| Standalone or broad review request | `REVIEW` | `codex-delegate` | `final-review` | `CODEX` | `NOT_REQUIRED` |
-| Delegate diff review with a packet | `REVIEW` | `codex-delegate` | `diff-review` | `CODEX` | `READY` |
-| Source file or code anchors are unknown | `DISCOVER` | `opencode-delegate` | `discover` | `GLM` | `BLOCKED` |
+| Delegate write finished and its delta is not yet gated | `LOCAL` | `local` | `NONE` | none | `READY` |
+| Standalone or broad review request | `REVIEW` | `local` | `NONE` | none | `NOT_REQUIRED` |
+| Source file or code anchors are unknown | `DISCOVER` | `opencode-delegate` | `discover` | `MINIMAX` | `BLOCKED` |
 | No packet exists, or required context is missing | `BUILD_PACKET` | `tdd-implementation-packet` | `build` | none | `BLOCKED` |
-| Candidate packet is `READY` but has not passed critique | `CRITIQUE_PACKET` | `codex-delegate` | `packet-critique` | `CODEX` | `READY` |
+| Candidate packet is `READY`, selects a `CODEX` or `GLM` implementation lane, and has not passed critique | `CRITIQUE_PACKET` | `codex-delegate` | `packet-critique` | `CODEX` | `READY` |
 | Packet critique returned `BLOCK` | `BUILD_PACKET` | `tdd-implementation-packet` | `build` | none | `BLOCKED` |
-| Packet is `READY` and critique returned `PASS` | `DELEGATE` | implementation lane below | implementation mode below | implementation model below | `READY` |
+| Packet is `READY` and critique passed or is not required | `DELEGATE` | implementation lane below | implementation mode below | implementation model below | `READY` |
 | Selected tool is unavailable or the task exceeds one bounded behavior | `STOP` | attempted lane | attempted mode | attempted model | current status |
 
 ### Implementation Lane
@@ -101,12 +101,22 @@ is not a frontend signal. Follow the first matching rule.
 Tests-only work keeps the lane selected by reasoning depth. It changes `MODE`
 to `test-only`; it does not select MiniMax by itself.
 
+Packet critique applies only to `CODEX` and `GLM` implementation lanes.
+`MINIMAX` and `CURSOR` packets dispatch directly once `READY`; the parent
+Review Gate is their only review.
+
 `DISCOVER` is read-only. Set `ALLOWED_SCOPE` to the smallest named directory or
-repository scope, collect exact files and anchors, then route again. Never send
-a `BLOCKED` packet to a write mode.
+repository scope, collect exact files and anchors, then route again. Discovery
+runs on `MINIMAX`; if a round returns wrong or empty anchors, rerun it once on
+`GLM`. Never send a `BLOCKED` packet to a write mode.
 
 Standalone review uses `PACKET_STATUS: NOT_REQUIRED` and does not need an
-implementation packet. Supply the requested review scope and current diff.
+implementation packet. The orchestrating parent performs the review locally
+over the requested scope and current diff, and returns the `REVIEW_REPORT`
+schema with severity-ordered file:line findings covering correctness,
+regressions, security, error handling, test gaps, and cross-file integration.
+Reviews are never delegated; a Codex review happens only when the user
+explicitly requests one, outside this router.
 
 ## Structured Reports
 
@@ -155,15 +165,19 @@ BLOCK`, and a structured `BLOCKERS` list.
 Before any write mode, snapshot the current non-ignored worktree so pre-existing
 changes remain distinguishable from delegate edits:
 
-1. Create a private temporary directory outside the worktree.
-2. Record the NUL-delimited inventory from
-   `git ls-files -co --exclude-standard -z`.
-3. Archive the inventoried paths with contents and file modes, and record a
-   SHA-256 hash for each path. Record the current `git status --porcelain=v1 -z`.
-4. After dispatch, capture the same inventory, hashes, and contents. The delta
-   between snapshots is the delegate delta, including created and deleted files.
+```bash
+SNAP="$(mktemp -d)"
+git ls-files -co --exclude-standard -z > "$SNAP/pre.inv"
+tar --null -cf "$SNAP/pre.tar" -T "$SNAP/pre.inv"
+xargs -0 shasum -a 256 < "$SNAP/pre.inv" > "$SNAP/pre.sha"
+git status --porcelain=v1 -z > "$SNAP/pre.status"
+```
 
-Keep both snapshots until the Review Gate finishes. If snapshot creation fails,
+After dispatch, capture `post.inv` and `post.sha` the same way. The difference
+between `pre.sha` and `post.sha` is the delegate delta, including created and
+deleted files.
+
+Keep `$SNAP` until the Review Gate finishes. If any snapshot command fails,
 return `STOP` before dispatch.
 
 ## Delegate Prompt
@@ -194,8 +208,9 @@ actual exit code and a short output excerpt. Do not summarize missing evidence.
 
 ## Review Gate
 
-After any delegate write mode, compare the pre- and post-dispatch snapshots,
-then inspect the resulting delegate delta:
+The gate is parent-local work; it needs no delegate dispatch. After any
+delegate write mode, compare the pre- and post-dispatch snapshots, then
+inspect the resulting delegate delta:
 
 ```bash
 git status --short
@@ -214,12 +229,16 @@ true:
 - forbidden behavior did not change,
 - no broad formatting or refactor sweep happened.
 
-Use `REVISE` once for incomplete work inside allowed scope. Use `DISCARD` for a
-rejected delegate delta. After two failed rounds, return `STOP` and report both
-attempts.
+Use `REVISE` once for incomplete work inside allowed scope. A failed `MINIMAX`
+round revises on `GLM` with the same packet plus the findings; never pay for a
+second `MINIMAX` attempt. When the same tool retries and supports resume
+(`cursor-agent --resume`), send only the findings and constraint reminders, not
+the packet again. Use `DISCARD` for a rejected delegate delta. After two failed
+rounds, return `STOP` and report both attempts.
 
 DISCARD is a verdict, not permission to reset the worktree. Restore only paths
-identified by the snapshot delta, from their exact pre-dispatch contents.
+identified by the snapshot delta, from their exact pre-dispatch contents:
+`tar -xf "$SNAP/pre.tar" -- <path>` carries both content and file mode.
 Before restoring a path, verify its current content still matches the captured post-dispatch hash; otherwise return `STOP` because a concurrent edit occurred.
 Delete a delegate-created path only under the same hash check.
 Never use `git reset`, `git checkout`, `git clean`, or a blanket restore.

@@ -11,11 +11,10 @@ parent to run `model-router`.
 
 Required inputs:
 
-- mode: `implement`, `test-only`, or `review`
+- mode: `implement` or `test-only`
 - model: the exact `MODEL` from the router decision
 - allowed scope: the decision's `ALLOWED_SCOPE`
 - the router prompt and `READY` packet for write modes
-- review context for `review`
 - `CHAT_ID` only when continuing an existing Cursor conversation
 
 ## Preflight
@@ -34,7 +33,6 @@ another tool inside this adapter.
 |---|---|---|
 | `implement` | `cursor-agent -p -f --trust --model "$MODEL"` | Follow the packet and edit only allowed files. |
 | `test-only` | `cursor-agent -p -f --trust --model "$MODEL"` | Do not edit production code. |
-| `review` | `cursor-agent -p --plan --trust --model "$MODEL"` | Read only; return the router's `REVIEW_REPORT` with file:line findings. |
 
 Resume keeps the original mode and adds `--resume "$CHAT_ID"`; `resume` is not
 a separate mode.
