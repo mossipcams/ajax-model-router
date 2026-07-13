@@ -12,6 +12,8 @@ Canonical shared router skill bundle.
   skills are thin tool adapters; shared rules live only in the router.
 - `.claude/skills/`, `.codex/skills/` — symlink views over the canonical
   files. Never edit through these; every file exists exactly once.
+- `TRAINING.md` — ledger of training-pass rule changes; the decision log lives
+  at `~/.ajax-router/log.tsv`, summarized by `scripts/router-log-summary`.
 
 ## Install
 

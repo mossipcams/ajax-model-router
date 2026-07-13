@@ -133,6 +133,11 @@ forbid_text "SKILL.md" "Return a REPORT with:" "unstructured delegate report"
 forbid_text "SKILL.md" "Implement exactly one behavior change" "behavior-only delegate prompt"
 require_text "SKILL.md" "Complete exactly one bounded task from the packet below." "task-kind-neutral delegate prompt"
 require_text "README.md" "scripts/check-contracts" "contract validator documentation"
+require_text "SKILL.md" "## Decision Log" "training data log"
+require_text "SKILL.md" "## Training" "training pass procedure"
+require_text "SKILL.md" "Frozen, never trainable:" "frozen layer list"
+require_text "SKILL.md" "No tripwire, no edit." "training regularizer"
+require_text "TRAINING.md" "# Training Ledger" "training checkpoint ledger"
 
 if ((failures > 0)); then
   exit 1

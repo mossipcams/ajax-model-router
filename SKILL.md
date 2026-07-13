@@ -160,6 +160,57 @@ packet task contract. A success claim without command evidence is failure.
 Packet critique uses the same rule with `PACKET_REVIEW`, `VERDICT: PASS |
 BLOCK`, and a structured `BLOCKERS` list.
 
+## Decision Log
+
+The log is the router's training data. After every routing decision except
+pure Q&A, and after every Review Gate verdict, append one TSV line:
+
+```bash
+mkdir -p ~/.ajax-router
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%F)" \
+  "$(basename "$(git rev-parse --show-toplevel)")" "<orchestrator model>" \
+  "<ACTION or GATE>" "<lane>" "<model>" "<outcome or NONE>" "<escalated or NONE>" \
+  >> ~/.ajax-router/log.tsv
+```
+
+The worktree column is the join key: dispatches run in per-task worktrees,
+often in parallel, so it is what ties a `GATE` row back to its dispatch rows.
+Gate lines use action `GATE` with outcome `ACCEPT | REVISE | DISCARD | STOP`.
+When the Model Registry changes, append a line with action `EPOCH` naming the
+change; training reads only rows after the latest `EPOCH`.
+
+## Training
+
+The rules in this file are parameters; the log is experience; a training pass
+is one batched update. Run a pass only when the user asks for one, in the
+canonical ajax-model-router repo. `scripts/router-log-summary` prints the
+counts a pass needs.
+
+Frozen, never trainable: Invariants, report schemas, Pre-dispatch Snapshot,
+Review Gate acceptance list, DISCARD restore rules, and registry model IDs.
+`scripts/check-contracts` must pass after every training edit.
+
+Trainable: route-table conditions and thresholds, Implementation Lane
+definitions, the critique lane restriction, and escalation rules.
+
+A pass:
+
+1. Read the rows since the last `EPOCH` and the `TRAINING.md` ledger.
+2. Fire only these pre-registered tripwires:
+   - a lane failed the gate in 3 of its last 10 rounds → shrink that lane's
+     definition;
+   - a cheap lane escalated in 3 of its last 10 rounds → move the failing task
+     class up a lane;
+   - a route row that has not fired in the last 30 rows → propose deleting it;
+   - packet critique passed 20 consecutive packets → restrict critique
+     further.
+3. For each fired tripwire, make the smallest rule edit that answers it, and
+   record a `TRAINING.md` entry citing the exact log rows as evidence.
+4. Run `scripts/check-contracts`, then commit. The commit is the checkpoint;
+   revert it if the next 10 rows are worse.
+
+No tripwire, no edit. Never change rules from taste during a training pass.
+
 ## Pre-dispatch Snapshot
 
 Before any write mode, snapshot the current non-ignored worktree so pre-existing

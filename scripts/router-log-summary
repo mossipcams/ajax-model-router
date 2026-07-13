@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# columns: 1 date, 2 worktree, 3 orchestrator, 4 action, 5 lane, 6 model, 7 outcome, 8 escalated
+LOG="${1:-$HOME/.ajax-router/log.tsv}"
+[[ -f "$LOG" ]] || { echo "no log at $LOG" >&2; exit 1; }
+
+start="$(awk -F'\t' '$4=="EPOCH"{n=NR} END{print n+0}' "$LOG")"
+
+epoch_rows() { awk -v s="$start" 'NR>s' "$LOG"; }
+
+echo "rows since last EPOCH: $(epoch_rows | wc -l | tr -d ' ')"
+echo
+echo "# gate verdicts per lane"
+epoch_rows | awk -F'\t' '$4=="GATE"{c[$5"  "$7]++} END{for(k in c) printf "%4d  %s\n", c[k], k}' | sort -rn
+echo
+echo "# decisions per action and lane"
+epoch_rows | awk -F'\t' '$4!="GATE"{c[$4"  "$5]++} END{for(k in c) printf "%4d  %s\n", c[k], k}' | sort -rn
+echo
+echo "# escalations per lane"
+epoch_rows | awk -F'\t' '$8=="escalated"{c[$5]++} END{for(k in c) printf "%4d  %s\n", c[k], k}' | sort -rn
