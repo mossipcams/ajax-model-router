@@ -29,6 +29,10 @@ tool inside this adapter.
 
 ## Invocation
 
+Headless only: `opencode run` with stdin closed. Never `opencode`,
+`opencode --mini`, `opencode serve`, or `opencode web` — those are
+interactive/server paths and the full TUI can hang on terminal probes.
+
 ```bash
 cat > /tmp/opencode-task.txt <<'PROMPT'
 <router prompt plus packet or discovery scope>

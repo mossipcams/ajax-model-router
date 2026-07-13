@@ -102,6 +102,7 @@ require_text "$codex" "REVIEW_REPORT" "Codex review schema"
 
 opencode="skills/opencode-delegate/SKILL.md"
 require_text "$opencode" 'For `discover`, return the read-only findings to the router and reroute.' "discovery reroute"
+require_text "$opencode" 'Headless only: `opencode run`' "OpenCode headless-only note"
 require_text "$opencode" 'opencode run --model "$MODEL" "$(cat /tmp/opencode-task.txt)" </dev/null' "OpenCode closed stdin"
 require_text "$opencode" 'MAX_SECONDS=900' "OpenCode delegate timeout"
 require_text "$opencode" 'kill -TERM "$OPENCODE_PID"' "OpenCode delegate timeout termination"
