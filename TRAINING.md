@@ -14,6 +14,12 @@ Entry format:
 - Checkpoint: <commit hash>
 ```
 
+## 2026-07-14 MiniMax vs Cursor disambiguation (no further broaden)
+- Tripwire: MiniMax starvation (0 of last 15 implementation dispatches)
+- Evidence: 0 MINIMAX DELEGATEs in 111-row window; last 15 DELEGATEs all cursor-delegate/composer-2.5 on ajax-temporary-tests; Cursor gate 29/30 ACCEPT — starvation from skip-not-narrow after earlier broaden
+- Change: MiniMax row explicitly includes frontend UI within ≤2 files/~60 lines; Cursor row is residual exceeding those bounds; added verify-before-CURSOR sentence (ajax-web path alone is not a Cursor signal). Thresholds unchanged.
+- Checkpoint: pending
+
 ## 2026-07-14 MiniMax implementation lane broadened
 - Tripwire: user-directed (dead-row tripwire fired on the MiniMax lane; user chose broaden over delete)
 - Evidence: 0 MINIMAX dispatches in all 58 rows since epoch vs 12 cursor + 1 GLM; 2026-07-14 ajax-fluid ran 5 bounded cursor dispatches, all first-try ACCEPT — shallow enough for the cheap lane

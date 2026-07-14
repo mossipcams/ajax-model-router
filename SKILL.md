@@ -94,9 +94,12 @@ is not a frontend signal. Follow the first matching rule.
 |---|---|---|---|
 | User explicitly asked Codex to implement | `codex-delegate` | `implementation` | `CODEX` |
 | Authentication, security, data-loss, backend, server, session, PTY, or supervisor work; or architecture-wide reasoning | `opencode-delegate` | `implement` or `test-only` | `GLM` |
-| Routine docs, generated cleanup, exact replacements, named boilerplate, shallow tests-only work, or any bounded change with exact anchors touching at most 2 files and roughly 60 changed lines with no term from the risk row above | `opencode-delegate` | `implement` or `test-only` | `MINIMAX` |
-| Frontend UI behavior with bounded files and anchors | `cursor-delegate` | `implement` or `test-only` | `CURSOR` |
+| Routine docs, generated cleanup, exact replacements, named boilerplate, shallow tests-only work, or any bounded change with exact anchors touching at most 2 files and roughly 60 changed lines with no term from the risk row above — including frontend UI that fits those bounds | `opencode-delegate` | `implement` or `test-only` | `MINIMAX` |
+| Frontend UI behavior with bounded files and anchors that exceeds the MiniMax row (more than 2 files, or roughly more than ~60 changed lines, or multi-surface visual/layout work) | `cursor-delegate` | `implement` or `test-only` | `CURSOR` |
 | No lane matched | `opencode-delegate` | `implement` or `test-only` | `GLM` |
+
+Before selecting `CURSOR`, verify the MiniMax row does not match. A path under
+`ajax-web`, CSS, or terminal surface is not by itself a Cursor signal.
 
 Tests-only work keeps the lane selected by reasoning depth. It changes `MODE`
 to `test-only`; it does not select MiniMax by itself.
