@@ -82,7 +82,7 @@ Follow the first matching action rule. Copy a selected registry value into
 | Candidate packet is `READY`, selects a `CODEX` or `GLM` implementation lane, and has not passed critique | `CRITIQUE_PACKET` | `codex-delegate` | `packet-critique` | `CODEX` | `READY` |
 | Packet critique returned `BLOCK` | `BUILD_PACKET` | `tdd-implementation-packet` | `build` | none | `BLOCKED` |
 | Packet is `READY` and critique passed or is not required | `DELEGATE` | implementation lane below | implementation mode below | implementation model below | `READY` |
-| Selected tool is unavailable or the task exceeds one bounded behavior | `STOP` | attempted lane | attempted mode | attempted model | current status |
+| Selected tool is unavailable and every other implementation lane was tried or is also unavailable; or the task exceeds one bounded behavior | `STOP` | attempted lane | attempted mode | attempted model | current status |
 
 ### Implementation Lane
 
@@ -94,12 +94,16 @@ is not a frontend signal. Follow the first matching rule.
 |---|---|---|---|
 | User explicitly asked Codex to implement | `codex-delegate` | `implementation` | `CODEX` |
 | Authentication, security, data-loss, backend, server, session, PTY, or supervisor work; or architecture-wide reasoning | `opencode-delegate` | `implement` or `test-only` | `GLM` |
-| Routine docs, generated cleanup, exact replacements, named boilerplate, or shallow tests-only work | `opencode-delegate` | `implement` or `test-only` | `MINIMAX` |
+| Routine docs, generated cleanup, exact replacements, named boilerplate, shallow tests-only work, or any bounded change with exact anchors touching at most 2 files and roughly 60 changed lines with no term from the risk row above | `opencode-delegate` | `implement` or `test-only` | `MINIMAX` |
 | Frontend UI behavior with bounded files and anchors | `cursor-delegate` | `implement` or `test-only` | `CURSOR` |
 | No lane matched | `opencode-delegate` | `implement` or `test-only` | `GLM` |
 
 Tests-only work keeps the lane selected by reasoning depth. It changes `MODE`
 to `test-only`; it does not select MiniMax by itself.
+
+If the selected lane's tool is unavailable, reroute the same packet once to
+the next matching lane and record it in `ESCALATE_IF`; never retry the same
+unavailable tool. `STOP` only when no lane remains.
 
 Packet critique applies only to `CODEX` and `GLM` implementation lanes.
 `MINIMAX` and `CURSOR` packets dispatch directly once `READY`; the parent
@@ -197,13 +201,17 @@ A pass:
 
 1. Read the rows since the last `EPOCH` and the `TRAINING.md` ledger.
 2. Fire only these pre-registered tripwires:
-   - a lane failed the gate in 3 of its last 10 rounds → shrink that lane's
-     definition;
+   - a lane failed the gate in 2 consecutive rounds or 3 of its last 10 →
+     shrink that lane's definition;
    - a cheap lane escalated in 3 of its last 10 rounds → move the failing task
      class up a lane;
-   - a route row that has not fired in the last 30 rows → propose deleting it;
+   - a route row that has not fired in the last 50 rows → propose deleting it;
    - packet critique passed 20 consecutive packets → restrict critique
-     further.
+     further;
+   - packet critique returned `BLOCK` 3 consecutive times for the same task →
+     dispatch after the next rebuild without further critique for that task;
+   - `MINIMAX` took none of the last 15 implementation dispatches → broaden
+     the MiniMax lane definition one notch.
 3. For each fired tripwire, make the smallest rule edit that answers it, and
    record a `TRAINING.md` entry citing the exact log rows as evidence.
 4. Run `scripts/check-contracts`, then commit. The commit is the checkpoint;
