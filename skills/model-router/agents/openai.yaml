@@ -1,0 +1,4 @@
+interface:
+  display_name: "Model Router"
+  short_description: "Route one bounded coding task"
+  default_prompt: "Use $model-router to choose the next bounded workflow action."

@@ -1,21 +1,91 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# columns: 1 date, 2 worktree, 3 orchestrator, 4 action, 5 lane, 6 model, 7 outcome, 8 escalated
-LOG="${1:-$HOME/.ajax-router/log.tsv}"
+LOG="${1:-${HOME}/.ajax-router/log.tsv}"
 [[ -f "$LOG" ]] || { echo "no log at $LOG" >&2; exit 1; }
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
-start="$(awk -F'\t' '$4=="EPOCH"{n=NR} END{print n+0}' "$LOG")"
+start="$(awk -F'\t' '
+  ($1 == "v2" && NF == 22 && $9 == "EPOCH") || ($1 != "v2" && $4 == "EPOCH") {line=NR}
+  END {print line+0}
+' "$LOG")"
 
-epoch_rows() { awk -v s="$start" 'NR>s' "$LOG"; }
+v2_rows() {
+  awk -F'\t' -v start="$start" 'NR > start && $1 == "v2" && NF == 22' "$LOG"
+}
 
-echo "rows since last EPOCH: $(epoch_rows | wc -l | tr -d ' ')"
-echo
-echo "# gate verdicts per lane"
-epoch_rows | awk -F'\t' '$4=="GATE"{c[$5"  "$7]++} END{for(k in c) printf "%4d  %s\n", c[k], k}' | sort -rn
-echo
-echo "# decisions per action and lane"
-epoch_rows | awk -F'\t' '$4!="GATE"{c[$4"  "$5]++} END{for(k in c) printf "%4d  %s\n", c[k], k}' | sort -rn
-echo
-echo "# escalations per lane"
-epoch_rows | awk -F'\t' '$8=="escalated"{c[$5]++} END{for(k in c) printf "%4d  %s\n", c[k], k}' | sort -rn
+v2_count="$(v2_rows | awk 'END {print NR+0}')"
+legacy_count="$(awk -F'\t' -v start="$start" 'NR > start && $1 != "v2" {count++} END {print count+0}' "$LOG")"
+invalid_v2="$(awk -F'\t' -v start="$start" 'NR > start && $1 == "v2" && NF != 22 {count++} END {print count+0}' "$LOG")"
+
+printf 'v2 rows since latest EPOCH: %s\n' "$v2_count"
+printf 'legacy rows excluded from v2 metrics: %s\n' "$legacy_count"
+printf 'invalid v2 rows excluded: %s\n\n' "$invalid_v2"
+
+printf '# procedural gate results\n'
+v2_rows | awk -F'\t' '$15 != "NOT_RUN" && $15 != "UNKNOWN" {count[$10"  "$11"  "$15]++} END {for (key in count) printf "%4d  %s\n", count[key], key}' | sort -rn
+printf '\n# verification results\n'
+v2_rows | awk -F'\t' '$19 != "UNKNOWN" {count[$19]++} END {for (key in count) printf "%4d  %s\n", count[key], key}' | sort -rn
+printf '\n# CI results\n'
+v2_rows | awk -F'\t' '$20 != "UNKNOWN" {count[$20]++} END {for (key in count) printf "%4d  %s\n", count[key], key}' | sort -rn
+printf '\n# escaped defects\n'
+v2_rows | awk -F'\t' '$18 == "ESCAPED_DEFECT" {count++} END {printf "%4d  ESCAPED_DEFECT\n", count+0}'
+
+printf '\n# calibration tripwires\n'
+v2_rows | awk -F'\t' '
+  $15 != "NOT_RUN" && $15 != "UNKNOWN" {
+    key=$10"/"$11
+    slot=seen[key] % 10
+    if (history[key,slot]) failures[key]--
+    bad=($15 != "ACCEPT")
+    history[key,slot]=bad
+    failures[key]+=bad
+    seen[key]++
+    consecutive[key]=bad ? consecutive[key]+1 : 0
+  }
+  END {
+    for (key in seen)
+      if (consecutive[key] >= 2 || failures[key] >= 3)
+        print "TRIPWIRE gate-failure lane=" key " consecutive=" consecutive[key] " last10=" failures[key]
+  }
+' | sort
+
+v2_rows | awk -F'\t' '
+  $9 == "DELEGATE" && $11 == "opencode-go/minimax-m3" {
+    slot=seen % 10
+    if (history[slot]) escalations--
+    escalated=($16 != "NONE" && $16 != "UNKNOWN")
+    history[slot]=escalated
+    escalations+=escalated
+    seen++
+  }
+  END {if (escalations >= 3) print "TRIPWIRE cheap-escalation model=opencode-go/minimax-m3 last10=" escalations}
+'
+
+v2_rows | awk -F'\t' '
+  $14 == "PASS" {consecutive++}
+  $14 == "BLOCK" {consecutive=0}
+  END {if (consecutive >= 20) print "TRIPWIRE critique-saturation consecutive=" consecutive}
+'
+
+v2_rows | awk -F'\t' '
+  $9 == "DELEGATE" {
+    slot=seen % 15
+    if (history[slot]) minimax--
+    cheap=($11 == "opencode-go/minimax-m3")
+    history[slot]=cheap
+    minimax+=cheap
+    seen++
+  }
+  END {if (seen >= 15 && minimax == 0) print "TRIPWIRE minimax-starvation last15=0"}
+'
+
+decisions="$(v2_rows | awk -F'\t' '$6 ~ /^R-/' | tail -n 50)"
+decision_count="$(printf '%s\n' "$decisions" | awk 'NF {count++} END {print count+0}')"
+if [[ "$decision_count" -ge 50 ]]; then
+  while IFS= read -r rule; do
+    if ! printf '%s\n' "$decisions" | awk -F'\t' -v rule="$rule" '$6 == rule {found=1} END {exit !found}'; then
+      printf 'TRIPWIRE route-unused rule=%s last50=0\n' "$rule"
+    fi
+  done < <(grep -oE '\| `R-[A-Z-]+` \|' "$ROOT/skills/model-router/SKILL.md" | sed -E 's/.*`(R-[A-Z-]+)`.*/\1/' | sort -u)
+fi

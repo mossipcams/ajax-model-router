@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+log="${HOME}/.ajax-router/log.tsv"
+repository_id="" task_id="" round="" route_rule_id="" task_kind=""
+risk_class="" action="" lane="" model="" estimated_files=""
+estimated_lines="" critique_result="" gate_result=""
+escalation_destination="" escalation_reason="" failure_classification=""
+verification_result="" ci_result="" duration_seconds="" token_usage=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --log) log="${2:?--log requires a value}" ; shift 2 ;;
+    --repository-id) repository_id="${2:?--repository-id requires a value}" ; shift 2 ;;
+    --task-id) task_id="${2:?--task-id requires a value}" ; shift 2 ;;
+    --round) round="${2:?--round requires a value}" ; shift 2 ;;
+    --route-rule-id) route_rule_id="${2:?--route-rule-id requires a value}" ; shift 2 ;;
+    --task-kind) task_kind="${2:?--task-kind requires a value}" ; shift 2 ;;
+    --risk-class) risk_class="${2:?--risk-class requires a value}" ; shift 2 ;;
+    --action) action="${2:?--action requires a value}" ; shift 2 ;;
+    --lane) lane="${2:?--lane requires a value}" ; shift 2 ;;
+    --model) model="${2:?--model requires a value}" ; shift 2 ;;
+    --estimated-files) estimated_files="${2:?--estimated-files requires a value}" ; shift 2 ;;
+    --estimated-lines) estimated_lines="${2:?--estimated-lines requires a value}" ; shift 2 ;;
+    --critique-result) critique_result="${2:?--critique-result requires a value}" ; shift 2 ;;
+    --gate-result) gate_result="${2:?--gate-result requires a value}" ; shift 2 ;;
+    --escalation-destination) escalation_destination="${2:?--escalation-destination requires a value}" ; shift 2 ;;
+    --escalation-reason) escalation_reason="${2:?--escalation-reason requires a value}" ; shift 2 ;;
+    --failure-classification) failure_classification="${2:?--failure-classification requires a value}" ; shift 2 ;;
+    --verification-result) verification_result="${2:?--verification-result requires a value}" ; shift 2 ;;
+    --ci-result) ci_result="${2:?--ci-result requires a value}" ; shift 2 ;;
+    --duration-seconds) duration_seconds="${2:?--duration-seconds requires a value}" ; shift 2 ;;
+    --token-usage) token_usage="${2:?--token-usage requires a value}" ; shift 2 ;;
+    *) echo "error: unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+require_value() {
+  [[ -n "$1" ]] || { echo "error: --$2 is required" >&2; exit 2; }
+  case "$1" in
+    *$'\t'*|*$'\n'*) echo "error: --$2 contains a tab or newline" >&2; exit 2 ;;
+  esac
+}
+
+require_value "$repository_id" repository-id
+require_value "$task_id" task-id
+require_value "$round" round
+require_value "$route_rule_id" route-rule-id
+require_value "$task_kind" task-kind
+require_value "$risk_class" risk-class
+require_value "$action" action
+require_value "$lane" lane
+require_value "$model" model
+require_value "$estimated_files" estimated-files
+require_value "$estimated_lines" estimated-lines
+require_value "$critique_result" critique-result
+require_value "$gate_result" gate-result
+require_value "$escalation_destination" escalation-destination
+require_value "$escalation_reason" escalation-reason
+require_value "$failure_classification" failure-classification
+require_value "$verification_result" verification-result
+require_value "$ci_result" ci-result
+require_value "$duration_seconds" duration-seconds
+require_value "$token_usage" token-usage
+
+[[ "$round" =~ ^[1-9][0-9]*$ ]] || { echo "error: invalid round" >&2; exit 2; }
+[[ "$route_rule_id" == R-* || "$route_rule_id" == NONE ]] || { echo "error: invalid route-rule-id" >&2; exit 2; }
+[[ "$task_kind" =~ ^(behavior|tests-only|docs-only|mechanical|review|planning)$ ]] || { echo "error: invalid task-kind" >&2; exit 2; }
+[[ "$risk_class" =~ ^(LOW|MEDIUM|HIGH)$ ]] || { echo "error: invalid risk-class" >&2; exit 2; }
+[[ "$action" =~ ^(LOCAL|GATHER_EVIDENCE|BUILD_PACKET|CRITIQUE_PACKET|DELEGATE|REVIEW|REVIEW_GATE|OBSERVATION|STOP|EPOCH)$ ]] || { echo "error: invalid action" >&2; exit 2; }
+[[ "$lane" =~ ^(local|tdd-implementation-packet|cursor-delegate|opencode-delegate|codex-delegate|NONE)$ ]] || { echo "error: invalid lane" >&2; exit 2; }
+[[ "$estimated_files" == UNKNOWN || "$estimated_files" =~ ^[0-9]+$ ]] || { echo "error: invalid estimated-files" >&2; exit 2; }
+[[ "$estimated_lines" == UNKNOWN || "$estimated_lines" =~ ^[0-9]+$ ]] || { echo "error: invalid estimated-lines" >&2; exit 2; }
+[[ "$critique_result" =~ ^(PASS|BLOCK|NOT_RUN|UNKNOWN)$ ]] || { echo "error: invalid critique-result" >&2; exit 2; }
+[[ "$gate_result" =~ ^(ACCEPT|REVISE|DISCARD|STOP|NOT_RUN|UNKNOWN)$ ]] || { echo "error: invalid gate-result" >&2; exit 2; }
+[[ "$escalation_destination" =~ ^(local|tdd-implementation-packet|cursor-delegate|opencode-delegate|codex-delegate|STOP|NONE|UNKNOWN)$ ]] || { echo "error: invalid escalation-destination" >&2; exit 2; }
+[[ "$failure_classification" =~ ^(NONE|TOOL_UNAVAILABLE|TIMEOUT|MISSING_REPORT|INVALID_REPORT|EMPTY_DELTA|SCOPE_VIOLATION|VERIFICATION_FAILED|CI_FAILED|ESCAPED_DEFECT|OTHER|UNKNOWN)$ ]] || { echo "error: invalid failure-classification" >&2; exit 2; }
+[[ "$verification_result" =~ ^(PASS|FAIL|NOT_RUN|UNKNOWN)$ ]] || { echo "error: invalid verification-result" >&2; exit 2; }
+[[ "$ci_result" =~ ^(PASS|FAIL|NOT_RUN|UNKNOWN)$ ]] || { echo "error: invalid ci-result" >&2; exit 2; }
+[[ "$duration_seconds" == UNKNOWN || "$duration_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "error: invalid duration-seconds" >&2; exit 2; }
+[[ "$token_usage" == UNKNOWN || "$token_usage" =~ ^[0-9]+$ ]] || { echo "error: invalid token-usage" >&2; exit 2; }
+
+mkdir -p "$(dirname "$log")"
+timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  v2 "$timestamp" "$repository_id" "$task_id" "$round" "$route_rule_id" \
+  "$task_kind" "$risk_class" "$action" "$lane" "$model" \
+  "$estimated_files" "$estimated_lines" "$critique_result" "$gate_result" \
+  "$escalation_destination" "$escalation_reason" "$failure_classification" \
+  "$verification_result" "$ci_result" "$duration_seconds" "$token_usage" >> "$log"

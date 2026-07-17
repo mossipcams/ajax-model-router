@@ -19,7 +19,7 @@ with this file, this file wins.
 1. **Route** — emit one binding for the next action.
 2. **Execute** — perform only that action under its bound lane, mode, model,
    and scope.
-3. **Reroute** — emit a new decision after discovery, packet build, critique,
+3. **Reroute** — emit a new decision after evidence gathering, packet build, critique,
    delegation, or review.
 4. **Gate** — accept, revise once, discard, or stop after any write action.
 
@@ -42,11 +42,13 @@ for fields that do not apply; never omit a field.
 
 ```yaml
 ROUTING_DECISION:
-  ACTION: LOCAL | BUILD_PACKET | CRITIQUE_PACKET | DISCOVER | DELEGATE | REVIEW | STOP
+  ACTION: LOCAL | GATHER_EVIDENCE | BUILD_PACKET | CRITIQUE_PACKET | DELEGATE | REVIEW | STOP
   LANE: local | tdd-implementation-packet | cursor-delegate | opencode-delegate | codex-delegate | NONE
   MODE: <lane mode or NONE>
   MODEL: <exact ID from Model Registry or NONE>
   PACKET_STATUS: READY | BLOCKED | NOT_REQUIRED
+  PACKET_REBUILD_COUNT: 0 | 1 | NONE
+  PACKET_CRITIQUE_COUNT: 0 | 1 | 2 | NONE
   ALLOWED_SCOPE: [<exact paths, read-only scope, or NONE>]
   REASON: <one sentence>
   ESCALATE_IF: [<observable conditions>]
@@ -71,18 +73,20 @@ Emit a new decision after each action.
 Follow the first matching action rule. Copy a selected registry value into
 `MODEL`; never use an alias.
 
-| Condition | `ACTION` | `LANE` | `MODE` | Model key | `PACKET_STATUS` |
-|---|---|---|---|---|---|
-| Pure Q&A or planning | `LOCAL` | `local` | `NONE` | none | `NOT_REQUIRED` |
-| Candidate edit is one file, at most 10 changed lines, and adds no branch, loop, parser, auth, security, or data-loss path | `LOCAL` | `local` | `NONE` | none | `NOT_REQUIRED` |
-| Delegate write finished and its delta is not yet gated | `LOCAL` | `local` | `NONE` | none | `READY` |
-| Standalone or broad review request | `REVIEW` | `local` | `NONE` | none | `NOT_REQUIRED` |
-| Source file or code anchors are unknown | `DISCOVER` | `opencode-delegate` | `discover` | `MINIMAX` | `BLOCKED` |
-| No packet exists, or required context is missing | `BUILD_PACKET` | `tdd-implementation-packet` | `build` | none | `BLOCKED` |
-| Candidate packet is `READY`, selects a `CODEX` or `GLM` implementation lane, and has not passed critique | `CRITIQUE_PACKET` | `codex-delegate` | `packet-critique` | `CODEX` | `READY` |
-| Packet critique returned `BLOCK` | `BUILD_PACKET` | `tdd-implementation-packet` | `build` | none | `BLOCKED` |
-| Packet is `READY` and critique passed or is not required | `DELEGATE` | implementation lane below | implementation mode below | implementation model below | `READY` |
-| Selected tool is unavailable and every other implementation lane was tried or is also unavailable; or the task exceeds one bounded behavior | `STOP` | attempted lane | attempted mode | attempted model | current status |
+| Rule ID | Condition | `ACTION` | `LANE` | `MODE` | Model key | `PACKET_STATUS` |
+|---|---|---|---|---|---|---|
+| `R-GATE` | Delegate write finished and its delta is not yet gated | `LOCAL` | `local` | `NONE` | none | `READY` |
+| `R-QA` | Pure Q&A or planning | `LOCAL` | `local` | `NONE` | none | `NOT_REQUIRED` |
+| `R-LOCAL-TINY` | Candidate edit is one file, at most 10 changed lines, and adds no branch, loop, parser, auth, security, or data-loss path | `LOCAL` | `local` | `NONE` | none | `NOT_REQUIRED` |
+| `R-REVIEW` | Standalone or broad review request | `REVIEW` | `local` | `NONE` | none | `NOT_REQUIRED` |
+| `R-EVIDENCE` | Any required evidence category is missing | `GATHER_EVIDENCE` | `local` | `evidence` | none | `BLOCKED` |
+| `R-BUILD` | Required evidence is complete and no packet exists | `BUILD_PACKET` | `tdd-implementation-packet` | `build` | none | `BLOCKED` |
+| `R-CRITIQUE` | Candidate packet is mechanically `READY`, selects a `CODEX` or `GLM` lane, records unresolved specification or architecture uncertainty, and critique count is 0 | `CRITIQUE_PACKET` | `codex-delegate` | `packet-critique` | `CODEX` | `READY` |
+| `R-REBUILD` | First packet critique returned `BLOCK`, rebuild count is 0, and required evidence is complete | `BUILD_PACKET` | `tdd-implementation-packet` | `build` | none | `BLOCKED` |
+| `R-RECRITIQUE` | Rebuilt packet is mechanically `READY`, still records uncertainty, and critique count is 1 | `CRITIQUE_PACKET` | `codex-delegate` | `packet-critique` | `CODEX` | `READY` |
+| `R-CRITIQUE-STOP` | Second packet critique returned `BLOCK` and critique count is 2 | `STOP` | `codex-delegate` | `packet-critique` | `CODEX` | `BLOCKED` |
+| `R-DELEGATE` | Packet is mechanically `READY` and either has no unresolved uncertainty initially or after one rebuild, or its latest critique passed | `DELEGATE` | implementation lane below | implementation mode below | implementation model below | `READY` |
+| `R-STOP` | Selected tool is unavailable and every other implementation lane was tried or is also unavailable; or the task exceeds one bounded behavior | `STOP` | attempted lane | attempted mode | attempted model | current status |
 
 ### Implementation Lane
 
@@ -93,6 +97,7 @@ is not a frontend signal. Follow the first matching rule.
 | Packet facts | Lane | Mode | Model key |
 |---|---|---|---|
 | User explicitly asked Codex to implement | `codex-delegate` | `implementation` | `CODEX` |
+| Packet records unresolved specification or architecture uncertainty | `opencode-delegate` | `implement` or `test-only` | `GLM` |
 | Authentication, security, data-loss, backend, server, session, PTY, or supervisor work; or architecture-wide reasoning | `opencode-delegate` | `implement` or `test-only` | `GLM` |
 | Routine docs, generated cleanup, exact replacements, named boilerplate, shallow tests-only work, or any bounded change with exact anchors touching at most 2 files and roughly 60 changed lines with no term from the risk row above — including frontend UI that fits those bounds | `opencode-delegate` | `implement` or `test-only` | `MINIMAX` |
 | Frontend UI behavior with bounded files and anchors that exceeds the MiniMax row (more than 2 files, or roughly more than ~60 changed lines, or multi-surface visual/layout work) | `cursor-delegate` | `implement` or `test-only` | `CURSOR` |
@@ -108,14 +113,19 @@ If the selected lane's tool is unavailable, reroute the same packet once to
 the next matching lane and record it in `ESCALATE_IF`; never retry the same
 unavailable tool. `STOP` only when no lane remains.
 
-Packet critique applies only to `CODEX` and `GLM` implementation lanes.
-`MINIMAX` and `CURSOR` packets dispatch directly once `READY`; the parent
-Review Gate is their only review.
+Packet critique applies only to `CODEX` and `GLM` implementation lanes and only
+when the mechanically valid packet records unresolved specification or
+architecture uncertainty. A first `BLOCK` permits one evidence pass, one packet
+rebuild, and one re-critique. A second `BLOCK` returns `STOP` with the unresolved
+blockers. A blocked or mechanically invalid packet is never dispatched.
+`MINIMAX` and `CURSOR` packets dispatch directly once `READY`; the parent Review
+Gate is their only review.
 
-`DISCOVER` is read-only. Set `ALLOWED_SCOPE` to the smallest named directory or
-repository scope, collect exact files and anchors, then route again. Discovery
-runs on `MINIMAX`; if a round returns wrong or empty anchors, rerun it once on
-`GLM`. Never send a `BLOCKED` packet to a write mode.
+`GATHER_EVIDENCE` is parent-local and read-only. Use direct search and file
+inspection for localized work, Serena when semantic relationships are unclear,
+ast-grep for structural searches or repeated edits, and Graphify only for
+unfamiliar cross-module or architecture-sensitive work. Record concise findings
+and exact anchors, then reroute. Never send a `BLOCKED` packet to a write mode.
 
 Standalone review uses `PACKET_STATUS: NOT_REQUIRED` and does not need an
 implementation packet. The orchestrating parent performs the review locally
@@ -164,63 +174,66 @@ with a nonzero exit and the intended assertion failure before a `GREEN` entry
 for the same focused command with exit zero. `NOT_APPLICABLE` must match the
 packet task contract. A success claim without command evidence is failure.
 
-Packet critique uses the same rule with `PACKET_REVIEW`, `VERDICT: PASS |
-BLOCK`, and a structured `BLOCKERS` list.
+Packet critique returns exactly:
 
-## Decision Log
-
-The log is the router's training data. After every routing decision except
-pure Q&A, and after every Review Gate verdict, append one TSV line:
-
-```bash
-mkdir -p ~/.ajax-router
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%F)" \
-  "$(basename "$(git rev-parse --show-toplevel)")" "<orchestrator model>" \
-  "<ACTION or GATE>" "<lane>" "<model>" "<outcome or NONE>" "<escalated or NONE>" \
-  >> ~/.ajax-router/log.tsv
+```yaml
+PACKET_REVIEW:
+  VERDICT: PASS | BLOCK
+  REVIEWED_UNCERTAINTY: SPECIFICATION | ARCHITECTURE | BOTH
+  PACKET_CHECK: PASS
+  BLOCKERS:
+    - TYPE: SPECIFICATION | ARCHITECTURE
+      ISSUE: <specific unresolved ambiguity>
+      REQUIRED_EVIDENCE: <smallest evidence needed>
+  REMAINING_RISKS: []
 ```
 
-The worktree column is the join key: dispatches run in per-task worktrees,
-often in parallel, so it is what ties a `GATE` row back to its dispatch rows.
-Gate lines use action `GATE` with outcome `ACCEPT | REVISE | DISCARD | STOP`.
-When the Model Registry changes, append a line with action `EPOCH` naming the
-change; training reads only rows after the latest `EPOCH`.
+`BLOCKERS` is empty for `PASS`. Missing fields make the review `BLOCK`.
 
-## Training
+## Routing Calibration Log
 
-The rules in this file are parameters; the log is experience; a training pass
-is one batched update. Run a pass only when the user asks for one, in the
-canonical ajax-model-router repo. `scripts/router-log-summary` prints the
-counts a pass needs.
+After every routing decision except pure Q&A and after every Review Gate, use
+`scripts/router-log`. Its v2 TSV row records, in order:
 
-Frozen, never trainable: Invariants, report schemas, Pre-dispatch Snapshot,
-Review Gate acceptance list, DISCARD restore rules, and registry model IDs.
-`scripts/check-contracts` must pass after every training edit.
+1. schema version and UTC timestamp,
+2. stable repository identifier, task ID, and round,
+3. route-rule ID, task kind, risk class, action, lane, and model,
+4. estimated file and line scope,
+5. critique result and procedural gate result,
+6. escalation destination and reason,
+7. failure classification, verification result, and CI result,
+8. duration and provider token usage.
 
-Trainable: route-table conditions and thresholds, Implementation Lane
-definitions, the critique lane restriction, and escalation rules.
+Every field is required. Record `UNKNOWN` where a metric is unavailable; never
+infer it. Use the canonical origin identity for the repository, not a worktree
+basename. A parent `ACCEPT` is only a procedural gate result. Verification,
+CI, and a later `ESCAPED_DEFECT` are independent signals.
 
-A pass:
+Legacy eight-column rows remain readable but are excluded from any metric that
+requires v2 fields. Use `OBSERVATION` with route-rule `NONE` for later CI or
+escaped-defect facts; these do not count as route decisions. An `EPOCH` row
+starts a new calibration window.
 
-1. Read the rows since the last `EPOCH` and the `TRAINING.md` ledger.
-2. Fire only these pre-registered tripwires:
-   - a lane failed the gate in 2 consecutive rounds or 3 of its last 10 →
-     shrink that lane's definition;
-   - a cheap lane escalated in 3 of its last 10 rounds → move the failing task
-     class up a lane;
-   - a route row that has not fired in the last 50 rows → propose deleting it;
-   - packet critique passed 20 consecutive packets → restrict critique
-     further;
-   - packet critique returned `BLOCK` 3 consecutive times for the same task →
-     dispatch after the next rebuild without further critique for that task;
-   - `MINIMAX` took none of the last 15 implementation dispatches → broaden
-     the MiniMax lane definition one notch.
-3. For each fired tripwire, make the smallest rule edit that answers it, and
-   record a `TRAINING.md` entry citing the exact log rows as evidence.
-4. Run `scripts/check-contracts`, then commit. The commit is the checkpoint;
-   revert it if the next 10 rows are worse.
+## Routing Calibration
 
-No tripwire, no edit. Never change rules from taste during a training pass.
+Run a calibration pass only when the user asks. `scripts/router-log-summary`
+calculates every retained tripwire directly from v2 fields:
+
+- a lane/model has non-`ACCEPT` procedural gates in 2 consecutive rounds or 3
+  of its last 10 gated rounds;
+- the cheap model escalated in 3 of its last 10 implementation rounds;
+- a route-rule ID did not fire in the last 50 decisions;
+- critique passed 20 consecutive recorded critiques;
+- the cheap model took none of the last 15 implementation dispatches.
+
+Frozen calibration controls: invariants, report schemas, snapshots, Review
+Gate acceptance rules, DISCARD restoration, and registry model IDs. Adjustable
+controls: route conditions and thresholds, lane definitions, critique scope,
+and escalation rules.
+
+For each fired tripwire, make the smallest supported rule edit, record it in
+`CALIBRATION.md`, run `scripts/check-contracts`, and use the resulting commit as
+the checkpoint. No tripwire, no edit.
 
 ## Pre-dispatch Snapshot
 
@@ -229,24 +242,31 @@ changes remain distinguishable from delegate edits:
 
 ```bash
 SNAP="$(mktemp -d)"
-git ls-files -co --exclude-standard -z > "$SNAP/pre.inv"
-tar --null -cf "$SNAP/pre.tar" -T "$SNAP/pre.inv"
-xargs -0 shasum -a 256 < "$SNAP/pre.inv" > "$SNAP/pre.sha"
-git status --porcelain=v1 -z > "$SNAP/pre.status"
+scripts/delegate-snapshot "$SNAP" pre
 ```
 
-After dispatch, capture `post.inv` and `post.sha` the same way. The difference
-between `pre.sha` and `post.sha` is the delegate delta, including created and
-deleted files.
+After dispatch, capture and inspect the deterministic pre-versus-post delta:
+
+```bash
+scripts/delegate-snapshot "$SNAP" post
+scripts/delegate-delta inspect "$SNAP" --allowed <exact-path> [--allowed <exact-path>...]
+```
+
+`delta.json` separates preexisting paths from delegate-created, modified,
+deleted, and mode-changed paths, records overlap and scope violations, and
+`delta.patch` contains the complete inspectable patch including new untracked
+file contents.
 
 Keep `$SNAP` until the Review Gate finishes. If any snapshot command fails,
 return `STOP` before dispatch.
 
 ## Delegate Prompt
 
-Every implementation dispatch sends exactly this wrapper followed by the full
-packet. Delegate skills append only the tool- or mode-specific lines they
-name; nothing else is added or removed.
+An initial implementation dispatch sends exactly this wrapper followed by the
+full READY packet. A cross-tool revision sends the same full payload plus Review
+Gate findings. A Same-session Cursor resume sends only findings and immutable
+constraints because the session retains the packet; this is the sole full-packet
+exception.
 
 ```text
 You are a bounded implementation worker for a parent agent.
@@ -262,8 +282,12 @@ Run Verification commands.
 Stop if any Stop condition is hit, or if the patch would exceed roughly 400 changed lines.
 No drive-by cleanup, renames, formatting sweeps, or broad refactors.
 
-Return exactly the router's DELEGATE_REPORT schema. Include every command's
-actual exit code and a short output excerpt. Do not summarize missing evidence.
+Return exactly the router's DELEGATE_REPORT schema between these marker lines:
+ROUTER_REPORT_BEGIN
+<DELEGATE_REPORT YAML>
+ROUTER_REPORT_END
+Include every command's actual exit code and a short output excerpt. Do not
+summarize missing evidence.
 
 <TDD implementation packet>
 ```
@@ -271,13 +295,11 @@ actual exit code and a short output excerpt. Do not summarize missing evidence.
 ## Review Gate
 
 The gate is parent-local work; it needs no delegate dispatch. After any
-delegate write mode, compare the pre- and post-dispatch snapshots, then
-inspect the resulting delegate delta:
+delegate write mode, inspect the generated pre-versus-post artifacts:
 
 ```bash
-git status --short
-git diff --stat
-git diff -- <allowed files>
+cat "$SNAP/delta.json"
+cat "$SNAP/delta.patch"
 ```
 
 Run the packet verification commands independently. Accept only when all are
@@ -298,9 +320,9 @@ second `MINIMAX` attempt. When the same tool retries and supports resume
 the packet again. Use `DISCARD` for a rejected delegate delta. After two failed
 rounds, return `STOP` and report both attempts.
 
-DISCARD is a verdict, not permission to reset the worktree. Restore only paths
-identified by the snapshot delta, from their exact pre-dispatch contents:
-`tar -xf "$SNAP/pre.tar" -- <path>` carries both content and file mode.
-Before restoring a path, verify its current content still matches the captured post-dispatch hash; otherwise return `STOP` because a concurrent edit occurred.
-Delete a delegate-created path only under the same hash check.
-Never use `git reset`, `git checkout`, `git clean`, or a blanket restore.
+DISCARD is a verdict, not permission to reset the worktree. Run
+`scripts/delegate-delta restore "$SNAP"`; it first verifies the complete current
+non-ignored state still equals the post snapshot, then restores only delegate
+paths to exact pre-dispatch content and modes. Any concurrent change returns
+`STOP` before restoration begins. Never use `git reset`, `git checkout`,
+`git clean`, or a blanket restore.

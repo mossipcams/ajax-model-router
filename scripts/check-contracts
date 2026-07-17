@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+ROUTER="skills/model-router/SKILL.md"
 failures=0
 
 require_text() {
@@ -22,23 +23,23 @@ forbid_text() {
 
 require_count() {
   local text="$1" expected="$2" label="$3" actual
-  actual="$( (grep -RohF --include='SKILL.md' -- "$text" "$ROOT" || true) | wc -l | tr -d ' ')"
+  actual="$( (grep -RohF --include='SKILL.md' -- "$text" "$ROOT/skills" || true) | wc -l | tr -d ' ')"
   if [[ "$actual" != "$expected" ]]; then
     echo "wrong-count: $label (expected $expected, got $actual)" >&2
     failures=$((failures + 1))
   fi
 }
 
-for field in ACTION LANE MODE MODEL PACKET_STATUS ALLOWED_SCOPE REASON ESCALATE_IF; do
-  require_text "SKILL.md" "$field:" "routing decision field $field"
+for field in ACTION LANE MODE MODEL PACKET_STATUS PACKET_REBUILD_COUNT PACKET_CRITIQUE_COUNT ALLOWED_SCOPE REASON ESCALATE_IF; do
+  require_text "$ROUTER" "$field:" "routing decision field $field"
 done
 
-require_text "SKILL.md" "## Model Registry" "central model registry"
-require_text "SKILL.md" "CRITIQUE_PACKET" "packet critique action"
-require_text "SKILL.md" "tdd-implementation-packet" "packet builder lane"
-require_text "SKILL.md" "Emit a new decision after each action." "single-step binding rule"
+require_text "$ROUTER" "## Model Registry" "central model registry"
+require_text "$ROUTER" "CRITIQUE_PACKET" "packet critique action"
+require_text "$ROUTER" "tdd-implementation-packet" "packet builder lane"
+require_text "$ROUTER" "Emit a new decision after each action." "single-step binding rule"
 for key in CODEX CURSOR MINIMAX GLM; do
-  model_id="$(awk -F'`' -v key="$key" '$2 == key {print $4; exit}' "$ROOT/SKILL.md")"
+  model_id="$(awk -F'`' -v key="$key" '$2 == key {print $4; exit}' "$ROOT/$ROUTER")"
   if [[ -z "$model_id" ]]; then
     echo "missing: model registry key $key" >&2
     failures=$((failures + 1))
@@ -47,16 +48,16 @@ for key in CODEX CURSOR MINIMAX GLM; do
   fi
 done
 
-require_text "SKILL.md" "Risk and reasoning depth take precedence over file category." "routing precedence rule"
-require_text "SKILL.md" "Tests-only work keeps the lane selected by reasoning depth." "tests-only complexity rule"
-require_text "SKILL.md" 'Source file or code anchors are unknown' "unknown-source route"
-require_text "SKILL.md" '`DISCOVER`' "discovery action"
-require_text "SKILL.md" '`discover`' "discovery mode"
-require_text "SKILL.md" 'runs on `MINIMAX`' "cheap discovery lane"
-require_text "SKILL.md" 'round revises on `GLM`' "failed-round lane escalation"
+require_text "$ROUTER" "Risk and reasoning depth take precedence over file category." "routing precedence rule"
+require_text "$ROUTER" "Tests-only work keeps the lane selected by reasoning depth." "tests-only complexity rule"
+require_text "$ROUTER" 'Any required evidence category is missing' "missing-evidence route"
+require_text "$ROUTER" '`GATHER_EVIDENCE`' "evidence action"
+require_text "$ROUTER" '`evidence`' "evidence mode"
+require_text "$ROUTER" 'parent-local and read-only' "local evidence gathering"
+require_text "$ROUTER" 'round revises on `GLM`' "failed-round lane escalation"
 
-risk_line="$(grep -nF 'Authentication, security, data-loss, backend, server, session, PTY, or supervisor work' "$ROOT/SKILL.md" | head -1 | cut -d: -f1 || true)"
-frontend_line="$(grep -nF 'Frontend UI behavior with bounded files and anchors' "$ROOT/SKILL.md" | head -1 | cut -d: -f1 || true)"
+risk_line="$(grep -nF 'Authentication, security, data-loss, backend, server, session, PTY, or supervisor work' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
+frontend_line="$(grep -nF 'Frontend UI behavior with bounded files and anchors' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
 if [[ -z "$risk_line" || -z "$frontend_line" || "$risk_line" -ge "$frontend_line" ]]; then
   echo "wrong-order: risk/backend route must precede frontend route" >&2
   failures=$((failures + 1))
@@ -67,7 +68,7 @@ require_text "$packet" "PACKET_STATUS: READY | BLOCKED" "packet readiness status
 require_text "$packet" "TASK_KIND: behavior | tests-only | docs-only | mechanical" "packet task kind"
 require_text "$packet" "TEST_FIRST: REQUIRED | NOT_APPLICABLE" "conditional test-first field"
 require_text "$packet" "PRODUCTION_EDIT: REQUIRED | FORBIDDEN" "conditional production field"
-require_text "$packet" 'A missing required input makes the packet `BLOCKED`' "blocked packet rule"
+require_text "$packet" 'A missing required evidence category makes the packet `BLOCKED`' "blocked packet rule"
 require_text "$packet" '| `docs-only` | `NOT_APPLICABLE` | `FORBIDDEN` |' "docs-only requirements"
 require_text "$packet" '| `tests-only` | `NOT_APPLICABLE` | `FORBIDDEN` |' "tests-only requirements"
 forbid_text "$packet" "state the missing input as a stop condition" "missing context hidden in stop conditions"
@@ -93,51 +94,58 @@ fi
 forbid_text "skills/cursor-delegate/agents/openai.yaml" "allow_implicit_invocation: true" "Cursor implicit activation"
 
 codex="skills/codex-delegate/SKILL.md"
-forbid_text "SKILL.md" "delegator" "second orchestrator route"
+forbid_text "$ROUTER" "delegator" "second orchestrator route"
 forbid_text "$codex" "delegator" "Codex delegator mode"
-require_text "SKILL.md" 'Standalone review uses `PACKET_STATUS: NOT_REQUIRED`' "standalone review packet rule"
-require_text "SKILL.md" 'performs the review locally' "orchestrator-owned final review"
-require_text "SKILL.md" "regressions, security, error handling, test gaps, and cross-file integration" "local final review scope"
+require_text "$ROUTER" 'Standalone review uses `PACKET_STATUS: NOT_REQUIRED`' "standalone review packet rule"
+require_text "$ROUTER" 'performs the review locally' "orchestrator-owned final review"
+require_text "$ROUTER" "regressions, security, error handling, test gaps, and cross-file integration" "local final review scope"
 require_text "$codex" '`packet-critique` or `implementation`' "Codex mode set"
 forbid_text "$codex" 'diff-review' "duplicate diff-review gate"
 forbid_text "$codex" 'final-review' "delegated final review mode"
 forbid_text "$codex" 'xhigh' "router-initiated xhigh profile"
-forbid_text "SKILL.md" 'diff-review' "duplicate diff-review route"
-forbid_text "SKILL.md" 'final-review' "delegated final review route"
-require_text "SKILL.md" 'Packet critique applies only to `CODEX` and `GLM` implementation lanes.' "critique lane restriction"
+forbid_text "$ROUTER" 'diff-review' "duplicate diff-review route"
+forbid_text "$ROUTER" 'final-review' "delegated final review route"
+require_text "$ROUTER" 'Packet critique applies only to `CODEX` and `GLM` implementation lanes and only' "critique uncertainty restriction"
 require_text "$codex" "PACKET_REVIEW" "Codex packet review schema"
 
 opencode="skills/opencode-delegate/SKILL.md"
-require_text "$opencode" 'For `discover`, return the read-only findings to the router and reroute.' "discovery reroute"
-require_text "$opencode" 'Headless only: `opencode run`' "OpenCode headless-only note"
-require_text "$opencode" 'opencode run --model "$MODEL" "$(cat /tmp/opencode-task.txt)" </dev/null' "OpenCode closed stdin"
-require_text "$opencode" 'MAX_SECONDS=900' "OpenCode delegate timeout"
-require_text "$opencode" 'kill -TERM "$OPENCODE_PID"' "OpenCode delegate timeout termination"
-require_text "$opencode" 'exit 124' "OpenCode delegate timeout status"
+require_text "$opencode" 'Headless only.' "OpenCode headless-only note"
+require_text "$opencode" 'opencode run --model "$MODEL" <prompt>' "OpenCode verified invocation"
+require_text "$opencode" 'scripts/run-delegate --tool opencode' "OpenCode bounded runner"
+require_text "$opencode" 'Exit `124`' "OpenCode delegate timeout status"
 
-require_text "SKILL.md" "DELEGATE_REPORT:" "structured delegate report"
-require_text "SKILL.md" "REVIEW_REPORT:" "structured review report"
-require_text "SKILL.md" "PHASE: RED | GREEN | VERIFY | OTHER" "command evidence phase"
-require_text "SKILL.md" "EXIT_CODE:" "command evidence exit code"
-require_text "SKILL.md" "OUTPUT_EXCERPT:" "command evidence output"
-require_text "SKILL.md" "A success claim without command evidence is failure." "evidence enforcement"
-require_text "SKILL.md" "## Pre-dispatch Snapshot" "delegate baseline snapshot"
-require_text "SKILL.md" "git ls-files -co --exclude-standard -z" "snapshot path inventory"
-require_text "SKILL.md" 'tar --null -cf "$SNAP/pre.tar" -T "$SNAP/pre.inv"' "snapshot archive command"
-require_text "SKILL.md" 'tar -xf "$SNAP/pre.tar" -- <path>' "single-path restore command"
-require_text "SKILL.md" "Delegate write finished and its delta is not yet gated" "local gate route"
-require_text "SKILL.md" "DISCARD is a verdict, not permission to reset the worktree." "safe discard definition"
-require_text "SKILL.md" "current content still matches the captured post-dispatch hash" "concurrent edit guard"
-require_text "SKILL.md" 'Never use `git reset`, `git checkout`, `git clean`, or a blanket restore.' "destructive restore guard"
-forbid_text "SKILL.md" "Return a REPORT with:" "unstructured delegate report"
-forbid_text "SKILL.md" "Implement exactly one behavior change" "behavior-only delegate prompt"
-require_text "SKILL.md" "Complete exactly one bounded task from the packet below." "task-kind-neutral delegate prompt"
+require_text "$ROUTER" "DELEGATE_REPORT:" "structured delegate report"
+require_text "$ROUTER" "REVIEW_REPORT:" "structured review report"
+require_text "$ROUTER" "PHASE: RED | GREEN | VERIFY | OTHER" "command evidence phase"
+require_text "$ROUTER" "EXIT_CODE:" "command evidence exit code"
+require_text "$ROUTER" "OUTPUT_EXCERPT:" "command evidence output"
+require_text "$ROUTER" "A success claim without command evidence is failure." "evidence enforcement"
+require_text "$ROUTER" "## Pre-dispatch Snapshot" "delegate baseline snapshot"
+require_text "$ROUTER" 'scripts/delegate-snapshot "$SNAP" pre' "pre snapshot command"
+require_text "$ROUTER" 'scripts/delegate-delta inspect "$SNAP"' "delta inspection command"
+require_text "$ROUTER" 'scripts/delegate-delta restore "$SNAP"' "delta restore command"
+require_text "$ROUTER" "Delegate write finished and its delta is not yet gated" "local gate route"
+require_text "$ROUTER" "DISCARD is a verdict, not permission to reset the worktree." "safe discard definition"
+require_text "$ROUTER" "complete current" "concurrent edit guard"
+require_text "$ROUTER" 'Never use `git reset`' "destructive restore guard"
+forbid_text "$ROUTER" "Return a REPORT with:" "unstructured delegate report"
+forbid_text "$ROUTER" "Implement exactly one behavior change" "behavior-only delegate prompt"
+require_text "$ROUTER" "Complete exactly one bounded task from the packet below." "task-kind-neutral delegate prompt"
 require_text "README.md" "scripts/check-contracts" "contract validator documentation"
-require_text "SKILL.md" "## Decision Log" "training data log"
-require_text "SKILL.md" "## Training" "training pass procedure"
-require_text "SKILL.md" "Frozen, never trainable:" "frozen layer list"
-require_text "SKILL.md" "No tripwire, no edit." "training regularizer"
-require_text "TRAINING.md" "# Training Ledger" "training checkpoint ledger"
+require_text "$ROUTER" "## Routing Calibration Log" "calibration log"
+require_text "$ROUTER" "## Routing Calibration" "calibration procedure"
+require_text "$ROUTER" "Frozen calibration controls:" "frozen calibration list"
+require_text "$ROUTER" "No tripwire, no edit." "calibration regularizer"
+require_text "CALIBRATION.md" "# Routing Calibration Ledger" "calibration checkpoint ledger"
+
+if ! bash -n "$ROOT"/scripts/*; then
+  echo "failed: shell syntax" >&2
+  failures=$((failures + 1))
+fi
+if ! python3 -m unittest discover -s "$ROOT/tests" -p 'test_*.py'; then
+  echo "failed: behavioral contracts" >&2
+  failures=$((failures + 1))
+fi
 
 if ((failures > 0)); then
   exit 1

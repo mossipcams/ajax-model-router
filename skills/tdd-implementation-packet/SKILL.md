@@ -10,16 +10,21 @@ whether it is dispatchable; completeness is never inferred from section count.
 
 ## Inputs
 
-Collect or explicitly mark the applicability of:
+Collect concise evidence for the categories the task needs:
 
-1. Graphify architecture boundaries
-2. Serena semantic code context and reusable patterns
-3. ast-grep code anchors
-4. Desired behavior or artifact change
+1. Desired behavior
+2. Exact source and test anchors
+3. Existing implementation or test patterns to reuse
+4. Relevant architecture boundaries when the change crosses modules or dependencies
 
-A missing required input makes the packet `BLOCKED`. It is not a stop condition
-inside a `READY` packet. `NOT_REQUIRED` needs a task-specific reason; tool
-unavailability alone is not a reason.
+Acquisition is proportional to uncertainty. Use `rg` and direct file inspection
+for localized changes, Serena when semantic relationships are unclear,
+ast-grep for structural search or repeated mechanical edits, and Graphify only
+for unfamiliar cross-module or architecture-sensitive work. These are methods,
+not packet requirements. Record evidence and anchors, not unused-tool ceremony.
+
+A missing required evidence category makes the packet `BLOCKED` and routes to
+`GATHER_EVIDENCE`. It is not a stop condition inside a `READY` packet.
 
 ## Task Contract
 
@@ -30,6 +35,7 @@ PACKET_STATUS: READY | BLOCKED
 TASK_KIND: behavior | tests-only | docs-only | mechanical
 TEST_FIRST: REQUIRED | NOT_APPLICABLE
 PRODUCTION_EDIT: REQUIRED | FORBIDDEN
+UNRESOLVED_UNCERTAINTY: NONE | SPECIFICATION | ARCHITECTURE | BOTH
 BLOCKERS: []
 ```
 
@@ -48,11 +54,13 @@ File category never determines reasoning depth or delegate lane.
 
 - exact allowed files and forbidden changes,
 - a bounded goal and task contract,
-- Graphify, Serena, and ast-grep evidence when applicable,
-- an explicit `NOT_REQUIRED` reason for each inapplicable context source,
+- concise evidence for each applicable category above,
 - exact edit anchors and instructions,
 - verification commands and acceptance criteria,
 - observable stop conditions.
+
+Run `scripts/check-packet <packet>` before routing a candidate packet. Script
+failure makes it `BLOCKED`; do not spend a critique call on mechanical defects.
 
 If any item is absent, return `BLOCKED`, list it in `BLOCKERS`, and stop. A
 `BLOCKED` packet contains no test or edit instructions and cannot be dispatched
@@ -60,24 +68,22 @@ to a write mode.
 
 ## READY Output
 
-Produce exactly these sections:
+After the task-contract fields, produce exactly these headings:
 
-1. Status and task contract
-2. Goal
-3. Allowed files
-4. Forbidden changes
-5. Context evidence
-6. Code anchors
-7. Test-first instructions
-8. Edit instructions
-9. Verification commands
-10. Acceptance criteria
-11. Stop conditions
+1. `## Goal`
+2. `## Allowed files`
+3. `## Forbidden changes`
+4. `## Context evidence`
+5. `## Code anchors`
+6. `## Test-first instructions`
+7. `## Edit instructions`
+8. `## Verification commands`
+9. `## Acceptance criteria`
+10. `## Stop conditions`
 
-`Context evidence` records Graphify, Serena, and ast-grep evidence or an
-explicit `NOT_REQUIRED` reason for each. Evidence is anchors and minimal
-excerpts, never whole files; the packet is resent on every critique, dispatch,
-and revise round, so every excess line is paid for repeatedly.
+`Context evidence` records category, finding, and exact anchor. Evidence is
+anchors and minimal excerpts, never whole files or a list of unused tools; the
+packet may be resent, so every excess line is paid for repeatedly.
 
 `Test-first instructions` names the test, failing assertion, and focused red
 command only when `TEST_FIRST` is `REQUIRED`; otherwise write

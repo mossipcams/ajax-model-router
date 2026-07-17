@@ -56,11 +56,22 @@ source_for() {
       ;;
   esac
 
-  if [[ "$name" == "model-router" ]]; then
-    echo "$CANONICAL"
-  else
-    echo "$CANONICAL/skills/$name"
-  fi
+  echo "$CANONICAL/skills/$name"
+}
+
+check_no_ancestor_links() {
+  local base link resolved
+  shopt -s nullglob
+  for base in .agents .cursor .codex .claude; do
+    for link in "$TARGET/$base/skills"/*; do
+      [[ -L "$link" ]] || continue
+      resolved="$(resolve_path "$link")"
+      if [[ "$link/" == "$resolved/"* ]]; then
+        echo "ancestor-pointing: $link -> $resolved"
+        return 1
+      fi
+    done
+  done
 }
 
 check_one() {
@@ -98,6 +109,7 @@ check_one() {
 echo "canonical: $CANONICAL"
 echo "target: $TARGET"
 
+check_no_ancestor_links
 check_one ".agents" "model-router"
 for skill in \
   "model-router" \

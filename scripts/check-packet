@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ $# -eq 1 && -f "$1" ]] || {
+  echo "Usage: scripts/check-packet PACKET.md" >&2
+  exit 2
+}
+
+packet="$1"
+failures=0
+
+require_pattern() {
+  local pattern="$1" label="$2"
+  if ! grep -Eq -- "$pattern" "$packet"; then
+    echo "missing-or-invalid: $label" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+require_section() {
+  local section="$1"
+  if ! awk -v heading="## $section" '
+    $0 == heading {inside=1; next}
+    inside && /^## / {exit}
+    inside && NF {found=1}
+    END {exit !found}
+  ' "$packet"; then
+    echo "missing-or-empty: $section" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+require_pattern '^PACKET_STATUS: READY$' "PACKET_STATUS"
+require_pattern '^TASK_KIND: (behavior|tests-only|docs-only|mechanical)$' "TASK_KIND"
+require_pattern '^TEST_FIRST: (REQUIRED|NOT_APPLICABLE)$' "TEST_FIRST"
+require_pattern '^PRODUCTION_EDIT: (REQUIRED|FORBIDDEN)$' "PRODUCTION_EDIT"
+require_pattern '^UNRESOLVED_UNCERTAINTY: (NONE|SPECIFICATION|ARCHITECTURE|BOTH)$' "UNRESOLVED_UNCERTAINTY"
+require_pattern '^BLOCKERS: \[\]$' "empty BLOCKERS"
+
+task_kind="$(sed -n 's/^TASK_KIND: //p' "$packet")"
+test_first="$(sed -n 's/^TEST_FIRST: //p' "$packet")"
+production_edit="$(sed -n 's/^PRODUCTION_EDIT: //p' "$packet")"
+case "$task_kind:$test_first:$production_edit" in
+  behavior:REQUIRED:REQUIRED|tests-only:NOT_APPLICABLE:FORBIDDEN|docs-only:NOT_APPLICABLE:FORBIDDEN|mechanical:NOT_APPLICABLE:REQUIRED|mechanical:NOT_APPLICABLE:FORBIDDEN) ;;
+  behavior:*) echo "invalid: behavior task contract" >&2; failures=$((failures + 1)) ;;
+  tests-only:*) echo "invalid: tests-only task contract" >&2; failures=$((failures + 1)) ;;
+  docs-only:*) echo "invalid: docs-only task contract" >&2; failures=$((failures + 1)) ;;
+  mechanical:*) echo "invalid: mechanical task contract" >&2; failures=$((failures + 1)) ;;
+esac
+
+for section in \
+  "Goal" \
+  "Allowed files" \
+  "Forbidden changes" \
+  "Context evidence" \
+  "Code anchors" \
+  "Test-first instructions" \
+  "Edit instructions" \
+  "Verification commands" \
+  "Acceptance criteria" \
+  "Stop conditions"
+do
+  require_section "$section"
+done
+
+((failures == 0)) || exit 1
+echo "packet checks passed"

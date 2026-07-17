@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ $# -eq 2 && -f "$1" ]] || {
+  echo "Usage: scripts/extract-report RAW_LOG REPORT.yaml" >&2
+  exit 2
+}
+
+raw="$1"
+output="$2"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
+failed_report() {
+  local reason="$1" summary="$2"
+  cat > "$output" <<EOF
+DELEGATE_REPORT:
+  STATUS: FAILED
+  SUMMARY: $summary
+  FILES_CHANGED: []
+  TEST_FIRST: NOT_PROVEN
+  COMMAND_EVIDENCE: []
+  STOP_CONDITIONS_HIT: [$reason]
+  REMAINING_RISKS: [Inspect the preserved raw log]
+EOF
+  cat "$output"
+  exit 65
+}
+
+begins="$(grep -cFx 'ROUTER_REPORT_BEGIN' "$raw" || true)"
+ends="$(grep -cFx 'ROUTER_REPORT_END' "$raw" || true)"
+if [[ "$begins" != 1 || "$ends" != 1 ]]; then
+  failed_report "MISSING_STRUCTURED_REPORT" "delegate output contained no complete report envelope"
+fi
+
+awk '
+  $0 == "ROUTER_REPORT_BEGIN" {
+    if (began || complete) invalid=1
+    began=1
+    inside=1
+    next
+  }
+  $0 == "ROUTER_REPORT_END" {
+    if (!inside) invalid=1
+    inside=0
+    complete=1
+    next
+  }
+  inside {print}
+  END {exit !(began && complete && !inside && !invalid)}
+' "$raw" > "$output" || failed_report "INVALID_STRUCTURED_REPORT" "delegate report envelope was malformed"
+
+if ! "$ROOT/scripts/check-report" "$output" >/dev/null; then
+  failed_report "INVALID_STRUCTURED_REPORT" "delegate report failed schema validation"
+fi
+cat "$output"

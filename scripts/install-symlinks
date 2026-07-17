@@ -65,11 +65,7 @@ source_for() {
       ;;
   esac
 
-  if [[ "$name" == "model-router" ]]; then
-    echo "$CANONICAL"
-  else
-    echo "$CANONICAL/skills/$name"
-  fi
+  echo "$CANONICAL/skills/$name"
 }
 
 install_one() {

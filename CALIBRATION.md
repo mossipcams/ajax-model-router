@@ -1,6 +1,6 @@
-# Training Ledger
+# Routing Calibration Ledger
 
-One entry per rule change made by a training pass. Every entry cites the log
+One entry per rule change made by a calibration pass. Every entry cites the log
 rows that fired the tripwire; the commit is the checkpoint to revert if the
 next 10 rows are worse.
 
@@ -35,5 +35,5 @@ Entry format:
 ## 2026-07-14 Tripwire thresholds retuned, two tripwires added
 - Tripwire: user-directed
 - Evidence: 2026-07-13 ajax-crashing opencode failed both of its only gated rounds (REVISE empty-diff, STOP missing-reports) without tripping 3-of-10; 30-row dead-row window skewed by all-cursor 2026-07-14 rows would have proposed deleting structural rows; 2026-07-13 ajax-jwts critique BLOCKed 4 consecutive packets before PASS (5 critique calls for 1 dispatch)
-- Change: gate-failure tripwire adds 2-consecutive trigger; dead-row window 30→50; new critique-churn tripwire (3 consecutive BLOCKs → dispatch after next rebuild); new MiniMax-starvation tripwire (0 of last 15 dispatches → broaden lane)
+- Change: gate-failure tripwire adds 2-consecutive trigger; dead-row window 30→50; new critique-churn tripwire (superseded: blocked packets now STOP after the second BLOCK); new MiniMax-starvation tripwire (0 of last 15 dispatches → broaden lane)
 - Checkpoint: bef77c8

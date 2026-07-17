@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ $# -eq 1 && -f "$1" ]] || {
+  echo "Usage: scripts/check-report REPORT.yaml" >&2
+  exit 2
+}
+
+report="$1"
+failures=0
+
+require() {
+  local pattern="$1" label="$2"
+  if ! grep -Eq -- "$pattern" "$report"; then
+    echo "missing-or-invalid: $label" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+case "$(sed -n '1p' "$report")" in
+  DELEGATE_REPORT:)
+    require '^  STATUS: (COMPLETE|BLOCKED|FAILED)$' STATUS
+    require '^  SUMMARY: .+' SUMMARY
+    require '^  FILES_CHANGED: ' FILES_CHANGED
+    require '^  TEST_FIRST: (PROVEN|NOT_APPLICABLE|NOT_PROVEN)$' TEST_FIRST
+    require '^  COMMAND_EVIDENCE:' COMMAND_EVIDENCE
+    require '^  STOP_CONDITIONS_HIT: ' STOP_CONDITIONS_HIT
+    require '^  REMAINING_RISKS: ' REMAINING_RISKS
+    phases="$(grep -Ec '^    - PHASE: (RED|GREEN|VERIFY|OTHER)$' "$report" || true)"
+    commands="$(grep -Ec '^      COMMAND: .+' "$report" || true)"
+    exits="$(grep -Ec '^      EXIT_CODE: -?[0-9]+$' "$report" || true)"
+    excerpts="$(grep -Ec '^      OUTPUT_EXCERPT: .+' "$report" || true)"
+    if [[ "$phases" != "$commands" || "$phases" != "$exits" || "$phases" != "$excerpts" ]]; then
+      echo "incomplete: COMMAND_EVIDENCE item" >&2
+      failures=$((failures + 1))
+    fi
+    ;;
+  REVIEW_REPORT:)
+    require '^  VERDICT: (ACCEPT|REVISE|DISCARD|STOP)$' VERDICT
+    require '^  FINDINGS:' FINDINGS
+    require '^  VERIFICATION: ' VERIFICATION
+    require '^  SCOPE_VIOLATIONS: ' SCOPE_VIOLATIONS
+    require '^  REMAINING_RISKS: ' REMAINING_RISKS
+    findings="$(grep -Ec '^    - SEVERITY: (HIGH|MEDIUM|LOW)$' "$report" || true)"
+    for item in FILE LINE ISSUE REQUIRED_CHANGE; do
+      count="$(grep -Ec "^      $item: .+" "$report" || true)"
+      if [[ "$count" != "$findings" ]]; then
+        echo "incomplete: REVIEW_REPORT $item" >&2
+        failures=$((failures + 1))
+      fi
+    done
+    ;;
+  PACKET_REVIEW:)
+    require '^  VERDICT: (PASS|BLOCK)$' VERDICT
+    require '^  REVIEWED_UNCERTAINTY: (SPECIFICATION|ARCHITECTURE|BOTH)$' REVIEWED_UNCERTAINTY
+    require '^  PACKET_CHECK: PASS$' PACKET_CHECK
+    require '^  BLOCKERS:' BLOCKERS
+    require '^  REMAINING_RISKS: ' REMAINING_RISKS
+    blockers="$(grep -Ec '^    - TYPE: (SPECIFICATION|ARCHITECTURE)$' "$report" || true)"
+    for item in ISSUE REQUIRED_EVIDENCE; do
+      count="$(grep -Ec "^      $item: .+" "$report" || true)"
+      if [[ "$count" != "$blockers" ]]; then
+        echo "incomplete: PACKET_REVIEW $item" >&2
+        failures=$((failures + 1))
+      fi
+    done
+    verdict="$(sed -n 's/^  VERDICT: //p' "$report")"
+    if [[ "$verdict" == PASS ]] && ! grep -Eq '^  BLOCKERS: \[\]$' "$report"; then
+      echo "invalid: PASS requires empty BLOCKERS" >&2
+      failures=$((failures + 1))
+    elif [[ "$verdict" == BLOCK && "$blockers" -eq 0 ]]; then
+      echo "invalid: BLOCK requires a blocker" >&2
+      failures=$((failures + 1))
+    fi
+    ;;
+  *)
+    echo "unknown report schema" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+((failures == 0)) || exit 1
+echo "report checks passed"
