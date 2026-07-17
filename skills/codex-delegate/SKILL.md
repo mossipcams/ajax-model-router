@@ -37,8 +37,8 @@ Write the prompt to `/tmp/codex-task.txt`, then run the selected command:
 
 | Mode | Command |
 |---|---|
-| `packet-critique` | `codex exec --model "$MODEL" --sandbox read-only --output-last-message /tmp/codex-report.md -` |
-| `implementation` | `codex exec --model "$MODEL" --sandbox workspace-write --output-last-message /tmp/codex-report.md -` |
+| `packet-critique` | `codex exec --model "$MODEL" --config 'model_reasoning_effort="xhigh"' --sandbox read-only --output-last-message /tmp/codex-report.md -` |
+| `implementation` | `codex exec --model "$MODEL" --config 'model_reasoning_effort="xhigh"' --sandbox workspace-write --output-last-message /tmp/codex-report.md -` |
 
 ```bash
 codex exec <mode flags> - < /tmp/codex-task.txt > /tmp/codex-run.log 2>&1

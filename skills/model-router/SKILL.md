@@ -30,7 +30,7 @@ the decision copies the corresponding exact ID into `MODEL`.
 
 | Key | Model ID |
 |---|---|
-| `CODEX` | `gpt-5.5` |
+| `CODEX` | `gpt-5.6-sol` |
 | `CURSOR` | `composer-2.5` |
 | `MINIMAX` | `opencode-go/minimax-m3` |
 | `GLM` | `opencode-go/glm-5.2` |

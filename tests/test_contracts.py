@@ -10,6 +10,14 @@ ROUTER = ROOT / "skills" / "model-router" / "SKILL.md"
 
 
 class ContractTests(unittest.TestCase):
+    def test_codex_uses_requested_model_and_xhigh_effort(self):
+        router = ROUTER.read_text()
+        adapter = (ROOT / "skills" / "codex-delegate" / "SKILL.md").read_text()
+
+        self.assertIn("| `CODEX` | `gpt-5.6-sol` |", router)
+        self.assertNotIn("gpt-5.5", router)
+        self.assertEqual(adapter.count("--config 'model_reasoning_effort=\"xhigh\"'"), 2)
+
     def test_packet_requires_evidence_not_tool_ceremony(self):
         text = PACKET.read_text()
         for category in (
