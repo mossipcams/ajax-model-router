@@ -139,7 +139,7 @@ for skill in \
   "model-router" \
   "tdd-implementation-packet" \
   "cursor-delegate" \
-  "opencode-delegate" \
+  "pi-delegate" \
   "codex-delegate"
 do
   install_one ".cursor" "$skill"
@@ -149,7 +149,7 @@ for skill in \
   "model-router" \
   "tdd-implementation-packet" \
   "cursor-delegate" \
-  "opencode-delegate" \
+  "pi-delegate" \
   "codex-delegate"
 do
   install_one ".codex" "$skill"

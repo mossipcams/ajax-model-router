@@ -74,7 +74,7 @@ require_text "$packet" '| `tests-only` | `NOT_APPLICABLE` | `FORBIDDEN` |' "test
 forbid_text "$packet" "state the missing input as a stop condition" "missing context hidden in stop conditions"
 require_text "$packet" "never whole files" "packet evidence excerpt cap"
 
-for adapter in cursor-delegate opencode-delegate codex-delegate; do
+for adapter in cursor-delegate pi-delegate codex-delegate; do
   file="skills/$adapter/SKILL.md"
   require_text "$file" "ROUTING_DECISION" "$adapter requires router binding"
   require_text "$file" 'return `STOP`' "$adapter unavailable-tool behavior"
@@ -109,11 +109,11 @@ forbid_text "$ROUTER" 'final-review' "delegated final review route"
 require_text "$ROUTER" 'Packet critique applies only to `CODEX` and `GLM` implementation lanes and only' "critique uncertainty restriction"
 require_text "$codex" "PACKET_REVIEW" "Codex packet review schema"
 
-opencode="skills/opencode-delegate/SKILL.md"
-require_text "$opencode" 'Headless only.' "OpenCode headless-only note"
-require_text "$opencode" 'opencode run --model "$MODEL" <prompt>' "OpenCode verified invocation"
-require_text "$opencode" 'scripts/run-delegate --tool opencode' "OpenCode bounded runner"
-require_text "$opencode" 'Exit `124`' "OpenCode delegate timeout status"
+pi="skills/pi-delegate/SKILL.md"
+require_text "$pi" 'Headless only.' "Pi headless-only note"
+require_text "$pi" 'pi -p --model "$MODEL" --no-session <prompt>' "Pi verified invocation"
+require_text "$pi" 'scripts/run-delegate --tool pi' "Pi bounded runner"
+require_text "$pi" 'Exit `124`' "Pi delegate timeout status"
 
 require_text "$ROUTER" "DELEGATE_REPORT:" "structured delegate report"
 require_text "$ROUTER" "REVIEW_REPORT:" "structured review report"

@@ -1,6 +1,0 @@
-interface:
-  display_name: "OpenCode Delegate"
-  short_description: "Execute a router-bound OpenCode lane"
-  default_prompt: "Run model-router first, then use $opencode-delegate only with its ROUTING_DECISION."
-policy:
-  allow_implicit_invocation: false

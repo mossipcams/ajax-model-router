@@ -1,11 +1,11 @@
 ---
-name: opencode-delegate
-description: Run OpenCode only from a model-router ROUTING_DECISION.
+name: pi-delegate
+description: Run Pi only from a model-router ROUTING_DECISION.
 ---
 
-# OpenCode Delegate
+# Pi Delegate
 
-Adapter for router-selected OpenCode lanes. Do not reconstruct routing from the
+Adapter for router-selected Pi lanes. Do not reconstruct routing from the
 user request. If no `ROUTING_DECISION` is supplied, return `STOP` and ask the
 parent to run `model-router`.
 
@@ -19,22 +19,22 @@ Required inputs:
 ## Preflight
 
 ```bash
-command -v opencode
+command -v pi
 git status --short
 ```
 
-Missing `opencode` means return `STOP`; never substitute local work or another
+Missing `pi` means return `STOP`; never substitute local work or another
 tool inside this adapter.
 
 ## Invocation
 
-Headless only. The shared runner uses the installed `opencode run --help`
-interface: `opencode run --model "$MODEL" <prompt>` with stdin closed. Never
-use interactive or server paths. It preserves the full raw log and prints only
+Headless only. The shared runner uses the installed `pi --help` interface:
+`pi -p --model "$MODEL" --no-session <prompt>` with stdin closed. Never use
+interactive or server paths. It preserves the full raw log and prints only
 the complete structured report.
 
 ```bash
-scripts/run-delegate --tool opencode --model "$MODEL" \
+scripts/run-delegate --tool pi --model "$MODEL" \
   --prompt "$AJAX_ROUTER_RUN_DIR/prompt.txt" \
   --raw-log "$AJAX_ROUTER_RUN_DIR/raw.log" \
   --report "$AJAX_ROUTER_RUN_DIR/report.yaml"

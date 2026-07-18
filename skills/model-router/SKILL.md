@@ -10,7 +10,7 @@ context, delegate it, or stop, then gate any resulting change. Not for broad
 planning or unrelated cleanup.
 
 This skill owns every shared rule of the pipeline. The delegate skills
-(`codex-delegate`, `cursor-delegate`, `opencode-delegate`) are thin adapters:
+(`codex-delegate`, `cursor-delegate`, `pi-delegate`) are thin adapters:
 preflight plus the exact commands for one tool. If a delegate skill conflicts
 with this file, this file wins.
 
@@ -43,7 +43,7 @@ for fields that do not apply; never omit a field.
 ```yaml
 ROUTING_DECISION:
   ACTION: LOCAL | GATHER_EVIDENCE | BUILD_PACKET | CRITIQUE_PACKET | DELEGATE | REVIEW | STOP
-  LANE: local | tdd-implementation-packet | cursor-delegate | opencode-delegate | codex-delegate | NONE
+  LANE: local | tdd-implementation-packet | cursor-delegate | pi-delegate | codex-delegate | NONE
   MODE: <lane mode or NONE>
   MODEL: <exact ID from Model Registry or NONE>
   PACKET_STATUS: READY | BLOCKED | NOT_REQUIRED
@@ -97,11 +97,11 @@ is not a frontend signal. Follow the first matching rule.
 | Packet facts | Lane | Mode | Model key |
 |---|---|---|---|
 | User explicitly asked Codex to implement | `codex-delegate` | `implementation` | `CODEX` |
-| Packet records unresolved specification or architecture uncertainty | `opencode-delegate` | `implement` or `test-only` | `GLM` |
-| Authentication, security, data-loss, backend, server, session, PTY, or supervisor work; or architecture-wide reasoning | `opencode-delegate` | `implement` or `test-only` | `GLM` |
-| Routine docs, generated cleanup, exact replacements, named boilerplate, shallow tests-only work, or any bounded change with exact anchors touching at most 2 files and roughly 60 changed lines with no term from the risk row above — including frontend UI that fits those bounds | `opencode-delegate` | `implement` or `test-only` | `MINIMAX` |
+| Packet records unresolved specification or architecture uncertainty | `pi-delegate` | `implement` or `test-only` | `GLM` |
+| Authentication, security, data-loss, backend, server, session, PTY, or supervisor work; or architecture-wide reasoning | `pi-delegate` | `implement` or `test-only` | `GLM` |
+| Routine docs, generated cleanup, exact replacements, named boilerplate, shallow tests-only work, or any bounded change with exact anchors touching at most 2 files and roughly 60 changed lines with no term from the risk row above — including frontend UI that fits those bounds | `pi-delegate` | `implement` or `test-only` | `MINIMAX` |
 | Frontend UI behavior with bounded files and anchors that exceeds the MiniMax row (more than 2 files, or roughly more than ~60 changed lines, or multi-surface visual/layout work) | `cursor-delegate` | `implement` or `test-only` | `CURSOR` |
-| No lane matched | `opencode-delegate` | `implement` or `test-only` | `GLM` |
+| No lane matched | `pi-delegate` | `implement` or `test-only` | `GLM` |
 
 Before selecting `CURSOR`, verify the MiniMax row does not match. A path under
 `ajax-web`, CSS, or terminal surface is not by itself a Cursor signal.

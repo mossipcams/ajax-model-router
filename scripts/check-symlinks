@@ -115,7 +115,7 @@ for skill in \
   "model-router" \
   "tdd-implementation-packet" \
   "cursor-delegate" \
-  "opencode-delegate" \
+  "pi-delegate" \
   "codex-delegate"
 do
   check_one ".cursor" "$skill"
@@ -125,7 +125,7 @@ for skill in \
   "model-router" \
   "tdd-implementation-packet" \
   "cursor-delegate" \
-  "opencode-delegate" \
+  "pi-delegate" \
   "codex-delegate"
 do
   check_one ".codex" "$skill"

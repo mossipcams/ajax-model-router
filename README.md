@@ -8,7 +8,7 @@ Canonical shared router skill bundle.
   structured routing decision, model registry, route table, shared Delegate
   Prompt, report schemas, and Review Gate.
 - `skills/` — all canonical skills, including `tdd-implementation-packet`,
-  `cursor-delegate`, `opencode-delegate`, `codex-delegate`. The delegate
+  `cursor-delegate`, `pi-delegate`, `codex-delegate`. The delegate
   skills are thin tool adapters; shared rules live only in the router.
 - `.claude/skills/`, `.codex/skills/` — symlink views over the canonical
   files. Never edit through these; every file exists exactly once.
@@ -39,7 +39,7 @@ scripts/install-symlinks --target ../ajax-cli --force
 - `scripts/delegate-snapshot` and `scripts/delegate-delta` generate the
   pre-versus-post patch reviewed by the parent and safely restore only that
   delta on `DISCARD`.
-- `scripts/run-delegate` bounds Cursor and OpenCode process groups and keeps
+- `scripts/run-delegate` bounds Cursor and Pi process groups and keeps
   full raw logs while returning complete structured reports.
 - `scripts/router-log` writes validated v2 calibration rows;
   `scripts/router-log-summary` excludes incomplete legacy rows from v2 metrics.

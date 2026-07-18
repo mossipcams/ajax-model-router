@@ -140,7 +140,7 @@ print("delegate started", flush=True)
 while True:
     time.sleep(1)
 """
-        for tool, executable in (("cursor", "cursor-agent"), ("opencode", "opencode")):
+        for tool, executable in (("cursor", "cursor-agent"), ("pi", "pi")):
             with self.subTest(tool=tool), tempfile.TemporaryDirectory() as tmp:
                 tmp = Path(tmp)
                 bin_dir = tmp / "bin"
@@ -215,7 +215,7 @@ print("ROUTER_REPORT_END")
 """
         for tool, executable, expected_prefix in (
             ("cursor", "cursor-agent", ["-p", "-f", "--trust", "--model", "test-model"]),
-            ("opencode", "opencode", ["run", "--model", "test-model"]),
+            ("pi", "pi", ["-p", "--model", "test-model", "--no-session"]),
         ):
             with self.subTest(tool=tool), tempfile.TemporaryDirectory() as tmp:
                 tmp = Path(tmp)

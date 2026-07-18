@@ -1,0 +1,6 @@
+interface:
+  display_name: "Pi Delegate"
+  short_description: "Execute a router-bound Pi lane"
+  default_prompt: "Run model-router first, then use $pi-delegate only with its ROUTING_DECISION."
+policy:
+  allow_implicit_invocation: false

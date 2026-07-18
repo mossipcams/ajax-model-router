@@ -27,8 +27,11 @@ def failed_report(report, reason, summary):
     sys.stdout.write(text)
 
 
+EXECUTABLES = {"cursor": "cursor-agent", "pi": "pi"}
+
+
 def command_for(tool, model, prompt, resume):
-    executable = shutil.which("cursor-agent" if tool == "cursor" else "opencode")
+    executable = shutil.which(EXECUTABLES[tool])
     if not executable:
         return None
     if tool == "cursor":
@@ -38,8 +41,8 @@ def command_for(tool, model, prompt, resume):
         command.append(prompt)
         return command
     if resume:
-        raise ValueError("OpenCode resume is not a router mode")
-    return [executable, "run", "--model", model, prompt]
+        raise ValueError("Pi resume is not a router mode")
+    return [executable, "-p", "--model", model, "--no-session", prompt]
 
 
 def terminate_group(process, grace):
@@ -62,7 +65,7 @@ def terminate_group(process, grace):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tool", choices=("cursor", "opencode"), required=True)
+    parser.add_argument("--tool", choices=("cursor", "pi"), required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--prompt", type=Path, required=True)
     parser.add_argument("--raw-log", type=Path, required=True)

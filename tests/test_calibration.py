@@ -29,7 +29,7 @@ def row_args(log):
         "--action",
         "DELEGATE",
         "--lane",
-        "opencode-delegate",
+        "pi-delegate",
         "--model",
         "opencode-go/glm-5.2",
         "--estimated-files",
@@ -95,7 +95,7 @@ class CalibrationTests(unittest.TestCase):
                 "kind": "behavior",
                 "risk": "LOW",
                 "action": "DELEGATE",
-                "lane": "opencode-delegate",
+                "lane": "pi-delegate",
                 "model": "opencode-go/minimax-m3",
                 "files": "1",
                 "lines": "10",
@@ -118,7 +118,7 @@ class CalibrationTests(unittest.TestCase):
             rows.extend(
                 row(
                     task=f"cheap-{number}",
-                    destination="opencode-delegate",
+                    destination="pi-delegate",
                     reason="verification-failed",
                 )
                 for number in range(3)

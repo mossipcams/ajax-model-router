@@ -68,12 +68,12 @@ require_value "$token_usage" token-usage
 [[ "$task_kind" =~ ^(behavior|tests-only|docs-only|mechanical|review|planning)$ ]] || { echo "error: invalid task-kind" >&2; exit 2; }
 [[ "$risk_class" =~ ^(LOW|MEDIUM|HIGH)$ ]] || { echo "error: invalid risk-class" >&2; exit 2; }
 [[ "$action" =~ ^(LOCAL|GATHER_EVIDENCE|BUILD_PACKET|CRITIQUE_PACKET|DELEGATE|REVIEW|REVIEW_GATE|OBSERVATION|STOP|EPOCH)$ ]] || { echo "error: invalid action" >&2; exit 2; }
-[[ "$lane" =~ ^(local|tdd-implementation-packet|cursor-delegate|opencode-delegate|codex-delegate|NONE)$ ]] || { echo "error: invalid lane" >&2; exit 2; }
+[[ "$lane" =~ ^(local|tdd-implementation-packet|cursor-delegate|pi-delegate|codex-delegate|NONE)$ ]] || { echo "error: invalid lane" >&2; exit 2; }
 [[ "$estimated_files" == UNKNOWN || "$estimated_files" =~ ^[0-9]+$ ]] || { echo "error: invalid estimated-files" >&2; exit 2; }
 [[ "$estimated_lines" == UNKNOWN || "$estimated_lines" =~ ^[0-9]+$ ]] || { echo "error: invalid estimated-lines" >&2; exit 2; }
 [[ "$critique_result" =~ ^(PASS|BLOCK|NOT_RUN|UNKNOWN)$ ]] || { echo "error: invalid critique-result" >&2; exit 2; }
 [[ "$gate_result" =~ ^(ACCEPT|REVISE|DISCARD|STOP|NOT_RUN|UNKNOWN)$ ]] || { echo "error: invalid gate-result" >&2; exit 2; }
-[[ "$escalation_destination" =~ ^(local|tdd-implementation-packet|cursor-delegate|opencode-delegate|codex-delegate|STOP|NONE|UNKNOWN)$ ]] || { echo "error: invalid escalation-destination" >&2; exit 2; }
+[[ "$escalation_destination" =~ ^(local|tdd-implementation-packet|cursor-delegate|pi-delegate|codex-delegate|STOP|NONE|UNKNOWN)$ ]] || { echo "error: invalid escalation-destination" >&2; exit 2; }
 [[ "$failure_classification" =~ ^(NONE|TOOL_UNAVAILABLE|TIMEOUT|MISSING_REPORT|INVALID_REPORT|EMPTY_DELTA|SCOPE_VIOLATION|VERIFICATION_FAILED|CI_FAILED|ESCAPED_DEFECT|OTHER|UNKNOWN)$ ]] || { echo "error: invalid failure-classification" >&2; exit 2; }
 [[ "$verification_result" =~ ^(PASS|FAIL|NOT_RUN|UNKNOWN)$ ]] || { echo "error: invalid verification-result" >&2; exit 2; }
 [[ "$ci_result" =~ ^(PASS|FAIL|NOT_RUN|UNKNOWN)$ ]] || { echo "error: invalid ci-result" >&2; exit 2; }
