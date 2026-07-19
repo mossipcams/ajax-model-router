@@ -42,7 +42,19 @@ def command_for(tool, model, prompt, resume):
         return command
     if resume:
         raise ValueError("Pi resume is not a router mode")
-    return [executable, "-p", "--model", model, "--no-session", prompt]
+    # ponytail: packet is the contract; AGENTS.md / skill catalogs push the
+    # worker into parent-orchestrator re-reads. Ceiling: misses project
+    # conventions not in the packet. Upgrade: put those in the packet.
+    return [
+        executable,
+        "-p",
+        "--model",
+        model,
+        "--no-session",
+        "--no-context-files",
+        "--no-skills",
+        prompt,
+    ]
 
 
 def terminate_group(process, grace):

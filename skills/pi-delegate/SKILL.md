@@ -29,9 +29,10 @@ tool inside this adapter.
 ## Invocation
 
 Headless only. The shared runner uses the installed `pi --help` interface:
-`pi -p --model "$MODEL" --no-session <prompt>` with stdin closed. Never use
-interactive or server paths. It preserves the full raw log and prints only
-the complete structured report.
+`pi -p --model "$MODEL" --no-session --no-context-files --no-skills <prompt>`
+with stdin closed. Never use interactive or server paths. Context files and
+skills stay off — the READY packet is the worker contract. It preserves the
+full raw log and prints only the complete structured report.
 
 ```bash
 scripts/run-delegate --tool pi --model "$MODEL" \

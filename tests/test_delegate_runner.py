@@ -215,7 +215,18 @@ print("ROUTER_REPORT_END")
 """
         for tool, executable, expected_prefix in (
             ("cursor", "cursor-agent", ["-p", "-f", "--trust", "--model", "test-model"]),
-            ("pi", "pi", ["-p", "--model", "test-model", "--no-session"]),
+            (
+                "pi",
+                "pi",
+                [
+                    "-p",
+                    "--model",
+                    "test-model",
+                    "--no-session",
+                    "--no-context-files",
+                    "--no-skills",
+                ],
+            ),
         ):
             with self.subTest(tool=tool), tempfile.TemporaryDirectory() as tmp:
                 tmp = Path(tmp)
