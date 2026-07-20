@@ -26,6 +26,12 @@ scripts/check-symlinks --target ../ajax-cli
 scripts/check-contracts
 ```
 
+Install wires skill symlinks under `.cursor` / `.codex` / `.claude` and also
+links the delegation helpers (`scripts/run-delegate`, `delegate-snapshot`,
+`delegate-delta`, `check-packet`, …) into the target's `scripts/` so a task
+worktree can run the skill commands as written. Re-run install for each
+worktree that needs dispatch (git worktrees do not share untracked scripts).
+
 Use `--force` only when replacing an existing non-canonical install:
 
 ```bash

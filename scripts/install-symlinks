@@ -68,19 +68,17 @@ source_for() {
   echo "$CANONICAL/skills/$name"
 }
 
-install_one() {
-  local base="$1"
-  local name="$2"
-  local parent="$TARGET/$base/skills"
-  local dest="$parent/$name"
-  local source resolved source_resolved backup
+link_path() {
+  local dest="$1"
+  local source="$2"
+  local parent resolved source_resolved backup
 
-  source="$(source_for "$base" "$name")"
   if [[ ! -e "$source" ]]; then
-    echo "error: source skill does not exist: $source" >&2
+    echo "error: source does not exist: $source" >&2
     return 1
   fi
   source_resolved="$(resolve_path "$source")"
+  parent="$(dirname "$dest")"
 
   if [[ ! -d "$parent" ]]; then
     mkdir -p "$parent"
@@ -131,6 +129,17 @@ install_one() {
   echo "created: $dest -> $source"
 }
 
+install_one() {
+  local base="$1"
+  local name="$2"
+  link_path "$TARGET/$base/skills/$name" "$(source_for "$base" "$name")"
+}
+
+install_script() {
+  local name="$1"
+  link_path "$TARGET/scripts/$name" "$CANONICAL/scripts/$name"
+}
+
 echo "canonical: $CANONICAL"
 echo "target: $TARGET"
 
@@ -154,4 +163,19 @@ for skill in \
 do
   install_one ".codex" "$skill"
   install_one ".claude" "$skill"
+done
+
+# Skills invoke these as worktree-relative `scripts/...`; keep them wired to
+# the canonical router so any task worktree can dispatch without improvising.
+for script in \
+  "run-delegate" \
+  "delegate-snapshot" \
+  "delegate-delta" \
+  "check-packet" \
+  "check-report" \
+  "extract-report" \
+  "router-log" \
+  "router-log-summary"
+do
+  install_script "$script"
 done

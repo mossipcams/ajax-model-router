@@ -3,7 +3,8 @@ set -euo pipefail
 
 LOG="${1:-${HOME}/.ajax-router/log.tsv}"
 [[ -f "$LOG" ]] || { echo "no log at $LOG" >&2; exit 1; }
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# Resolve through symlinks so worktree installs still find canonical skills.
+ROOT="$(cd "$(dirname "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
 
 start="$(awk -F'\t' '
   ($1 == "v2" && NF == 22 && $9 == "EPOCH") || ($1 != "v2" && $4 == "EPOCH") {line=NR}

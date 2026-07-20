@@ -42,6 +42,25 @@ class SymlinkTests(unittest.TestCase):
             self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
             installed = target / ".codex" / "skills" / "model-router"
             self.assertEqual(installed.resolve(), CANONICAL.resolve())
+            for name in (
+                "run-delegate",
+                "delegate-snapshot",
+                "delegate-delta",
+                "check-packet",
+            ):
+                script = target / "scripts" / name
+                self.assertTrue(script.is_symlink(), name)
+                self.assertEqual(
+                    script.resolve(), (ROOT / "scripts" / name).resolve(), name
+                )
+
+            help_run = subprocess.run(
+                [target / "scripts" / "run-delegate", "--help"],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(help_run.returncode, 0, help_run.stderr)
+            self.assertIn("usage", (help_run.stdout + help_run.stderr).lower())
 
             scan = subprocess.run(
                 ["find", "-L", target, "-type", "f"],

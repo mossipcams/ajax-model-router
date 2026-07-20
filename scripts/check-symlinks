@@ -74,13 +74,11 @@ check_no_ancestor_links() {
   done
 }
 
-check_one() {
-  local base="$1"
-  local name="$2"
-  local dest="$TARGET/$base/skills/$name"
-  local source resolved source_resolved
+check_link() {
+  local dest="$1"
+  local source="$2"
+  local resolved source_resolved
 
-  source="$(source_for "$base" "$name")"
   if [[ ! -e "$source" ]]; then
     echo "missing-source: $source"
     return 1
@@ -104,6 +102,17 @@ check_one() {
   fi
 
   echo "ok: $dest -> $source"
+}
+
+check_one() {
+  local base="$1"
+  local name="$2"
+  check_link "$TARGET/$base/skills/$name" "$(source_for "$base" "$name")"
+}
+
+check_script() {
+  local name="$1"
+  check_link "$TARGET/scripts/$name" "$CANONICAL/scripts/$name"
 }
 
 echo "canonical: $CANONICAL"
@@ -130,4 +139,17 @@ for skill in \
 do
   check_one ".codex" "$skill"
   check_one ".claude" "$skill"
+done
+
+for script in \
+  "run-delegate" \
+  "delegate-snapshot" \
+  "delegate-delta" \
+  "check-packet" \
+  "check-report" \
+  "extract-report" \
+  "router-log" \
+  "router-log-summary"
+do
+  check_script "$script"
 done
