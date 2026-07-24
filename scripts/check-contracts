@@ -113,7 +113,7 @@ require_text "$codex" "PACKET_REVIEW" "Codex packet review schema"
 
 pi="skills/pi-delegate/SKILL.md"
 require_text "$pi" 'Headless only.' "Pi headless-only note"
-require_text "$pi" 'pi -p --model "$MODEL" --no-session --no-context-files --no-skills <prompt>' "Pi verified invocation"
+require_text "$pi" 'pi --mode rpc --model "$MODEL" --no-session --no-context-files --no-skills' "Pi verified invocation"
 require_text "$pi" 'scripts/run-delegate --tool pi' "Pi bounded runner"
 require_text "$pi" 'Exit `124`' "Pi delegate timeout status"
 

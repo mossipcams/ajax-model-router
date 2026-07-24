@@ -41,9 +41,12 @@ Resume keeps the original mode; `resume` is not a separate mode.
 
 ## Invocation
 
-The shared runner uses only flags present in installed `cursor-agent --help`:
-`-p -f --trust --model`, plus `--resume` for a same-session revision. It
-preserves the full raw log and prints only the complete structured report.
+The shared runner uses Cursor's native stream output:
+`-p -f --trust --model "$MODEL" --output-format stream-json
+--stream-partial-output`, plus `--resume "$CHAT_ID"` for a same-session
+revision. It consumes Cursor JSONL events directly; it does not invent an RPC
+layer. The full JSONL/stderr stream is preserved in the raw log and only the
+validated structured report is printed.
 
 ```bash
 scripts/run-delegate --tool cursor --model "$MODEL" \
@@ -52,6 +55,8 @@ scripts/run-delegate --tool cursor --model "$MODEL" \
   --report "$AJAX_ROUTER_RUN_DIR/report.yaml"
 ```
 
-For resume, append `--resume "$CHAT_ID"`. Timeout, missing tool, missing report,
-or invalid report returns an explicit failed `DELEGATE_REPORT`. Return the
-extracted report unchanged to the router's Review Gate.
+For resume, append `--resume "$CHAT_ID"`. Timeout, malformed/unknown events,
+missing terminal events, missing report, or invalid report returns an explicit
+failed `DELEGATE_REPORT`. Native result events are authoritative when present;
+process exit remains a final safety check. Return the extracted report
+unchanged to the router's Review Gate.

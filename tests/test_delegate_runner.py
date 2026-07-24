@@ -1,6 +1,7 @@
 import subprocess
 import tempfile
 import os
+import signal
 import time
 import json
 import unittest
@@ -12,8 +13,256 @@ CHECK = ROOT / "scripts" / "check-report"
 EXTRACT = ROOT / "scripts" / "extract-report"
 RUNNER = ROOT / "scripts" / "run-delegate"
 
+from libexec.delegate_events import normalize_record, parse_jsonl_line
+
 
 class DelegateRunnerTests(unittest.TestCase):
+    def test_native_event_lines_parse_and_normalize(self):
+        cases = (
+            ("pi", {"type": "agent_start"}, "started"),
+            ("pi", {"type": "tool_execution_start", "toolName": "bash"}, "activity/tool started"),
+            ("pi", {"type": "tool_execution_end", "toolName": "bash"}, "activity/tool finished"),
+            ("pi", {"type": "message_update", "message": {"role": "assistant", "content": [{"type": "text", "text": "progress"}]}}, "message/progress"),
+            ("pi", {"type": "agent_settled"}, "completed"),
+            ("cursor", {"type": "system", "subtype": "init", "session_id": "chat"}, "started"),
+            ("cursor", {"type": "tool_call", "subtype": "started", "tool_call_id": "t1"}, "activity/tool started"),
+            ("cursor", {"type": "tool_call", "subtype": "completed", "tool_call_id": "t1"}, "activity/tool finished"),
+            ("cursor", {"type": "assistant", "message": {"content": [{"type": "text", "text": "progress"}]}}, "message/progress"),
+            ("cursor", {"type": "result", "is_error": False, "result": "done"}, "completed"),
+            ("cursor", {"type": "result", "is_error": True, "error": "boom"}, "failed"),
+        )
+        for source, record, expected in cases:
+            with self.subTest(source=source, record=record):
+                event = normalize_record(source, record)
+                self.assertIsNotNone(event)
+                self.assertEqual(event.kind, expected)
+
+    def test_native_event_parser_keeps_report_text_and_tolerates_bad_lines(self):
+        report = "ROUTER_REPORT_BEGIN\nDELEGATE_REPORT:\nROUTER_REPORT_END"
+        line = json.dumps({
+            "type": "message_end",
+            "message": {"role": "assistant", "content": [{"type": "text", "text": report}]},
+        })
+        event = normalize_record("pi", parse_jsonl_line(line))
+        self.assertEqual(event.report_text, report)
+        self.assertIsNone(parse_jsonl_line("not json"))
+        self.assertIsNone(normalize_record("pi", {"type": "future_event", "value": 1}))
+
+    def test_pi_rpc_keeps_one_process_for_follow_up_and_extracts_report(self):
+        fake = """#!/usr/bin/env python3
+import json
+import os
+import sys
+
+Path = __import__("pathlib").Path
+Path(os.environ["ARGS_FILE"]).write_text(json.dumps(sys.argv[1:]))
+commands = []
+for line in sys.stdin:
+    command = json.loads(line)
+    commands.append(command)
+    print(json.dumps({"type": "agent_start"}), flush=True)
+    print(json.dumps({"type": "response", "command": command["type"], "success": True}), flush=True)
+    if command["type"] == "follow_up":
+        report = "ROUTER_REPORT_BEGIN\\nDELEGATE_REPORT:\\n  STATUS: COMPLETE\\n  SUMMARY: follow-up complete\\n  FILES_CHANGED: []\\n  TEST_FIRST: NOT_APPLICABLE\\n  COMMAND_EVIDENCE: []\\n  STOP_CONDITIONS_HIT: []\\n  REMAINING_RISKS: []\\nROUTER_REPORT_END"
+        print(json.dumps({"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": report}]}}), flush=True)
+    print(json.dumps({"type": "agent_settled"}), flush=True)
+Path(os.environ["COMMANDS_FILE"]).write_text(json.dumps(commands))
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            command = bin_dir / "pi"
+            command.write_text(fake)
+            command.chmod(0o755)
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("initial packet")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            args_file = tmp / "args.json"
+            commands_file = tmp / "commands.json"
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+            env["ARGS_FILE"] = str(args_file)
+            env["COMMANDS_FILE"] = str(commands_file)
+            result = subprocess.run(
+                [
+                    RUNNER,
+                    "--tool", "pi",
+                    "--model", "test-model",
+                    "--prompt", prompt,
+                    "--raw-log", raw,
+                    "--report", report,
+                    "--follow-up", "correction",
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            args = json.loads(args_file.read_text())
+            self.assertEqual(args[:4], ["--mode", "rpc", "--model", "test-model"])
+            self.assertNotIn("initial packet", args)
+            commands = json.loads(commands_file.read_text())
+            self.assertEqual([item["type"] for item in commands], ["prompt", "follow_up"])
+            self.assertIn('"type": "agent_settled"', raw.read_text())
+            self.assertIn("SUMMARY: follow-up complete", report.read_text())
+
+    def test_cursor_stream_json_resume_and_structured_completion(self):
+        fake = """#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+Path(os.environ["ARGS_FILE"]).write_text(json.dumps(sys.argv[1:]))
+report = "ROUTER_REPORT_BEGIN\\nDELEGATE_REPORT:\\n  STATUS: COMPLETE\\n  SUMMARY: cursor complete\\n  FILES_CHANGED: []\\n  TEST_FIRST: NOT_APPLICABLE\\n  COMMAND_EVIDENCE: []\\n  STOP_CONDITIONS_HIT: []\\n  REMAINING_RISKS: []\\nROUTER_REPORT_END"
+print(json.dumps({"type": "system", "subtype": "init", "session_id": "chat-1"}), flush=True)
+print(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "working"}]}},), flush=True)
+print(json.dumps({"type": "result", "is_error": False, "result": report}), flush=True)
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            command = bin_dir / "cursor-agent"
+            command.write_text(fake)
+            command.chmod(0o755)
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("packet")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            args_file = tmp / "args.json"
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+            env["ARGS_FILE"] = str(args_file)
+            result = subprocess.run(
+                [
+                    RUNNER,
+                    "--tool", "cursor",
+                    "--model", "test-model",
+                    "--prompt", prompt,
+                    "--raw-log", raw,
+                    "--report", report,
+                    "--resume", "chat-1",
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            args = json.loads(args_file.read_text())
+            self.assertEqual(
+                args,
+                [
+                    "-p", "-f", "--trust", "--model", "test-model",
+                    "--resume", "chat-1", "--output-format", "stream-json",
+                    "--stream-partial-output", prompt.read_text(),
+                ],
+            )
+            self.assertIn('"type": "result"', raw.read_text())
+            self.assertIn("SUMMARY: cursor complete", report.read_text())
+
+    def test_native_failure_unknown_lines_and_unexpected_exit_are_explicit(self):
+        cases = (
+            (
+                "cursor-agent",
+                "cursor",
+                "import json,sys; print('malformed'); print(json.dumps({'type':'future_event'})); print(json.dumps({'type':'result','is_error':True,'error':'boom'})); print('stderr detail', file=sys.stderr)",
+                "NATIVE_EVENT_FAILED",
+            ),
+            (
+                "pi",
+                "pi",
+                "import json; print(json.dumps({'type':'agent_start'}), flush=True)",
+                "MISSING_TERMINAL_EVENT",
+            ),
+        )
+        for executable, tool, body, expected_reason in cases:
+            with self.subTest(tool=tool), tempfile.TemporaryDirectory() as tmp:
+                tmp = Path(tmp)
+                bin_dir = tmp / "bin"
+                bin_dir.mkdir()
+                command = bin_dir / executable
+                command.write_text(f"#!/usr/bin/env python3\n{body}\n")
+                command.chmod(0o755)
+                prompt = tmp / "prompt.txt"
+                prompt.write_text("packet")
+                raw = tmp / "raw.log"
+                report = tmp / "report.yaml"
+                env = os.environ.copy()
+                env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+                result = subprocess.run(
+                    [
+                        RUNNER, "--tool", tool, "--model", "test-model",
+                        "--prompt", prompt, "--raw-log", raw, "--report", report,
+                    ],
+                    text=True,
+                    capture_output=True,
+                    env=env,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                contents = report.read_text()
+                self.assertIn("STATUS: FAILED", contents)
+                self.assertIn(expected_reason, contents)
+                if tool == "cursor":
+                    self.assertIn("malformed", raw.read_text())
+                    self.assertIn("stderr detail", raw.read_text())
+
+    def test_cancellation_terminates_native_process_group(self):
+        fake = """#!/usr/bin/env python3
+import os
+import signal
+import time
+from pathlib import Path
+
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+Path(os.environ["PID_FILE"]).write_text(str(os.getpid()))
+while True:
+    time.sleep(1)
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            command = bin_dir / "pi"
+            command.write_text(fake)
+            command.chmod(0o755)
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("packet")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            pid_file = tmp / "pid"
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+            env["PID_FILE"] = str(pid_file)
+            process = subprocess.Popen(
+                [
+                    RUNNER, "--tool", "pi", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                    "--timeout-seconds", "10",
+                    "--term-grace-seconds", "0.2",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+            )
+            for _ in range(50):
+                if pid_file.exists():
+                    break
+                time.sleep(0.02)
+            process.send_signal(signal.SIGINT)
+            stdout, stderr = process.communicate(timeout=3)
+            self.assertEqual(process.returncode, 130, stdout + stderr)
+            self.assertIn("CANCELLED", report.read_text())
+            child = subprocess.run(
+                ["ps", "-p", pid_file.read_text(), "-o", "stat="],
+                text=True,
+                capture_output=True,
+            )
+            self.assertTrue(child.returncode != 0 or child.stdout.strip().startswith("Z"))
+
     def test_complete_report_is_not_truncated(self):
         report = """\
 DELEGATE_REPORT:
@@ -202,24 +451,28 @@ import sys
 from pathlib import Path
 
 Path(os.environ["ARGS_FILE"]).write_text(json.dumps(sys.argv[1:]))
-print("ROUTER_REPORT_BEGIN")
-print("DELEGATE_REPORT:")
-print("  STATUS: COMPLETE")
-print("  SUMMARY: complete")
-print("  FILES_CHANGED: []")
-print("  TEST_FIRST: NOT_APPLICABLE")
-print("  COMMAND_EVIDENCE: []")
-print("  STOP_CONDITIONS_HIT: []")
-print("  REMAINING_RISKS: []")
-print("ROUTER_REPORT_END")
+report = "ROUTER_REPORT_BEGIN\\nDELEGATE_REPORT:\\n  STATUS: COMPLETE\\n  SUMMARY: complete\\n  FILES_CHANGED: []\\n  TEST_FIRST: NOT_APPLICABLE\\n  COMMAND_EVIDENCE: []\\n  STOP_CONDITIONS_HIT: []\\n  REMAINING_RISKS: []\\nROUTER_REPORT_END"
+if "--mode" in sys.argv:
+    for line in sys.stdin:
+        print(json.dumps({"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": report}]}}), flush=True)
+        print(json.dumps({"type": "agent_settled"}), flush=True)
+        break
+else:
+    print(json.dumps({"type": "system", "subtype": "init"}), flush=True)
+    print(json.dumps({"type": "result", "is_error": False, "result": report}), flush=True)
 """
         for tool, executable, expected_prefix in (
-            ("cursor", "cursor-agent", ["-p", "-f", "--trust", "--model", "test-model"]),
+            (
+                "cursor",
+                "cursor-agent",
+                ["-p", "-f", "--trust", "--model", "test-model", "--output-format", "stream-json", "--stream-partial-output"],
+            ),
             (
                 "pi",
                 "pi",
                 [
-                    "-p",
+                    "--mode",
+                    "rpc",
                     "--model",
                     "test-model",
                     "--no-session",
@@ -264,7 +517,10 @@ print("ROUTER_REPORT_END")
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 actual = json.loads(args_file.read_text())
                 self.assertEqual(actual[: len(expected_prefix)], expected_prefix)
-                self.assertEqual(actual[-1], prompt.read_text())
+                if tool == "cursor":
+                    self.assertEqual(actual[-1], prompt.read_text())
+                else:
+                    self.assertNotIn(prompt.read_text(), actual)
 
     def test_adapter_contract_defines_initial_resume_and_cross_tool_payloads(self):
         cursor = (ROOT / "skills" / "cursor-delegate" / "SKILL.md").read_text()

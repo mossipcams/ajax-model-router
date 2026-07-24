@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import os
+import queue
 import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import codex_app_server
+from delegate_events import normalize_record, parse_jsonl_line
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +45,7 @@ def command_for(tool, model, prompt, resume):
         command = [executable, "-p", "-f", "--trust", "--model", model]
         if resume:
             command.extend(["--resume", resume])
+        command.extend(["--output-format", "stream-json", "--stream-partial-output"])
         command.append(prompt)
         return command
     if resume:
@@ -50,13 +55,13 @@ def command_for(tool, model, prompt, resume):
     # conventions not in the packet. Upgrade: put those in the packet.
     return [
         executable,
-        "-p",
+        "--mode",
+        "rpc",
         "--model",
         model,
         "--no-session",
         "--no-context-files",
         "--no-skills",
-        prompt,
     ]
 
 
@@ -87,6 +92,165 @@ def extract_report(raw_or_message, report):
     sys.stdout.write(extracted.stdout)
     sys.stderr.write(extracted.stderr)
     return extracted.returncode
+
+
+def extract_report_text(text, raw_log, report):
+    message = raw_log.with_suffix(raw_log.suffix + ".message")
+    message.write_text(text)
+    return extract_report(message, report)
+
+
+def _native_command(args, prompt):
+    command = command_for(args.tool, args.model, prompt, args.resume)
+    if args.tool == "pi" and args.resume:
+        raise ValueError("Pi resume is not a router mode")
+    return command
+
+
+def run_native(args, prompt):
+    command = _native_command(args, prompt)
+    follow_ups = list(args.follow_up)
+    if follow_ups and args.tool != "pi":
+        raise ValueError("--follow-up is only supported for Pi")
+
+    args.raw_log.parent.mkdir(parents=True, exist_ok=True)
+    events = queue.Queue()
+    report_text = ""
+    failure = ""
+    failure_reason = "NATIVE_EVENT_FAILED"
+    terminal = False
+    follow_up_index = 0
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+        text=True,
+        bufsize=1,
+    )
+
+    def pump(name, stream):
+        try:
+            for line in stream:
+                events.put((name, line))
+        finally:
+            events.put((name, None))
+
+    threads = [
+        threading.Thread(target=pump, args=("stdout", process.stdout), daemon=True),
+        threading.Thread(target=pump, args=("stderr", process.stderr), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+
+    def send(kind, message):
+        try:
+            process.stdin.write(json.dumps({"id": f"delegate-{kind}", "type": kind, "message": message}) + "\n")
+            process.stdin.flush()
+            return True
+        except (BrokenPipeError, OSError):
+            return False
+
+    def close_stdin():
+        if process.stdin and not process.stdin.closed:
+            process.stdin.close()
+
+    if not send("prompt", prompt):
+        failure = "delegate stdin closed before prompt was accepted"
+        failure_reason = "NATIVE_EVENT_FAILED"
+    deadline = time.monotonic() + args.timeout_seconds
+    eof = set()
+    try:
+        with args.raw_log.open("w") as raw:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    terminate_group(process, args.term_grace_seconds)
+                    failed_report(
+                        args.report,
+                        "TIMEOUT",
+                        f"{args.tool} delegation timed out after {args.timeout_seconds:g} seconds",
+                    )
+                    return 124
+                try:
+                    stream, line = events.get(timeout=min(0.1, remaining))
+                except queue.Empty:
+                    line = None
+                    stream = None
+                if stream is not None:
+                    if line is None:
+                        eof.add(stream)
+                    elif stream == "stderr":
+                        raw.write("[stderr] " + line)
+                        raw.flush()
+                    else:
+                        raw.write(line)
+                        raw.flush()
+                        record = parse_jsonl_line(line)
+                        if record is None:
+                            continue
+                        event = normalize_record(args.tool, record)
+                        if event is None:
+                            continue
+                        if event.report_text:
+                            report_text = event.report_text
+                        if event.kind == "failed":
+                            failure = event.error or "native delegate event reported failure"
+                            failure_reason = "NATIVE_EVENT_FAILED"
+                            terminal = True
+                            close_stdin()
+                        elif event.kind == "completed":
+                            terminal = True
+                            if follow_up_index < len(follow_ups):
+                                if not send("follow_up", follow_ups[follow_up_index]):
+                                    failure = "delegate stdin closed before follow-up was accepted"
+                                    failure_reason = "NATIVE_EVENT_FAILED"
+                                follow_up_index += 1
+                                terminal = False
+                            elif args.tool == "pi":
+                                close_stdin()
+                if process.poll() is not None:
+                    if terminal or failure:
+                        break
+                    if "stdout" in eof and "stderr" in eof:
+                        failure = "delegate exited without a terminal native event"
+                        failure_reason = "MISSING_TERMINAL_EVENT"
+                        break
+                if terminal and args.tool == "cursor":
+                    break
+                if failure:
+                    break
+    except KeyboardInterrupt:
+        terminate_group(process, args.term_grace_seconds)
+        failed_report(args.report, "CANCELLED", f"{args.tool} delegation cancelled")
+        return 130
+    finally:
+        if process.poll() is None:
+            close_stdin()
+            try:
+                process.wait(timeout=max(1.0, args.term_grace_seconds))
+            except subprocess.TimeoutExpired:
+                terminate_group(process, args.term_grace_seconds)
+        for thread in threads:
+            thread.join(timeout=1)
+        for stream in (process.stdin, process.stdout, process.stderr):
+            try:
+                stream.close()
+            except (AttributeError, OSError):
+                pass
+
+    if failure:
+        failed_report(args.report, failure_reason, failure)
+        return 1
+    if not terminal:
+        failed_report(args.report, "MISSING_TERMINAL_EVENT", "delegate produced no terminal native event")
+        return 1
+    if not report_text:
+        failed_report(args.report, "MISSING_STRUCTURED_REPORT", "delegate produced no structured report text")
+        return 1
+    code = extract_report_text(report_text, args.raw_log, args.report)
+    return code or process.returncode
 
 
 def run_codex(args, prompt):
@@ -154,6 +318,7 @@ def main():
         help="codex only: model_reasoning_effort (default xhigh)",
     )
     parser.add_argument("--resume")
+    parser.add_argument("--follow-up", action="append", default=[])
     args = parser.parse_args()
     if not 0 < args.timeout_seconds <= 86400:
         parser.error("--timeout-seconds must be between 0 and 86400")
@@ -164,6 +329,12 @@ def main():
 
     if args.tool == "codex":
         return run_codex(args, prompt)
+
+    if args.tool in {"pi", "cursor"}:
+        try:
+            return run_native(args, prompt)
+        except ValueError as error:
+            parser.error(str(error))
 
     try:
         command = command_for(args.tool, args.model, prompt, args.resume)

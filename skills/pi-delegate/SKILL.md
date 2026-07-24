@@ -28,11 +28,13 @@ tool inside this adapter.
 
 ## Invocation
 
-Headless only. The shared runner uses the installed `pi --help` interface:
-`pi -p --model "$MODEL" --no-session --no-context-files --no-skills <prompt>`
-with stdin closed. Never use interactive or server paths. Context files and
-skills stay off — the READY packet is the worker contract. It preserves the
-full raw log and prints only the complete structured report.
+Headless only. The shared runner starts one native RPC process per delegation:
+`pi --mode rpc --model "$MODEL" --no-session --no-context-files --no-skills`.
+It sends JSONL `prompt` and `follow_up` commands over stdin and consumes Pi's
+native events until `agent_settled`. The process stays alive for the delegation
+so follow-ups reuse the same in-memory context; closing stdin ends it. Context
+files and skills stay off — the READY packet is the worker contract. The full
+JSONL/stderr stream is preserved in the raw log.
 
 ```bash
 scripts/run-delegate --tool pi --model "$MODEL" \
@@ -42,7 +44,9 @@ scripts/run-delegate --tool pi --model "$MODEL" \
 ```
 
 Exit `124` is an explicit timeout report, not a completed empty diff. Missing
-tool, missing output, and invalid output also return explicit failed reports.
+tool, malformed/unknown events, missing terminal events, and invalid reports
+also return explicit failed reports. Native events drive status; process exit
+remains the final safety signal.
 
 Mode-specific line appended to the router prompt:
 

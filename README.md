@@ -46,7 +46,7 @@ scripts/install-symlinks --target ../ajax-cli --force
   pre-versus-post patch reviewed by the parent and safely restore only that
   delta on `DISCARD`.
 - `scripts/run-delegate` bounds Cursor and Pi process groups and keeps
-  full raw logs while returning complete structured reports.
+  full native JSONL logs while returning complete structured reports.
 - `scripts/router-log` writes validated v2 calibration rows;
   `scripts/router-log-summary` excludes incomplete legacy rows from v2 metrics.
 
@@ -60,3 +60,21 @@ scripts/install-symlinks --target ../ajax-cli --force
 | Failed cheap-model implementation | 1 cheap call + 1 critique + 1 GLM revision | 1 cheap call + 1 GLM revision; critique only if uncertainty is recorded |
 
 Tiny one-file edits that satisfy the local rule remain 0 delegated model calls.
+
+## Native delegate transports
+
+Pi uses one `pi --mode rpc --model MODEL --no-session --no-context-files
+--no-skills` process per active delegation. The runner sends JSONL `prompt` and
+`follow_up` commands, keeps the process alive for that delegation, and closes
+stdin during cleanup. Pi's native events map to the router's small normalized
+set: `started`, `activity/tool started`, `activity/tool finished`,
+`message/progress`, `completed`, and `failed`.
+
+Cursor uses `cursor-agent -p -f --trust --model MODEL --output-format
+stream-json --stream-partial-output`, preserving `--resume CHAT_ID`. Cursor's
+native JSONL events feed the same normalized set without an invented RPC layer.
+Unknown or malformed lines are retained in the raw log and skipped when safe;
+native terminal events are authoritative, with process exit as the final safety
+signal. Worktree isolation, READY packets, model selection, report schema,
+timeouts, cancellation, and Review Gate behavior remain unchanged. Sessions
+are not persisted beyond the lifetime of a Pi delegation.
