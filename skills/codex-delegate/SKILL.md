@@ -33,19 +33,34 @@ inside this adapter.
 
 ## Invocation
 
-Write the prompt to `/tmp/codex-task.txt`, then run the selected command:
+Codex runs through `codex app-server` (native line-delimited JSON-RPC), driven by
+the shared runner — the same boundary as Pi and Cursor. One app-server process
+per delegation; the runner initializes the connection, starts a thread, runs one
+turn with the packet, consumes the structured events, and feeds the final agent
+message into the same `extract-report` contract. The mode selects the sandbox:
 
-| Mode | Command |
+| Mode | Sandbox |
 |---|---|
-| `packet-critique` | `codex exec --model "$MODEL" --config 'model_reasoning_effort="xhigh"' --sandbox read-only --output-last-message /tmp/codex-report.md -` |
-| `implementation` | `codex exec --model "$MODEL" --config 'model_reasoning_effort="xhigh"' --sandbox workspace-write --output-last-message /tmp/codex-report.md -` |
+| `packet-critique` | `read-only` |
+| `implementation` | `workspace-write` |
 
 ```bash
-codex exec <mode flags> - < /tmp/codex-task.txt > /tmp/codex-run.log 2>&1
-cat /tmp/codex-report.md
+scripts/run-delegate --tool codex --model "$MODEL" \
+  --sandbox <read-only|workspace-write> \
+  --reasoning-effort xhigh \
+  --prompt "$AJAX_ROUTER_RUN_DIR/prompt.txt" \
+  --raw-log "$AJAX_ROUTER_RUN_DIR/raw.log" \
+  --report "$AJAX_ROUTER_RUN_DIR/report.yaml"
 ```
 
-Read only the report file, not the full run log.
+Reasoning effort stays `xhigh`. Authentication uses the existing Codex/ChatGPT
+login (resolved from `~/.codex`); never force an API key. The runner prints only
+the extracted structured report; the raw JSON-RPC log is preserved for debugging.
+
+For a follow-up turn that reuses Codex's retained thread context, append
+`--resume "$THREAD_ID"` (the thread id from the prior run's raw log). Timeout,
+missing tool, missing report, or invalid report returns an explicit failed
+`DELEGATE_REPORT`.
 
 ## Prompts
 

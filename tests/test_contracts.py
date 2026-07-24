@@ -16,7 +16,13 @@ class ContractTests(unittest.TestCase):
 
         self.assertIn("| `CODEX` | `gpt-5.6-sol` |", router)
         self.assertNotIn("gpt-5.5", router)
-        self.assertEqual(adapter.count("--config 'model_reasoning_effort=\"xhigh\"'"), 2)
+        # Codex now runs through the shared app-server runner; xhigh reasoning is
+        # carried by the runner flag and enforced behaviorally in
+        # test_codex_app_server.RunnerIntegrationTests.test_reasoning_effort_defaults_to_xhigh.
+        self.assertIn("--reasoning-effort xhigh", adapter)
+        self.assertIn("--tool codex", adapter)
+        for sandbox in ("read-only", "workspace-write"):
+            self.assertIn(sandbox, adapter)
 
     def test_packet_requires_evidence_not_tool_ceremony(self):
         text = PACKET.read_text()

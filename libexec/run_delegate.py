@@ -8,6 +8,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import codex_app_server
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -75,15 +78,81 @@ def terminate_group(process, grace):
         pass
 
 
+def extract_report(raw_or_message, report):
+    extracted = subprocess.run(
+        [ROOT / "scripts" / "extract-report", raw_or_message, report],
+        text=True,
+        capture_output=True,
+    )
+    sys.stdout.write(extracted.stdout)
+    sys.stderr.write(extracted.stderr)
+    return extracted.returncode
+
+
+def run_codex(args, prompt):
+    """Codex uses `codex app-server` (native JSON-RPC), not a one-shot subprocess.
+
+    The raw log holds the protocol JSONL (+ stderr under a marker); the worker's
+    final agent message carries the DELEGATE_REPORT envelope, which is fed to the
+    same extract-report/check-report contract as Pi/Cursor."""
+    args.raw_log.parent.mkdir(parents=True, exist_ok=True)
+    message_file = args.raw_log.with_suffix(args.raw_log.suffix + ".message")
+    with args.raw_log.open("w") as raw:
+        try:
+            result = codex_app_server.run_delegation(
+                prompt,
+                cwd=Path.cwd(),
+                model=args.model,
+                raw_log=raw,
+                sandbox=args.sandbox,
+                reasoning_effort=args.reasoning_effort,
+                timeout=args.timeout_seconds,
+                term_grace_seconds=args.term_grace_seconds,
+                resume_thread_id=args.resume,
+            )
+        except codex_app_server.CodexTimeout:
+            failed_report(
+                args.report,
+                "TIMEOUT",
+                f"codex delegation timed out after {args.timeout_seconds:g} seconds",
+            )
+            return 124
+        except codex_app_server.CodexError as error:
+            failed_report(args.report, error.reason, f"codex app-server: {error}")
+            return 1
+        except FileNotFoundError:
+            raw.write("missing delegate CLI: codex app-server\n")
+            failed_report(args.report, "MISSING_TOOL", "codex CLI is unavailable")
+            return 127
+
+    if result.status == "failed":
+        failed_report(args.report, "CODEX_TURN_FAILED", result.error or "codex turn failed")
+        return 1
+
+    message_file.write_text(result.final_message or "")
+    return extract_report(message_file, args.report)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tool", choices=("cursor", "pi"), required=True)
+    parser.add_argument("--tool", choices=("cursor", "pi", "codex"), required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--prompt", type=Path, required=True)
     parser.add_argument("--raw-log", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--timeout-seconds", type=float, default=900)
     parser.add_argument("--term-grace-seconds", type=float, default=5)
+    parser.add_argument(
+        "--sandbox",
+        choices=("read-only", "workspace-write"),
+        default="workspace-write",
+        help="codex only: read-only for packet-critique, workspace-write for implementation",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        default="xhigh",
+        help="codex only: model_reasoning_effort (default xhigh)",
+    )
     parser.add_argument("--resume")
     args = parser.parse_args()
     if not 0 < args.timeout_seconds <= 86400:
@@ -92,6 +161,10 @@ def main():
         parser.error("--term-grace-seconds must be between 0 and 30")
 
     prompt = args.prompt.read_text()
+
+    if args.tool == "codex":
+        return run_codex(args, prompt)
+
     try:
         command = command_for(args.tool, args.model, prompt, args.resume)
     except ValueError as error:
@@ -126,15 +199,9 @@ def main():
             )
             return 124
 
-    extracted = subprocess.run(
-        [ROOT / "scripts" / "extract-report", args.raw_log, args.report],
-        text=True,
-        capture_output=True,
-    )
-    sys.stdout.write(extracted.stdout)
-    sys.stderr.write(extracted.stderr)
-    if extracted.returncode:
-        return extracted.returncode
+    code = extract_report(args.raw_log, args.report)
+    if code:
+        return code
     return status
 
 
