@@ -106,7 +106,6 @@ class LifecycleTransactionTests(unittest.TestCase):
                 "## User request\n\ndo the thing\n"
                 "## Allowed files\n\n- a.py\n"
                 "## Acceptance criteria\n\n- done\n"
-                "## Verification commands\n\n- true\n"
                 "## Stop conditions\n\n- stop\n"
             )
             result = run(CHECK_DISPATCH, "direct", direct, check=False)
@@ -115,20 +114,16 @@ class LifecycleTransactionTests(unittest.TestCase):
             compact = tmp / "compact.md"
             compact.write_text(
                 "PACKET_STATUS: READY\n"
-                "TASK_KIND: mechanical\n"
-                "TEST_FIRST: NOT_APPLICABLE\n"
-                "PRODUCTION_EDIT: REQUIRED\n"
                 "UNRESOLVED_UNCERTAINTY: NONE\n"
                 "BLOCKERS: []\n"
                 "DISPATCH_LEVEL: compact\n"
-                "## Goal\n\ngoal\n"
+                "## Task\n\ngoal\n"
                 "## Allowed files\n\n- a.py\n"
                 "## Forbidden changes\n\n- none\n"
-                "## Code anchors\n\n- a.py:1\n"
-                "## Edit instructions\n\n- set x\n"
-                "## Verification commands\n\n- true\n"
-                "## Acceptance criteria\n\n- ok\n"
-                "## Stop conditions\n\n- stop\n"
+                "## Acceptance\n\n- ok\n"
+                "## Constraints\n\n- NONE\n"
+                "## Verification\n\nmethods:\n  - type: other\n    command: true\n    expected: exit 0\nreason: smoke\n"
+                "## Stop if\n\n- stop\n"
             )
             result = run(CHECK_DISPATCH, "compact", compact, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -227,12 +222,14 @@ class LifecycleTransactionTests(unittest.TestCase):
             report.write_text(
                 "DELEGATE_REPORT:\n"
                 "  STATUS: COMPLETE\n"
-                "  SUMMARY: done\n"
-                "  FILES_CHANGED: [src/example.py]\n"
-                "  TEST_FIRST: NOT_APPLICABLE\n"
-                "  COMMAND_EVIDENCE: []\n"
-                "  STOP_CONDITIONS_HIT: []\n"
-                "  REMAINING_RISKS: [watch nearby callers]\n"
+                "  CHANGED_FILES: [src/example.py]\n"
+                "  VERIFICATION:\n"
+                "    - TYPE: test\n"
+                "      COMMAND: true\n"
+                "      STEPS: []\n"
+                "      RESULT: pass\n"
+                "      DETAILS: ok\n"
+                "  CONCERNS: [watch nearby callers]\n"
             )
             ctx["artifacts"]["report_path"] = str(report)
             hooks.after_delegate(ctx)

@@ -136,6 +136,17 @@ regressions, security, error handling, test gaps, and cross-file integration.
 Reviews are never delegated; a Codex review happens only when the user
 explicitly requests one, outside this router.
 
+## Verification principle
+
+Ajax Model Router requires evidence that the implementation works.
+It does not require test-first development or TDD.
+Tests should be used when they are the most effective verification method.
+
+Every implementation task defines a verification plan appropriate to the change.
+Testing is one verification method, not the controlling workflow. Behavior
+changes do **not** automatically require a new failing test, RED evidence,
+GREEN sequencing, or `TEST_FIRST: REQUIRED`.
+
 ## Structured Reports
 
 All delegate and review results use these schemas. Missing fields make the
@@ -144,17 +155,37 @@ result `FAILED`; parents do not infer values from prose.
 ```yaml
 DELEGATE_REPORT:
   STATUS: COMPLETE | BLOCKED | FAILED
-  SUMMARY: <one sentence>
-  FILES_CHANGED: [<paths>]
-  TEST_FIRST: PROVEN | NOT_APPLICABLE | NOT_PROVEN
-  COMMAND_EVIDENCE:
-    - PHASE: RED | GREEN | VERIFY | OTHER
-      COMMAND: <exact command>
-      EXIT_CODE: <integer>
-      OUTPUT_EXCERPT: <lines proving the result>
-  STOP_CONDITIONS_HIT: []
-  REMAINING_RISKS: []
+  CHANGED_FILES: [<paths>]
+  VERIFICATION:
+    - TYPE: test | existing_test | build | typecheck | lint | static_analysis | integration | browser | manual | other
+      COMMAND: <command or NONE>
+      STEPS: []
+      RESULT: pass | fail | skipped | blocked
+      DETAILS: <short result note>
+  CONCERNS: []
 ```
+
+Blocked work uses the same schema with `STATUS: BLOCKED`, empty or partial
+`VERIFICATION`, and at least one concern:
+
+```yaml
+DELEGATE_REPORT:
+  STATUS: BLOCKED
+  CHANGED_FILES: []
+  VERIFICATION: []
+  CONCERNS:
+    - TYPE: verification_unclear
+      DETAIL: <what is unclear>
+      RECOMMENDED_ACTION: <smallest next step>
+```
+
+A success claim without verification entries is failure. Failed verification
+items make `COMPLETE` invalid.
+
+Legacy reports that still carry `TEST_FIRST` / `COMMAND_EVIDENCE` with
+`PHASE: RED|GREEN|VERIFY|OTHER` are accepted by `scripts/check-report` with a
+deprecation warning; RED/GREEN sequencing is not enforced. Map their commands
+into `VERIFICATION` when reviewing.
 
 ```yaml
 REVIEW_REPORT:
@@ -165,15 +196,10 @@ REVIEW_REPORT:
       LINE: <line or NONE>
       ISSUE: <specific defect>
       REQUIRED_CHANGE: <smallest correction>
-  VERIFICATION: [<command and exit code>]
+  VERIFICATION: [<method, command or steps, and result>]
   SCOPE_VIOLATIONS: []
   REMAINING_RISKS: []
 ```
-
-When `TEST_FIRST` is `REQUIRED`, `COMMAND_EVIDENCE` must show a `RED` command
-with a nonzero exit and the intended assertion failure before a `GREEN` entry
-for the same focused command with exit zero. `NOT_APPLICABLE` must match the
-packet task contract. A success claim without command evidence is failure.
 
 Packet critique returns exactly:
 
@@ -205,15 +231,25 @@ After every routing decision except pure Q&A and after every Review Gate, use
 7. failure classification, verification result, and CI result,
 8. duration and provider token usage.
 
-Every field is required. Record `UNKNOWN` where a metric is unavailable; never
-infer it. Use the canonical origin identity for the repository, not a worktree
-basename. A parent `ACCEPT` is only a procedural gate result. Verification,
-CI, and a later `ESCAPED_DEFECT` are independent signals.
+Optional v3 trailing fields (when known; otherwise omit the whole trailer):
+
+9. verification_types (comma-separated), new_tests_added, existing_tests_run,
+   manual_checks_run, verification_passed, scope_violation, retry_count.
+
+Every required v2 field is required. Record `UNKNOWN` where a metric is
+unavailable; never infer it. Use the canonical origin identity for the
+repository, not a worktree basename. A parent `ACCEPT` is only a procedural
+gate result. Verification, CI, and a later `ESCAPED_DEFECT` are independent
+signals.
 
 Legacy eight-column rows remain readable but are excluded from any metric that
 requires v2 fields. Use `OBSERVATION` with route-rule `NONE` for later CI or
 escaped-defect facts; these do not count as route decisions. An `EPOCH` row
 starts a new calibration window.
+
+`scripts/router-log-summary` also aggregates verification-method usage when v3
+trailers are present. Do not claim removing TDD improves quality or token use
+without measured data.
 
 ## Routing Calibration
 
@@ -319,9 +355,9 @@ Default `--until-stage` is `before_review`, which emits
 
 | Level | When | Package |
 |---|---|---|
-| `direct` | Low risk, bounds already known | User request + allowed files + acceptance + verification + stop conditions. No implementation-file reads, plans, or repo summaries before dispatch. |
-| `compact` | Medium risk | READY contract fields + Goal / Allowed / Forbidden / Code anchors / short Edit / Verification / Acceptance / Stop. Omits Context evidence. |
-| `full` | High risk, architecture/security-sensitive, or ambiguous | Existing READY packet validated by `scripts/check-packet`. |
+| `direct` | Low risk, bounds already known | User request + allowed files + acceptance + stop conditions. Verification expectations optional; delegate may select methods after inspecting the repo. No READY TDD packet, code anchors, or parent-side test design required. |
+| `compact` | Medium risk | READY contract + Task / Allowed / Forbidden / Acceptance / Constraints / Verification / Stop if. Useful anchors optional. No Context evidence, Test-first, or RED/GREEN. |
+| `full` | High risk, architecture/security-sensitive, or ambiguous | Implementation packet validated by `scripts/check-packet` (outcome-based verification; legacy TDD packets accepted with deprecation). |
 
 Validate with `scripts/check-dispatch LEVEL PATH` (`full` delegates to
 `check-packet`). Escalate `direct → compact → full` while reusing snapshots,
@@ -338,19 +374,19 @@ diffs, verification results, and calibration/token artifacts under
 - `delegate` — existing `scripts/run-delegate` transport only.
 - `after_delegate` — post snapshot, delta, compact report fields, scope
   violations, token fields when available. No narrative summaries.
-- `run_verification` — run verification commands; record exit codes/excerpts.
+- `run_verification` — run known verification commands; record exit codes/excerpts.
 - `before_review` — smallest review bundle: request, acceptance, changed
   files, delta hunks, verification results, delegate concerns, scope
   violations. Excludes transcript, full packet, repo summaries, raw reasoning.
 - `after_review` / `log_calibration` — persist review artifacts and append a
-  v2 `scripts/router-log` row (never invent metrics).
+  calibration row (never invent metrics).
 
 ## Delegate Prompt
 
 An initial implementation dispatch sends exactly this wrapper followed by the
 minimum dispatch package for the selected `dispatch_level` (`direct`,
-`compact`, or full READY packet). A cross-tool revision sends the same full
-payload plus Review Gate findings. A Same-session Cursor resume sends only
+`compact`, or full implementation packet). A cross-tool revision sends the same
+full payload plus Review Gate findings. A Same-session Cursor resume sends only
 findings and immutable constraints because the session retains the packet;
 this is the sole full-packet exception.
 
@@ -360,11 +396,11 @@ Current directory is the task worktree.
 Never commit, push, merge, rebase, create branches, or change branches.
 
 Complete exactly one bounded task from the packet below.
-Edit only Allowed files. Do not touch Forbidden changes. Follow Code anchors.
-Run the failing test first only when TEST_FIRST is REQUIRED.
-Edit production code only when PRODUCTION_EDIT is REQUIRED.
+Edit only Allowed files / Scope.allowed. Do not touch Forbidden changes.
+Follow Code anchors when provided.
 Make the smallest allowed edit needed.
-Run Verification commands.
+Select and run verification appropriate to the change. Testing is one method,
+not a required workflow. Do not skip verification.
 Stop if any Stop condition is hit, or if the patch would exceed roughly 400 changed lines.
 No drive-by cleanup, renames, formatting sweeps, or broad refactors.
 
@@ -372,10 +408,10 @@ Return exactly the router's DELEGATE_REPORT schema between these marker lines:
 ROUTER_REPORT_BEGIN
 <DELEGATE_REPORT YAML>
 ROUTER_REPORT_END
-Include every command's actual exit code and a short output excerpt. Do not
-summarize missing evidence.
+Identify what was verified and the result. Do not write a long narrative unless
+a material concern requires explanation.
 
-<TDD implementation packet>
+<implementation packet>
 ```
 
 ## Review Gate
@@ -389,16 +425,39 @@ cat "$SNAP/delta.json"
 cat "$SNAP/delta.patch"
 ```
 
-Run the packet verification commands independently. Accept only when all are
-true:
+Evaluate:
 
-- changed files are inside Allowed files,
-- structured report fields are complete,
-- red/green evidence is valid or the packet says it does not apply,
-- verification passed,
-- production edits match packet anchors,
-- forbidden behavior did not change,
-- no broad formatting or refactor sweep happened.
+- whether acceptance criteria were met,
+- whether the diff stayed within scope,
+- whether verification was relevant to the change,
+- whether verification completed successfully,
+- whether broader regression checks were appropriate,
+- whether any material risk remains,
+- whether the implementation introduced unrelated changes.
+
+Accept only when those checks pass and structured report fields are complete.
+
+Do **not** fail solely because:
+
+- no new tests were added,
+- no test was written before implementation,
+- no RED evidence exists,
+- no GREEN sequence exists,
+- verification used build, browser, typecheck, integration, or manual checks
+  instead of tests.
+
+Fail when:
+
+- no meaningful verification was performed,
+- verification results are missing or failed,
+- manual verification is vague or lacks steps and expected results,
+- the selected verification clearly cannot validate the changed behavior,
+- scope was exceeded,
+- acceptance criteria were not demonstrated,
+- high-risk behavior lacks adequate regression protection,
+- the diff introduces unreviewed or unrelated changes.
+
+Review evidence quality, not adherence to TDD.
 
 Use `REVISE` once for incomplete work inside allowed scope. A failed `MINIMAX`
 round revises on `GLM` with the same packet plus the findings; never pay for a

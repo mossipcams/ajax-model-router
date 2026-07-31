@@ -199,24 +199,33 @@ def validate_context(data):
 
     for key in (
         "verification_commands",
+        "verification_methods",
         "stop_conditions",
         "forbidden_changes",
         "code_anchors",
         "edit_instructions",
+        "constraints",
         "follow_up",
     ):
         if key in data and data[key] is not None:
             ctx[key] = _require_str_list(data[key], key)
 
     ctx.setdefault("verification_commands", [])
+    ctx.setdefault("verification_methods", [])
     ctx.setdefault("stop_conditions", [])
     ctx.setdefault("forbidden_changes", [])
     ctx.setdefault("code_anchors", [])
     ctx.setdefault("edit_instructions", [])
+    ctx.setdefault("constraints", [])
     ctx.setdefault("follow_up", [])
     ctx.setdefault("user_request", "")
     ctx.setdefault("goal", "")
     ctx.setdefault("packet_path", "")
+    ctx.setdefault("verification_reason", data.get("verification_reason") or "")
+    if ctx["verification_reason"] is not None and not isinstance(
+        ctx["verification_reason"], str
+    ):
+        raise ContextError("verification_reason must be a string")
     ctx.setdefault("tool", ctx.get("provider", ""))
     ctx.setdefault("retry_count", int(data.get("retry_count", 0)))
     if not isinstance(ctx["retry_count"], int) or ctx["retry_count"] < 0:

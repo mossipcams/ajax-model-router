@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
+# Partial rewrite of contract pins for outcome-based verification.
+# Keep existing routing/delegate pins; drop TDD-mandatory pins.
 set -euo pipefail
 
-# Resolve through symlinks so installed copies still find this repo.
 ROOT="$(cd "$(dirname "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
 ROUTER="skills/model-router/SKILL.md"
 failures=0
@@ -66,14 +67,18 @@ fi
 
 packet="skills/tdd-implementation-packet/SKILL.md"
 require_text "$packet" "PACKET_STATUS: READY | BLOCKED" "packet readiness status"
-require_text "$packet" "TASK_KIND: behavior | tests-only | docs-only | mechanical" "packet task kind"
-require_text "$packet" "TEST_FIRST: REQUIRED | NOT_APPLICABLE" "conditional test-first field"
-require_text "$packet" "PRODUCTION_EDIT: REQUIRED | FORBIDDEN" "conditional production field"
+require_text "$packet" "does **not** require test-first development" "no mandatory TDD"
+require_text "$packet" "## Verification" "verification section"
+require_text "$packet" "type: test | existing_test | build | typecheck" "verification method types"
 require_text "$packet" 'A missing required evidence category makes the packet `BLOCKED`' "blocked packet rule"
-require_text "$packet" '| `docs-only` | `NOT_APPLICABLE` | `FORBIDDEN` |' "docs-only requirements"
-require_text "$packet" '| `tests-only` | `NOT_APPLICABLE` | `FORBIDDEN` |' "tests-only requirements"
+forbid_text "$packet" "TEST_FIRST: REQUIRED | NOT_APPLICABLE" "removed TEST_FIRST contract"
+# Exact heading must not appear as a packet section template.
+if grep -Eq '^## Test-first instructions$' "$ROOT/$packet"; then
+  echo "forbidden: removed test-first section" >&2
+  failures=$((failures + 1))
+fi
 forbid_text "$packet" "state the missing input as a stop condition" "missing context hidden in stop conditions"
-require_text "$packet" "never whole files" "packet evidence excerpt cap"
+require_text "$packet" "Do not emit a Test-first instructions" "no test-first heading"
 
 for adapter in cursor-delegate pi-delegate codex-delegate; do
   file="skills/$adapter/SKILL.md"
@@ -117,12 +122,16 @@ require_text "$pi" 'pi --mode rpc --model "$MODEL" --no-session --no-context-fil
 require_text "$pi" 'scripts/run-delegate --tool pi' "Pi bounded runner"
 require_text "$pi" 'Exit `124`' "Pi delegate timeout status"
 
+require_text "$ROUTER" "## Verification principle" "verification principle section"
+require_text "$ROUTER" "does not require test-first development or TDD" "no mandatory TDD in router"
 require_text "$ROUTER" "DELEGATE_REPORT:" "structured delegate report"
 require_text "$ROUTER" "REVIEW_REPORT:" "structured review report"
-require_text "$ROUTER" "PHASE: RED | GREEN | VERIFY | OTHER" "command evidence phase"
-require_text "$ROUTER" "EXIT_CODE:" "command evidence exit code"
-require_text "$ROUTER" "OUTPUT_EXCERPT:" "command evidence output"
-require_text "$ROUTER" "A success claim without command evidence is failure." "evidence enforcement"
+require_text "$ROUTER" "TYPE: test | existing_test | build | typecheck" "verification type enum"
+require_text "$ROUTER" "RESULT: pass | fail | skipped | blocked" "verification result enum"
+forbid_text "$ROUTER" "TEST_FIRST: PROVEN | NOT_APPLICABLE | NOT_PROVEN" "removed TEST_FIRST report field"
+forbid_text "$ROUTER" "PHASE: RED | GREEN | VERIFY | OTHER" "removed RED/GREEN phases as required"
+require_text "$ROUTER" "A success claim without verification entries is failure." "evidence enforcement"
+require_text "$ROUTER" "Review evidence quality, not adherence to TDD." "review gate anti-TDD rule"
 require_text "$ROUTER" "## Pre-dispatch Snapshot" "delegate baseline snapshot"
 require_text "$ROUTER" "## Transaction lifecycle" "transaction lifecycle section"
 require_text "$ROUTER" "dispatch_level" "progressive dispatch level field"
@@ -139,6 +148,7 @@ forbid_text "$ROUTER" "Return a REPORT with:" "unstructured delegate report"
 forbid_text "$ROUTER" "Implement exactly one behavior change" "behavior-only delegate prompt"
 require_text "$ROUTER" "Complete exactly one bounded task from the packet below." "task-kind-neutral delegate prompt"
 require_text "README.md" "scripts/check-contracts" "contract validator documentation"
+require_text "README.md" "does not require test-first development or TDD" "readme verification principle"
 require_text "$ROUTER" "## Routing Calibration Log" "calibration log"
 require_text "$ROUTER" "## Routing Calibration" "calibration procedure"
 require_text "$ROUTER" "Frozen calibration controls:" "frozen calibration list"

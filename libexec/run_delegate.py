@@ -22,12 +22,12 @@ ROOT = Path(__file__).resolve().parents[1]
 def failed_report(report, reason, summary):
     text = f"""DELEGATE_REPORT:
   STATUS: FAILED
-  SUMMARY: {summary}
-  FILES_CHANGED: []
-  TEST_FIRST: NOT_PROVEN
-  COMMAND_EVIDENCE: []
-  STOP_CONDITIONS_HIT: [{reason}]
-  REMAINING_RISKS: [Inspect the preserved raw log]
+  CHANGED_FILES: []
+  VERIFICATION: []
+  CONCERNS:
+    - TYPE: {reason}
+      DETAIL: {summary}
+      RECOMMENDED_ACTION: Inspect the preserved raw log
 """
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(text)

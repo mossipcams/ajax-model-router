@@ -2,12 +2,17 @@
 
 Canonical shared router skill bundle.
 
+Ajax Model Router requires evidence that the implementation works.
+It does not require test-first development or TDD.
+Tests should be used when they are the most effective verification method.
+
 ## Layout
 
 - `skills/model-router/` — the `model-router` skill. Owns the pipeline:
   structured routing decision, model registry, route table, shared Delegate
   Prompt, report schemas, and Review Gate.
-- `skills/` — all canonical skills, including `tdd-implementation-packet`,
+- `skills/` — all canonical skills, including `tdd-implementation-packet`
+  (implementation packet lane; outcome-based verification, not mandatory TDD),
   `cursor-delegate`, `pi-delegate`, `codex-delegate`. The delegate
   skills are thin tool adapters; shared rules live only in the router.
 - `.claude/skills/`, `.codex/skills/` — symlink views over the canonical
@@ -42,7 +47,8 @@ scripts/install-symlinks --target ../ajax-cli --force
 ## Enforced workflow
 
 - `scripts/check-packet` rejects mechanically incomplete packets before any
-  optional critique call.
+  optional critique call. Legacy TDD packets remain readable with a deprecation
+  warning; RED/GREEN sequencing is not enforced.
 - `scripts/check-dispatch` validates `direct` / `compact` / `full` dispatch
   packages (`full` delegates to `check-packet`).
 - `scripts/run-transaction` runs the deterministic lifecycle
@@ -53,8 +59,9 @@ scripts/install-symlinks --target ../ajax-cli --force
   delta on `DISCARD`.
 - `scripts/run-delegate` bounds Cursor and Pi process groups and keeps
   full native JSONL logs while returning complete structured reports.
-- `scripts/router-log` writes validated v2 calibration rows;
-  `scripts/router-log-summary` excludes incomplete legacy rows from v2 metrics.
+- `scripts/router-log` writes validated v2 calibration rows (optional v3
+  verification-metric trailer); `scripts/router-log-summary` excludes
+  incomplete legacy rows from metrics.
 
 ## Expected model calls
 

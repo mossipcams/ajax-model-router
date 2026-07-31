@@ -27,10 +27,10 @@ class ContractTests(unittest.TestCase):
     def test_packet_requires_evidence_not_tool_ceremony(self):
         text = PACKET.read_text()
         for category in (
-            "Desired behavior",
-            "Exact source and test anchors",
-            "Existing implementation or test patterns to reuse",
-            "Relevant architecture boundaries",
+            "Desired outcome / acceptance criteria",
+            "Exact source anchors when known",
+            "Existing patterns to reuse when helpful",
+            "Architecture boundaries",
         ):
             self.assertIn(category, text)
         for method in ("direct file inspection", "Serena", "ast-grep", "Graphify"):
@@ -78,6 +78,56 @@ class ContractTests(unittest.TestCase):
     def test_packet_completeness_is_checked_by_script(self):
         valid = """\
 PACKET_STATUS: READY
+UNRESOLVED_UNCERTAINTY: NONE
+BLOCKERS: []
+## Task
+Change one behavior.
+## Scope
+Allowed:
+- src/example.py
+Forbidden:
+- No unrelated edits.
+## Acceptance
+- Focused check passes.
+## Constraints
+NONE
+## Verification
+methods:
+  - type: test
+    command: python -m unittest tests.test_example
+    expected: pass
+reason: focused unit test
+## Stop if
+Anchor moved or scope grows.
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = Path(tmp) / "packet.md"
+            packet.write_text(valid)
+            result = subprocess.run(
+                [ROOT / "scripts" / "check-packet", packet],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            packet.write_text(valid.replace("## Verification\n", "## Verification\n\n"))
+            # Still has methods below? Replace with empty verification body.
+            packet.write_text(
+                valid.replace(
+                    "## Verification\nmethods:\n  - type: test\n    command: python -m unittest tests.test_example\n    expected: pass\nreason: focused unit test\n",
+                    "## Verification\n\n",
+                )
+            )
+            result = subprocess.run(
+                [ROOT / "scripts" / "check-packet", packet],
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Verification", result.stderr)
+
+            legacy = """\
+PACKET_STATUS: READY
 TASK_KIND: behavior
 TEST_FIRST: REQUIRED
 PRODUCTION_EDIT: REQUIRED
@@ -104,33 +154,14 @@ Focused test passes.
 ## Stop conditions
 Anchor moved or scope grows.
 """
-        with tempfile.TemporaryDirectory() as tmp:
-            packet = Path(tmp) / "packet.md"
-            packet.write_text(valid)
+            packet.write_text(legacy)
             result = subprocess.run(
                 [ROOT / "scripts" / "check-packet", packet],
                 text=True,
                 capture_output=True,
             )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-            packet.write_text(valid.replace("## Verification commands\n", ""))
-            result = subprocess.run(
-                [ROOT / "scripts" / "check-packet", packet],
-                text=True,
-                capture_output=True,
-            )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Verification commands", result.stderr)
-
-            packet.write_text(valid.replace("TEST_FIRST: REQUIRED", "TEST_FIRST: NOT_APPLICABLE"))
-            result = subprocess.run(
-                [ROOT / "scripts" / "check-packet", packet],
-                text=True,
-                capture_output=True,
-            )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("behavior task contract", result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("deprecated", result.stderr)
 
     def test_critique_is_uncertainty_only_and_stops_after_second_block(self):
         text = ROUTER.read_text()

@@ -16,12 +16,12 @@ failed_report() {
   cat > "$output" <<EOF
 DELEGATE_REPORT:
   STATUS: FAILED
-  SUMMARY: $summary
-  FILES_CHANGED: []
-  TEST_FIRST: NOT_PROVEN
-  COMMAND_EVIDENCE: []
-  STOP_CONDITIONS_HIT: [$reason]
-  REMAINING_RISKS: [Inspect the preserved raw log]
+  CHANGED_FILES: []
+  VERIFICATION: []
+  CONCERNS:
+    - TYPE: $reason
+      DETAIL: $summary
+      RECOMMENDED_ACTION: Inspect the preserved raw log
 EOF
   cat "$output"
   exit 65

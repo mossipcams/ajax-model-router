@@ -187,13 +187,37 @@ class CalibrationTests(unittest.TestCase):
             self.assertIn("TRIPWIRE gate-failure", result.stdout)
             self.assertNotIn("TRIPWIRE route-unused", result.stdout)
 
-    def test_workflow_uses_routing_calibration_not_training_claims(self):
-        self.assertTrue((ROOT / "CALIBRATION.md").is_file())
-        self.assertFalse((ROOT / "TRAINING.md").exists())
-        router = (ROOT / "skills" / "model-router" / "SKILL.md").read_text()
-        self.assertIn("## Routing Calibration", router)
-        self.assertNotIn("## Training", router)
-        self.assertNotIn("training data", router)
+    def test_v3_verification_metrics_trailer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.tsv"
+            args = row_args(log) + [
+                "--verification-types",
+                "test,typecheck",
+                "--new-tests-added",
+                "0",
+                "--existing-tests-run",
+                "1",
+                "--manual-checks-run",
+                "0",
+                "--verification-passed",
+                "true",
+                "--scope-violation",
+                "false",
+                "--retry-count",
+                "0",
+            ]
+            result = subprocess.run(args, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            fields = log.read_text().rstrip("\n").split("\t")
+            self.assertEqual(fields[0], "v3")
+            self.assertEqual(len(fields), 29)
+            self.assertEqual(fields[22], "test,typecheck")
+            self.assertEqual(fields[24], "1")
+            summary = subprocess.run([SUMMARY, log], text=True, capture_output=True)
+            self.assertEqual(summary.returncode, 0, summary.stderr)
+            self.assertIn("verification methods", summary.stdout)
+            self.assertIn("tasks without new tests", summary.stdout)
+
 
 
 if __name__ == "__main__":

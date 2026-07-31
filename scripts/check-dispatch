@@ -12,7 +12,6 @@ set -euo pipefail
 
 level="$1"
 packet="$2"
-# Resolve through symlinks so worktree installs still find canonical scripts.
 ROOT="$(cd "$(dirname "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
 
 [[ -f "$packet" ]] || {
@@ -73,15 +72,16 @@ if [[ "$level" == "direct" ]]; then
     "User request" \
     "Allowed files" \
     "Acceptance criteria" \
-    "Verification commands" \
     "Stop conditions"
   do
     require_section "$section"
   done
+  # Verification expectations optional; delegate may select methods.
   # Direct must stay minimal: no implementation plans or repo summaries.
   forbid_section "Context evidence"
   forbid_section "Edit instructions"
   forbid_section "Code anchors"
+  forbid_section "Test-first instructions"
   forbid_section "Implementation plan"
   forbid_section "Repository summary"
 elif [[ "$level" == "compact" ]]; then
@@ -89,22 +89,29 @@ elif [[ "$level" == "compact" ]]; then
   require_pattern '^DISPATCH_LEVEL: compact$' "DISPATCH_LEVEL"
   require_pattern '^UNRESOLVED_UNCERTAINTY: NONE$' "UNRESOLVED_UNCERTAINTY"
   require_pattern '^BLOCKERS: \[\]$' "empty BLOCKERS"
-  for section in \
-    "Goal" \
-    "Allowed files" \
-    "Forbidden changes" \
-    "Code anchors" \
-    "Edit instructions" \
-    "Verification commands" \
-    "Acceptance criteria" \
-    "Stop conditions"
-  do
-    require_section "$section"
-  done
+  if grep -Fxq '## Task' "$packet"; then
+    require_section "Task"
+  else
+    require_section "Goal"
+  fi
+  require_section "Allowed files"
+  require_section "Forbidden changes"
+  if grep -Fxq '## Acceptance' "$packet"; then
+    require_section "Acceptance"
+  else
+    require_section "Acceptance criteria"
+  fi
+  require_section "Verification"
+  if grep -Fxq '## Stop if' "$packet"; then
+    require_section "Stop if"
+  else
+    require_section "Stop conditions"
+  fi
+  # Compact: known constraints + useful anchors only; no TDD ceremony.
   forbid_section "Context evidence"
+  forbid_section "Test-first instructions"
 fi
 
-# Shared size guard (mirrors lifecycle_context.DISPATCH_LIMITS).
 python3 - "$level" "$packet" <<'PY'
 import sys
 from pathlib import Path

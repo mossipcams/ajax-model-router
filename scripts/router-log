@@ -7,6 +7,9 @@ risk_class="" action="" lane="" model="" estimated_files=""
 estimated_lines="" critique_result="" gate_result=""
 escalation_destination="" escalation_reason="" failure_classification=""
 verification_result="" ci_result="" duration_seconds="" token_usage=""
+verification_types="" new_tests_added="" existing_tests_run=""
+manual_checks_run="" verification_passed="" scope_violation="" retry_count=""
+have_v3=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,6 +34,13 @@ while [[ $# -gt 0 ]]; do
     --ci-result) ci_result="${2:?--ci-result requires a value}" ; shift 2 ;;
     --duration-seconds) duration_seconds="${2:?--duration-seconds requires a value}" ; shift 2 ;;
     --token-usage) token_usage="${2:?--token-usage requires a value}" ; shift 2 ;;
+    --verification-types) verification_types="${2:?}" ; have_v3=1 ; shift 2 ;;
+    --new-tests-added) new_tests_added="${2:?}" ; have_v3=1 ; shift 2 ;;
+    --existing-tests-run) existing_tests_run="${2:?}" ; have_v3=1 ; shift 2 ;;
+    --manual-checks-run) manual_checks_run="${2:?}" ; have_v3=1 ; shift 2 ;;
+    --verification-passed) verification_passed="${2:?}" ; have_v3=1 ; shift 2 ;;
+    --scope-violation) scope_violation="${2:?}" ; have_v3=1 ; shift 2 ;;
+    --retry-count) retry_count="${2:?}" ; have_v3=1 ; shift 2 ;;
     *) echo "error: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -80,11 +90,49 @@ require_value "$token_usage" token-usage
 [[ "$duration_seconds" == UNKNOWN || "$duration_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "error: invalid duration-seconds" >&2; exit 2; }
 [[ "$token_usage" == UNKNOWN || "$token_usage" =~ ^[0-9]+$ ]] || { echo "error: invalid token-usage" >&2; exit 2; }
 
+if [[ "$have_v3" -eq 1 ]]; then
+  verification_types="${verification_types:-UNKNOWN}"
+  new_tests_added="${new_tests_added:-UNKNOWN}"
+  existing_tests_run="${existing_tests_run:-UNKNOWN}"
+  manual_checks_run="${manual_checks_run:-UNKNOWN}"
+  verification_passed="${verification_passed:-UNKNOWN}"
+  scope_violation="${scope_violation:-UNKNOWN}"
+  retry_count="${retry_count:-UNKNOWN}"
+  for pair in \
+    "verification-types:$verification_types" \
+    "new-tests-added:$new_tests_added" \
+    "existing-tests-run:$existing_tests_run" \
+    "manual-checks-run:$manual_checks_run" \
+    "verification-passed:$verification_passed" \
+    "scope-violation:$scope_violation" \
+    "retry-count:$retry_count"
+  do
+    require_value "${pair#*:}" "${pair%%:*}"
+  done
+  [[ "$new_tests_added" == UNKNOWN || "$new_tests_added" =~ ^[0-9]+$ ]] || { echo "error: invalid new-tests-added" >&2; exit 2; }
+  [[ "$existing_tests_run" == UNKNOWN || "$existing_tests_run" =~ ^[0-9]+$ ]] || { echo "error: invalid existing-tests-run" >&2; exit 2; }
+  [[ "$manual_checks_run" == UNKNOWN || "$manual_checks_run" =~ ^[0-9]+$ ]] || { echo "error: invalid manual-checks-run" >&2; exit 2; }
+  [[ "$verification_passed" =~ ^(true|false|UNKNOWN)$ ]] || { echo "error: invalid verification-passed" >&2; exit 2; }
+  [[ "$scope_violation" =~ ^(true|false|UNKNOWN)$ ]] || { echo "error: invalid scope-violation" >&2; exit 2; }
+  [[ "$retry_count" == UNKNOWN || "$retry_count" =~ ^[0-9]+$ ]] || { echo "error: invalid retry-count" >&2; exit 2; }
+fi
+
 mkdir -p "$(dirname "$log")"
 timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-  v2 "$timestamp" "$repository_id" "$task_id" "$round" "$route_rule_id" \
-  "$task_kind" "$risk_class" "$action" "$lane" "$model" \
-  "$estimated_files" "$estimated_lines" "$critique_result" "$gate_result" \
-  "$escalation_destination" "$escalation_reason" "$failure_classification" \
-  "$verification_result" "$ci_result" "$duration_seconds" "$token_usage" >> "$log"
+if [[ "$have_v3" -eq 1 ]]; then
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    v3 "$timestamp" "$repository_id" "$task_id" "$round" "$route_rule_id" \
+    "$task_kind" "$risk_class" "$action" "$lane" "$model" \
+    "$estimated_files" "$estimated_lines" "$critique_result" "$gate_result" \
+    "$escalation_destination" "$escalation_reason" "$failure_classification" \
+    "$verification_result" "$ci_result" "$duration_seconds" "$token_usage" \
+    "$verification_types" "$new_tests_added" "$existing_tests_run" \
+    "$manual_checks_run" "$verification_passed" "$scope_violation" "$retry_count" >> "$log"
+else
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    v2 "$timestamp" "$repository_id" "$task_id" "$round" "$route_rule_id" \
+    "$task_kind" "$risk_class" "$action" "$lane" "$model" \
+    "$estimated_files" "$estimated_lines" "$critique_result" "$gate_result" \
+    "$escalation_destination" "$escalation_reason" "$failure_classification" \
+    "$verification_result" "$ci_result" "$duration_seconds" "$token_usage" >> "$log"
+fi

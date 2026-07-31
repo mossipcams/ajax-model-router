@@ -21,11 +21,11 @@ Current directory is the task worktree.
 Never commit, push, merge, rebase, create branches, or change branches.
 
 Complete exactly one bounded task from the packet below.
-Edit only Allowed files. Do not touch Forbidden changes. Follow Code anchors.
-Run the failing test first only when TEST_FIRST is REQUIRED.
-Edit production code only when PRODUCTION_EDIT is REQUIRED.
+Edit only Allowed files / Scope.allowed. Do not touch Forbidden changes.
+Follow Code anchors when provided.
 Make the smallest allowed edit needed.
-Run Verification commands.
+Select and run verification appropriate to the change. Testing is one method,
+not a required workflow. Do not skip verification.
 Stop if any Stop condition is hit, or if the patch would exceed roughly 400 changed lines.
 No drive-by cleanup, renames, formatting sweeps, or broad refactors.
 
@@ -33,8 +33,8 @@ Return exactly the router's DELEGATE_REPORT schema between these marker lines:
 ROUTER_REPORT_BEGIN
 <DELEGATE_REPORT YAML>
 ROUTER_REPORT_END
-Include every command's actual exit code and a short output excerpt. Do not
-summarize missing evidence.
+Identify what was verified and the result. Do not write a long narrative unless
+a material concern requires explanation.
 
 """
 
@@ -82,7 +82,6 @@ def before_dispatch(ctx):
 
     root = _git_root(working)
     if root != working.resolve():
-        # Allow worktree subdirectory only if it is the git toplevel the parent named.
         raise HookError(
             f"working_directory must be the git toplevel ({root}), got {working.resolve()}"
         )
@@ -96,7 +95,6 @@ def before_dispatch(ctx):
     evidence["root"] = str(working.resolve())
     ctxlib.save_evidence(ctx, evidence)
 
-    # direct: never read implementation files here (only context fields later).
     if ctx["dispatch_level"] == "direct" and not ctx.get("user_request", "").strip():
         raise HookError("direct dispatch requires user_request")
     if ctx["dispatch_level"] == "full" and not ctx.get("packet_path", "").strip():
@@ -127,6 +125,29 @@ def _bullet_or_lines(items):
     return [item if item.startswith("- ") else f"- {item}" for item in items]
 
 
+def _verification_body(ctx):
+    """Parent-supplied verification expectations; optional for direct."""
+    methods = ctx.get("verification_methods") or []
+    commands = ctx.get("verification_commands") or []
+    reason = (ctx.get("verification_reason") or "").strip()
+    lines = []
+    if methods:
+        lines.append("methods:")
+        for method in methods:
+            lines.append(f"  - {method}")
+    if commands:
+        lines.append("commands:")
+        lines.extend(_bullet_or_lines(commands))
+    if reason:
+        lines.append(f"reason: {reason}")
+    if not lines:
+        lines = [
+            "methods: delegate-selected after repository inspection",
+            "reason: parent did not pre-specify verification; choose the smallest method that validates acceptance",
+        ]
+    return lines
+
+
 def build_direct_dispatch(ctx):
     parts = [
         f"DISPATCH_LEVEL: direct\n",
@@ -135,7 +156,7 @@ def build_direct_dispatch(ctx):
         _section("User request", [ctx.get("user_request", "").strip() or "(missing)"]),
         _section("Allowed files", _bullet_or_lines(ctx["allowed_files"])),
         _section("Acceptance criteria", _bullet_or_lines(ctx["acceptance"])),
-        _section("Verification commands", _bullet_or_lines(ctx.get("verification_commands", []))),
+        _section("Verification", _verification_body(ctx)),
         _section("Stop conditions", _bullet_or_lines(ctx.get("stop_conditions", []))),
     ]
     return "".join(parts)
@@ -145,22 +166,20 @@ def build_compact_dispatch(ctx):
     goal = ctx.get("goal", "").strip() or ctx.get("user_request", "").strip()
     parts = [
         "PACKET_STATUS: READY\n",
-        "TASK_KIND: mechanical\n",
-        "TEST_FIRST: NOT_APPLICABLE\n",
-        "PRODUCTION_EDIT: REQUIRED\n",
         "UNRESOLVED_UNCERTAINTY: NONE\n",
         "BLOCKERS: []\n",
         "DISPATCH_LEVEL: compact\n",
-        _section("Goal", [goal]),
+        _section("Task", [goal]),
         _section("Allowed files", _bullet_or_lines(ctx["allowed_files"])),
         _section("Forbidden changes", _bullet_or_lines(ctx.get("forbidden_changes", []))),
-        _section("Code anchors", _bullet_or_lines(ctx.get("code_anchors", []))),
-        _section("Edit instructions", _bullet_or_lines(ctx.get("edit_instructions", []))),
-        _section("Verification commands", _bullet_or_lines(ctx.get("verification_commands", []))),
-        _section("Acceptance criteria", _bullet_or_lines(ctx["acceptance"])),
-        _section("Stop conditions", _bullet_or_lines(ctx.get("stop_conditions", []))),
+        _section("Acceptance", _bullet_or_lines(ctx["acceptance"])),
+        _section("Constraints", _bullet_or_lines(ctx.get("constraints", []) or ["NONE"])),
+        _section("Verification", _verification_body(ctx)),
+        _section("Stop if", _bullet_or_lines(ctx.get("stop_conditions", []))),
     ]
-    # Compact deliberately omits Context evidence and long narrative plans.
+    # Optional useful anchors only — never Context evidence or Test-first.
+    if ctx.get("code_anchors"):
+        parts.append(_section("Code anchors", _bullet_or_lines(ctx["code_anchors"])))
     return "".join(parts)
 
 
@@ -325,15 +344,15 @@ def delegate(ctx):
 
 
 def _parse_report_compact(report_text):
-    """Extract a compact dict from DELEGATE_REPORT YAML-ish text — no narrative."""
+    """Extract a compact dict from DELEGATE_REPORT — no narrative."""
     out = {
         "status": "UNKNOWN",
-        "files_changed": [],
+        "changed_files": [],
+        "concerns": [],
+        "verification": [],
         "stop_conditions_hit": [],
         "remaining_risks": [],
-        "command_evidence": [],
         "summary": "",
-        "test_first": "UNKNOWN",
     }
     if not report_text:
         return out
@@ -353,12 +372,22 @@ def _parse_report_compact(report_text):
     summary = re.search(r"^\s*SUMMARY:\s*(.+)$", report_text, re.M)
     if summary:
         out["summary"] = summary.group(1).strip()
-    test_first = re.search(r"^\s*TEST_FIRST:\s*(\S+)", report_text, re.M)
-    if test_first:
-        out["test_first"] = test_first.group(1)
-    out["files_changed"] = list_field("FILES_CHANGED")
+    out["changed_files"] = list_field("CHANGED_FILES") or list_field("FILES_CHANGED")
     out["stop_conditions_hit"] = list_field("STOP_CONDITIONS_HIT")
     out["remaining_risks"] = list_field("REMAINING_RISKS")
+    out["concerns"] = list_field("CONCERNS")
+    # Prefer remaining_risks as concerns when using legacy reports.
+    if not out["concerns"] and out["remaining_risks"]:
+        out["concerns"] = out["remaining_risks"]
+    types = re.findall(
+        r"^\s*- TYPE:\s*(test|existing_test|build|typecheck|lint|static_analysis|integration|browser|manual|other)\s*$",
+        report_text,
+        re.M,
+    )
+    results = re.findall(r"^\s*RESULT:\s*(pass|fail|skipped|blocked)\s*$", report_text, re.M)
+    for index, kind in enumerate(types):
+        entry = {"type": kind, "result": results[index] if index < len(results) else "unknown"}
+        out["verification"].append(entry)
     return out
 
 
@@ -396,7 +425,9 @@ def after_delegate(ctx):
     report_text = report_path.read_text() if report_path.is_file() else ""
     compact = _parse_report_compact(report_text)
     compact["scope_violations"] = ctx["artifacts"]["scope_violations"]
-    compact["changed_files"] = ctx["artifacts"]["changed_files"]
+    compact["changed_files"] = ctx["artifacts"]["changed_files"] or compact.get(
+        "changed_files"
+    )
     ctx["artifacts"]["delegate_output"] = compact
 
     ctxlib.record_artifact(
@@ -419,11 +450,12 @@ def run_verification(ctx):
 
     commands = list(ctx.get("verification_commands") or [])
     if not commands and ctx["dispatch_level"] == "full":
-        # Pull Verification commands section from the built dispatch when parent
-        # did not mirror them into context.
         dispatch = Path(ctx["artifacts"].get("dispatch_path") or "")
         if dispatch.is_file():
-            commands = _extract_section_commands(dispatch.read_text(), "Verification commands")
+            text = dispatch.read_text()
+            commands = _extract_section_commands(text, "Verification commands")
+            if not commands:
+                commands = _extract_section_commands(text, "Verification")
 
     if (
         cached
@@ -512,8 +544,9 @@ def before_review(ctx):
         "delta_hunks": patch_text,
         "verification_results": ctx["artifacts"].get("verification_results") or [],
         "delegate_concerns": (ctx["artifacts"].get("delegate_output") or {}).get(
-            "remaining_risks"
+            "concerns"
         )
+        or (ctx["artifacts"].get("delegate_output") or {}).get("remaining_risks")
         or [],
         "stop_conditions_hit": (ctx["artifacts"].get("delegate_output") or {}).get(
             "stop_conditions_hit"
@@ -521,6 +554,10 @@ def before_review(ctx):
         or [],
         "scope_violations": ctx["artifacts"].get("scope_violations") or [],
         "delegate_status": (ctx["artifacts"].get("delegate_output") or {}).get("status"),
+        "delegate_verification": (ctx["artifacts"].get("delegate_output") or {}).get(
+            "verification"
+        )
+        or [],
         "delta_json": ctx["artifacts"].get("delta_json") or "",
         "snapshot_directory": ctx["snapshot_directory"],
     }
@@ -625,6 +662,43 @@ def log_calibration(ctx):
     # Optional isolated log for tests.
     if ctx.get("calibration_log"):
         command[1:1] = ["--log", ctx["calibration_log"]]
+
+    # Emit v3 verification metrics when known from the compact report.
+    delegate_verification = (ctx["artifacts"].get("delegate_output") or {}).get(
+        "verification"
+    ) or []
+    if delegate_verification:
+        types = sorted(
+            {
+                item.get("type")
+                for item in delegate_verification
+                if isinstance(item, dict) and item.get("type")
+            }
+        )
+        command.extend(
+            [
+                "--verification-types",
+                ",".join(types) if types else "UNKNOWN",
+                "--new-tests-added",
+                "UNKNOWN",
+                "--existing-tests-run",
+                str(sum(1 for item in delegate_verification if item.get("type") == "existing_test")),
+                "--manual-checks-run",
+                str(sum(1 for item in delegate_verification if item.get("type") == "manual")),
+                "--verification-passed",
+                (
+                    "true"
+                    if verification_result == "PASS"
+                    else "false"
+                    if verification_result == "FAIL"
+                    else "UNKNOWN"
+                ),
+                "--scope-violation",
+                "true" if ctx["artifacts"].get("scope_violations") else "false",
+                "--retry-count",
+                str(ctx.get("retry_count", 0)),
+            ]
+        )
 
     result = subprocess.run(command, text=True, capture_output=True)
     if result.returncode != 0:
