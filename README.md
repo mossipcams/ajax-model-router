@@ -27,10 +27,11 @@ scripts/check-contracts
 ```
 
 Install wires skill symlinks under `.cursor` / `.codex` / `.claude` and also
-links the delegation helpers (`scripts/run-delegate`, `delegate-snapshot`,
-`delegate-delta`, `check-packet`, …) into the target's `scripts/` so a task
-worktree can run the skill commands as written. Re-run install for each
-worktree that needs dispatch (git worktrees do not share untracked scripts).
+links the delegation helpers (`scripts/run-delegate`, `run-transaction`,
+`delegate-snapshot`, `delegate-delta`, `check-packet`, `check-dispatch`, …)
+into the target's `scripts/` so a task worktree can run the skill commands as
+written. Re-run install for each worktree that needs dispatch (git worktrees do
+not share untracked scripts).
 
 Use `--force` only when replacing an existing non-canonical install:
 
@@ -42,6 +43,11 @@ scripts/install-symlinks --target ../ajax-cli --force
 
 - `scripts/check-packet` rejects mechanically incomplete packets before any
   optional critique call.
+- `scripts/check-dispatch` validates `direct` / `compact` / `full` dispatch
+  packages (`full` delegates to `check-packet`).
+- `scripts/run-transaction` runs the deterministic lifecycle
+  (before_dispatch → … → before_review) and emits `review_bundle.json` for the
+  parent Review Gate; resume with `--from-stage after_review`.
 - `scripts/delegate-snapshot` and `scripts/delegate-delta` generate the
   pre-versus-post patch reviewed by the parent and safely restore only that
   delta on `DISCARD`.

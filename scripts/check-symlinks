@@ -143,9 +143,11 @@ done
 
 for script in \
   "run-delegate" \
+  "run-transaction" \
   "delegate-snapshot" \
   "delegate-delta" \
   "check-packet" \
+  "check-dispatch" \
   "check-report" \
   "extract-report" \
   "router-log" \

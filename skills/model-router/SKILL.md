@@ -63,7 +63,8 @@ Emit a new decision after each action.
 - Never create worktrees, branches, commits, pushes, merges, rebases, or
   branch switches. No delegate may either.
 - Do not delegate from a vague prompt. Implementation delegates require a
-  complete packet.
+  complete dispatch package for the selected `dispatch_level` (`direct`,
+  `compact`, or full READY packet).
 - Parent reviews every delegate diff before accepting it.
 - Empty diff plus a success claim is failure.
 - Stop after two failed delegate rounds.
@@ -237,17 +238,18 @@ the checkpoint. No tripwire, no edit.
 
 ## Pre-dispatch Snapshot
 
-Before any write mode, snapshot the current non-ignored worktree so pre-existing
-changes remain distinguishable from delegate edits:
+Write-mode dispatches run inside the lifecycle transaction. The transaction
+creates the pre-dispatch snapshot, runs the delegate transport, captures the
+post snapshot, and writes `delta.json` / `delta.patch` under
+`snapshot_directory`. Parents should not re-run those deterministic steps by
+hand unless debugging a failed transaction.
+
+Manual equivalents (still valid for recovery):
 
 ```bash
 SNAP="$(mktemp -d)"
 scripts/delegate-snapshot "$SNAP" pre
-```
-
-After dispatch, capture and inspect the deterministic pre-versus-post delta:
-
-```bash
+# ... delegate ...
 scripts/delegate-snapshot "$SNAP" post
 scripts/delegate-delta inspect "$SNAP" --allowed <exact-path> [--allowed <exact-path>...]
 ```
@@ -257,16 +259,100 @@ deleted, and mode-changed paths, records overlap and scope violations, and
 `delta.patch` contains the complete inspectable patch including new untracked
 file contents.
 
-Keep `$SNAP` until the Review Gate finishes. If any snapshot command fails,
-return `STOP` before dispatch.
+Keep `$SNAP` / `snapshot_directory` until the Review Gate finishes. If any
+snapshot command fails, return `STOP` before dispatch.
+
+## Transaction lifecycle
+
+Router write-mode work is one transaction coordinated by internal lifecycle
+hooks (not Git hooks, not a user plugin system):
+
+```text
+classify
+→ before_dispatch
+→ build_dispatch
+→ validate_dispatch
+→ snapshot
+→ delegate
+→ after_delegate
+→ run_verification
+→ before_review
+→ review_delta (parent Review Gate)
+→ after_review
+→ log_calibration
+```
+
+`classify` and `review_delta` stay parent-owned. Hooks never invoke another
+language model, never rewrite packets into prose, and never perform semantic
+routing. They exist to remove deterministic work from prompts.
+
+Each stage receives a normalized context object:
+
+```json
+{
+  "task_id": "",
+  "dispatch_level": "direct",
+  "risk": "low",
+  "provider": "",
+  "model": "",
+  "allowed_files": [],
+  "acceptance": [],
+  "working_directory": "",
+  "snapshot_directory": ""
+}
+```
+
+Run the deterministic stages with:
+
+```bash
+scripts/run-transaction --context context.json --until-stage before_review
+# parent Review Gate over review_bundle.json
+scripts/run-transaction --context context.json \
+  --from-stage after_review --until-stage log_calibration \
+  --gate-result ACCEPT
+```
+
+Default `--until-stage` is `before_review`, which emits
+`snapshot_directory/run/review_bundle.json` and status `AWAITING_REVIEW`.
+
+### Dispatch levels
+
+| Level | When | Package |
+|---|---|---|
+| `direct` | Low risk, bounds already known | User request + allowed files + acceptance + verification + stop conditions. No implementation-file reads, plans, or repo summaries before dispatch. |
+| `compact` | Medium risk | READY contract fields + Goal / Allowed / Forbidden / Code anchors / short Edit / Verification / Acceptance / Stop. Omits Context evidence. |
+| `full` | High risk, architecture/security-sensitive, or ambiguous | Existing READY packet validated by `scripts/check-packet`. |
+
+Validate with `scripts/check-dispatch LEVEL PATH` (`full` delegates to
+`check-packet`). Escalate `direct → compact → full` while reusing snapshots,
+diffs, verification results, and calibration/token artifacts under
+`snapshot_directory` unless they are stale or invalid.
+
+### Hook responsibilities
+
+- `before_dispatch` — normalize paths/metadata, enforce size limits, prepare
+  snapshot dir, reject invalid context before tokens.
+- `build_dispatch` / `validate_dispatch` — minimum package for the level;
+  fail closed via `check-dispatch`.
+- `snapshot` — pre-dispatch capture with evidence reuse.
+- `delegate` — existing `scripts/run-delegate` transport only.
+- `after_delegate` — post snapshot, delta, compact report fields, scope
+  violations, token fields when available. No narrative summaries.
+- `run_verification` — run verification commands; record exit codes/excerpts.
+- `before_review` — smallest review bundle: request, acceptance, changed
+  files, delta hunks, verification results, delegate concerns, scope
+  violations. Excludes transcript, full packet, repo summaries, raw reasoning.
+- `after_review` / `log_calibration` — persist review artifacts and append a
+  v2 `scripts/router-log` row (never invent metrics).
 
 ## Delegate Prompt
 
 An initial implementation dispatch sends exactly this wrapper followed by the
-full READY packet. A cross-tool revision sends the same full payload plus Review
-Gate findings. A Same-session Cursor resume sends only findings and immutable
-constraints because the session retains the packet; this is the sole full-packet
-exception.
+minimum dispatch package for the selected `dispatch_level` (`direct`,
+`compact`, or full READY packet). A cross-tool revision sends the same full
+payload plus Review Gate findings. A Same-session Cursor resume sends only
+findings and immutable constraints because the session retains the packet;
+this is the sole full-packet exception.
 
 ```text
 You are a bounded implementation worker for a parent agent.
@@ -295,9 +381,10 @@ summarize missing evidence.
 ## Review Gate
 
 The gate is parent-local work; it needs no delegate dispatch. After any
-delegate write mode, inspect the generated pre-versus-post artifacts:
+delegate write mode, inspect the transaction review bundle and delta artifacts:
 
 ```bash
+cat "$SNAP/run/review_bundle.json"
 cat "$SNAP/delta.json"
 cat "$SNAP/delta.patch"
 ```
