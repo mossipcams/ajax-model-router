@@ -14,6 +14,12 @@ Entry format:
 - Checkpoint: <commit hash>
 ```
 
+## 2026-07-31 Pre-dispatch size split (≥250 estimated lines)
+- Tripwire: user-directed (Composer gate noise dominated by oversized ACP dispatches; ex-ACP rejects were quality/scope, not size)
+- Evidence: cursor-delegate/composer-2.5 since EPOCH — 8 size hard-stop DISCARDs all in acp-08*; ex-ACP 13/21 ACCEPT with 0 size-stop rejects; post-hoc 230–450 addition stops paid for full delegate rounds
+- Change: add `R-SIZE-SPLIT` (STOP/BLOCKED when estimated_lines ≥ 250 or multi-behavior); `before_dispatch` rejects known estimates ≥ 250 with `pre-dispatch-size-split`; keep ~400 post-delta stop as backstop; not a Composer ACCEPT tripwire
+- Checkpoint: aad600f
+
 ## 2026-07-14 MiniMax vs Cursor disambiguation (no further broaden)
 - Tripwire: MiniMax starvation (0 of last 15 implementation dispatches)
 - Evidence: 0 MINIMAX DELEGATEs in 111-row window; last 15 DELEGATEs all cursor-delegate/composer-2.5 on ajax-temporary-tests; Cursor gate 29/30 ACCEPT — starvation from skip-not-narrow after earlier broaden

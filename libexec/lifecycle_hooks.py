@@ -73,6 +73,30 @@ def _roots_equal(left, right):
     return Path(left).resolve() == Path(right).resolve()
 
 
+# Pre-dispatch size gate (R-SIZE-SPLIT). Post-delta ~400 remains Review Gate backstop.
+PRE_DISPATCH_MAX_ESTIMATED_LINES = 250
+
+
+def _estimated_lines_over_pre_dispatch_limit(ctx):
+    """True when estimated_lines is a known integer ≥ PRE_DISPATCH_MAX_ESTIMATED_LINES.
+
+    UNKNOWN / missing estimates do not trip the gate (parent owns multi-behavior
+    splits without a line count). Invalid non-integer values fail closed.
+    """
+    raw = ctx.get("estimated_lines")
+    if raw is None:
+        return False
+    text = str(raw).strip()
+    if not text or text.upper() == "UNKNOWN":
+        return False
+    try:
+        return int(text) >= PRE_DISPATCH_MAX_ESTIMATED_LINES
+    except ValueError as exc:
+        raise HookError(
+            f"estimated_lines must be an integer or UNKNOWN, got {raw!r}"
+        ) from exc
+
+
 def before_dispatch(ctx):
     """Normalize metadata/paths, prepare snapshot dir, reject bad context early."""
     working = Path(ctx["working_directory"])
@@ -107,6 +131,13 @@ def before_dispatch(ctx):
 
     if not ctx["allowed_files"]:
         raise HookError("allowed_files must be non-empty for write dispatch")
+
+    if _estimated_lines_over_pre_dispatch_limit(ctx):
+        raise HookError(
+            "pre-dispatch-size-split: estimated_lines "
+            f">= {PRE_DISPATCH_MAX_ESTIMATED_LINES}; "
+            "split into smaller packets before DELEGATE"
+        )
 
     ctx["status"] = "BEFORE_DISPATCH_OK"
     return ctx

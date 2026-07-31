@@ -54,6 +54,9 @@ scripts/install-symlinks --target ../ajax-cli --force
 - `scripts/run-transaction` runs the deterministic lifecycle
   (before_dispatch → … → before_review) and emits `review_bundle.json` for the
   parent Review Gate; resume with `--from-stage after_review`.
+  `before_dispatch` rejects known `estimated_lines` ≥ 250
+  (`pre-dispatch-size-split` / `R-SIZE-SPLIT`); split packets before DELEGATE.
+  The ~400 changed-line stop remains the post-delta Review Gate backstop.
 - `scripts/delegate-snapshot` and `scripts/delegate-delta` generate the
   pre-versus-post patch reviewed by the parent and safely restore only that
   delta on `DISCARD`.

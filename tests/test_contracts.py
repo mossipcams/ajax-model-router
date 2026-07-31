@@ -189,6 +189,14 @@ Anchor moved or scope grows.
         self.assertIn("after one rebuild", rows["R-DELEGATE"][1])
         self.assertNotIn("no critique returned", rows["R-DELEGATE"][1])
         self.assertIn("records unresolved specification or architecture uncertainty", text)
+        self.assertIn("R-SIZE-SPLIT", rows)
+        self.assertEqual(rows["R-SIZE-SPLIT"][2], "STOP")
+        self.assertIn("250", rows["R-SIZE-SPLIT"][1])
+        self.assertLess(
+            text.index("| `R-SIZE-SPLIT`"),
+            text.index("| `R-DELEGATE`"),
+        )
+        self.assertIn("pre-dispatch-size-split", text)
 
     def test_implementation_lane_precedence_for_representative_cases(self):
         text = ROUTER.read_text()

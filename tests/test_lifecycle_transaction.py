@@ -163,6 +163,30 @@ class LifecycleTransactionTests(unittest.TestCase):
             self.assertFalse(called["delegate"])
             self.assertIn("user_request", result.stderr)
 
+    def test_before_dispatch_rejects_estimated_lines_at_size_split(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            over = ctxlib.validate_context(
+                self.base_context(repo, snap, estimated_lines="250")
+            )
+            with self.assertRaises(hooks.HookError) as raised:
+                hooks.before_dispatch(over)
+            self.assertIn("pre-dispatch-size-split", str(raised.exception))
+
+            under = ctxlib.validate_context(
+                self.base_context(repo, snap, estimated_lines="249")
+            )
+            hooks.before_dispatch(under)
+            self.assertEqual(under["status"], "BEFORE_DISPATCH_OK")
+
+            unknown = ctxlib.validate_context(
+                self.base_context(repo, snap, estimated_lines="UNKNOWN")
+            )
+            hooks.before_dispatch(unknown)
+            self.assertEqual(unknown["status"], "BEFORE_DISPATCH_OK")
+
     def test_direct_build_does_not_read_implementation_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)

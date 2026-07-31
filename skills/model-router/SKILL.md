@@ -86,8 +86,16 @@ Follow the first matching action rule. Copy a selected registry value into
 | `R-REBUILD` | First packet critique returned `BLOCK`, rebuild count is 0, and required evidence is complete | `BUILD_PACKET` | `tdd-implementation-packet` | `build` | none | `BLOCKED` |
 | `R-RECRITIQUE` | Rebuilt packet is mechanically `READY`, still records uncertainty, and critique count is 1 | `CRITIQUE_PACKET` | `codex-delegate` | `packet-critique` | `CODEX` | `READY` |
 | `R-CRITIQUE-STOP` | Second packet critique returned `BLOCK` and critique count is 2 | `STOP` | `codex-delegate` | `packet-critique` | `CODEX` | `BLOCKED` |
+| `R-SIZE-SPLIT` | Estimated changed lines ≥ 250, or the packet clearly covers more than one bounded behavior | `STOP` | `NONE` | `NONE` | none | `BLOCKED` |
 | `R-DELEGATE` | Packet is mechanically `READY` and either has no unresolved uncertainty initially or after one rebuild, or its latest critique passed | `DELEGATE` | implementation lane below | implementation mode below | implementation model below | `READY` |
 | `R-STOP` | Selected tool is unavailable and every other implementation lane was tried or is also unavailable; or the task exceeds one bounded behavior | `STOP` | attempted lane | attempted mode | attempted model | current status |
+
+`R-SIZE-SPLIT` is a pre-dispatch gate: do not `DELEGATE`. Split into smaller
+packets, rebuild, and reroute. Log `escalation_reason=pre-dispatch-size-split`.
+`UNKNOWN` estimates do not trip the line threshold; only a known estimate ≥ 250
+does. The post-delta ~400 changed-line stop in the Delegate Prompt / Review Gate
+remains the backstop when the estimate was wrong. This is not a Composer-only
+ACCEPT tripwire.
 
 ### Implementation Lane
 
