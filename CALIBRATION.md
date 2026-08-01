@@ -18,7 +18,7 @@ Entry format:
 - Tripwire: user-directed
 - Evidence: user wants parent LOCAL only for architecture planning / Q&A, and does not want Grok 4.5 in the router at all
 - Change: remove `R-LOCAL-TINY`; narrow `R-QA` to pure Q&A or architecture planning; keep Cursor as `composer-2.5` only (no `GROK` key)
-- Checkpoint: pending
+- Checkpoint: 42c43c9
 
 ## 2026-07-31 Pre-dispatch size split (≥250 estimated lines)
 - Tripwire: user-directed (Composer gate noise dominated by oversized ACP dispatches; ex-ACP rejects were quality/scope, not size)
