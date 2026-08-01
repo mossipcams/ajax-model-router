@@ -14,6 +14,12 @@ Entry format:
 - Checkpoint: <commit hash>
 ```
 
+## 2026-07-31 Drop tiny-local writes; no Grok in registry
+- Tripwire: user-directed
+- Evidence: user wants parent LOCAL only for architecture planning / Q&A, and does not want Grok 4.5 in the router at all
+- Change: remove `R-LOCAL-TINY`; narrow `R-QA` to pure Q&A or architecture planning; keep Cursor as `composer-2.5` only (no `GROK` key)
+- Checkpoint: pending
+
 ## 2026-07-31 Pre-dispatch size split (≥250 estimated lines)
 - Tripwire: user-directed (Composer gate noise dominated by oversized ACP dispatches; ex-ACP rejects were quality/scope, not size)
 - Evidence: cursor-delegate/composer-2.5 since EPOCH — 8 size hard-stop DISCARDs all in acp-08*; ex-ACP 13/21 ACCEPT with 0 size-stop rejects; post-hoc 230–450 addition stops paid for full delegate rounds

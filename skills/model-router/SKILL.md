@@ -5,9 +5,10 @@ description: Pick the workflow for one bounded coding task: local, packet, deleg
 
 # Model Router
 
-Route one bounded coding task or review: handle it locally, gather missing
-context, delegate it, or stop, then gate any resulting change. Not for broad
-planning or unrelated cleanup.
+Route one bounded coding task or review: gather missing context, delegate it,
+or stop, then gate any resulting change. Prefer DELEGATE for implementation.
+Parent LOCAL is for architecture planning, pure Q&A, evidence gathering, and
+the Review Gate — not for writing the change.
 
 This skill owns every shared rule of the pipeline. The delegate skills
 (`codex-delegate`, `cursor-delegate`, `pi-delegate`) are thin adapters:
@@ -77,8 +78,7 @@ Follow the first matching action rule. Copy a selected registry value into
 | Rule ID | Condition | `ACTION` | `LANE` | `MODE` | Model key | `PACKET_STATUS` |
 |---|---|---|---|---|---|---|
 | `R-GATE` | Delegate write finished and its delta is not yet gated | `LOCAL` | `local` | `NONE` | none | `READY` |
-| `R-QA` | Pure Q&A or planning | `LOCAL` | `local` | `NONE` | none | `NOT_REQUIRED` |
-| `R-LOCAL-TINY` | Candidate edit is one file, at most 10 changed lines, and adds no branch, loop, parser, auth, security, or data-loss path | `LOCAL` | `local` | `NONE` | none | `NOT_REQUIRED` |
+| `R-QA` | Pure Q&A or architecture planning (no implementation write) | `LOCAL` | `local` | `NONE` | none | `NOT_REQUIRED` |
 | `R-REVIEW` | Standalone or broad review request | `REVIEW` | `local` | `NONE` | none | `NOT_REQUIRED` |
 | `R-EVIDENCE` | Any required evidence category is missing | `GATHER_EVIDENCE` | `local` | `evidence` | none | `BLOCKED` |
 | `R-BUILD` | Required evidence is complete and no packet exists | `BUILD_PACKET` | `tdd-implementation-packet` | `build` | none | `BLOCKED` |

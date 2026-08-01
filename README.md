@@ -75,7 +75,8 @@ scripts/install-symlinks --target ../ajax-cli --force
 | High-risk backend change | 1 automatic critique + 1 GLM implementation | 1 GLM implementation; add 1 critique only for recorded uncertainty |
 | Failed cheap-model implementation | 1 cheap call + 1 critique + 1 GLM revision | 1 cheap call + 1 GLM revision; critique only if uncertainty is recorded |
 
-Tiny one-file edits that satisfy the local rule remain 0 delegated model calls.
+Architecture planning and pure Q&A stay parent-local (0 delegate writes). Bounded
+implementation writes are delegated; there is no tiny-local write shortcut.
 
 ## Native delegate transports
 

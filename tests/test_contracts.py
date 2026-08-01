@@ -222,6 +222,14 @@ Anchor moved or scope grows.
         self.assertEqual(lane(frontend_ui=True, files=3, lines=100), "CURSOR")
         self.assertEqual(lane(files=3, lines=100), "GLM")
 
+    def test_delegate_preferred_and_no_grok(self):
+        text = ROUTER.read_text()
+        self.assertIn("Pure Q&A or architecture planning", text)
+        self.assertNotIn("`R-LOCAL-TINY`", text)
+        self.assertNotIn("at most 10 changed lines", text)
+        self.assertNotIn("GROK", text)
+        self.assertNotIn("grok", text.lower())
+
     def test_documentation_states_expected_call_counts(self):
         readme = (ROOT / "README.md").read_text()
         self.assertIn("## Expected model calls", readme)
@@ -233,6 +241,7 @@ Anchor moved or scope grows.
         ):
             self.assertIn(scenario, readme)
         self.assertIn("pre-versus-post", readme)
+        self.assertIn("no tiny-local write shortcut", readme)
 
 
 if __name__ == "__main__":
