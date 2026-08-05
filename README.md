@@ -70,13 +70,14 @@ scripts/install-symlinks --target ../ajax-cli --force
 
 | Scenario | Before | After |
 |---|---:|---:|
-| Localized bounded change | 1 cheap implementation call | 1 cheap implementation call; smaller evidence packet |
-| Unfamiliar cross-module change | 1 automatic critique + 1 GLM implementation | 1 GLM implementation; add 1 critique only if evidence leaves recorded uncertainty |
-| High-risk backend change | 1 automatic critique + 1 GLM implementation | 1 GLM implementation; add 1 critique only for recorded uncertainty |
-| Failed cheap-model implementation | 1 cheap call + 1 critique + 1 GLM revision | 1 cheap call + 1 GLM revision; critique only if uncertainty is recorded |
+| Localized bounded change | 1 cheap implementation call | 1 Composer call by default; MiniMax only for shallow docs/boilerplate |
+| Unfamiliar cross-module change | 1 automatic critique + 1 GLM implementation | 1 Composer call; add 1 critique + GLM only if evidence leaves recorded uncertainty |
+| High-risk backend change | 1 automatic critique + 1 GLM implementation | 1 Composer call; critique + GLM only for recorded uncertainty |
+| Failed cheap-model implementation | 1 cheap call + 1 critique + 1 GLM revision | 1 MiniMax call + 1 GLM revision; critique only if uncertainty is recorded |
 
 Architecture planning and pure Q&A stay parent-local (0 delegate writes). Bounded
-implementation writes are delegated; there is no tiny-local write shortcut.
+implementation writes default to Composer; MiniMax/GLM remain narrow exceptions.
+There is no tiny-local write shortcut.
 
 ## Native delegate transports
 

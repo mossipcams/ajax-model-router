@@ -50,8 +50,11 @@ for key in CODEX CURSOR MINIMAX GLM; do
   fi
 done
 
-require_text "$ROUTER" "Risk and reasoning depth take precedence over file category." "routing precedence rule"
+require_text "$ROUTER" 'Default to `CURSOR`' "composer-default implementation lane"
+require_text "$ROUTER" "Risk and reasoning depth still take precedence over file category" "routing precedence rule"
 require_text "$ROUTER" "Tests-only work keeps the lane selected by reasoning depth." "tests-only complexity rule"
+require_text "$ROUTER" "No exception matched" "cursor residual lane"
+forbid_text "$ROUTER" "No lane matched" "removed GLM residual fallback"
 require_text "$ROUTER" 'Any required evidence category is missing' "missing-evidence route"
 require_text "$ROUTER" '`GATHER_EVIDENCE`' "evidence action"
 require_text "$ROUTER" '`evidence`' "evidence mode"
@@ -62,12 +65,14 @@ forbid_text "$ROUTER" '`R-LOCAL-TINY`' "removed tiny-local write shortcut"
 forbid_text "$ROUTER" "GROK" "no Grok registry or route"
 forbid_text "$ROUTER" "grok" "no Grok model id"
 
-risk_line="$(grep -nF 'Authentication, security, data-loss, backend, server, session, PTY, or supervisor work' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
-frontend_line="$(grep -nF 'Frontend UI behavior with bounded files and anchors' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
-if [[ -z "$risk_line" || -z "$frontend_line" || "$risk_line" -ge "$frontend_line" ]]; then
-  echo "wrong-order: risk/backend route must precede frontend route" >&2
+uncertainty_line="$(grep -nF 'Packet records unresolved specification or architecture uncertainty' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
+cheap_line="$(grep -nF 'Routine docs, generated cleanup, exact replacements, or named boilerplate' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
+cursor_line="$(grep -nF 'No exception matched' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
+if [[ -z "$uncertainty_line" || -z "$cheap_line" || -z "$cursor_line" || "$uncertainty_line" -ge "$cheap_line" || "$cheap_line" -ge "$cursor_line" ]]; then
+  echo "wrong-order: uncertainty → MiniMax → CURSOR-default must hold" >&2
   failures=$((failures + 1))
 fi
+forbid_text "$ROUTER" "Authentication, security, data-loss, backend, server, session, PTY, or supervisor work; or architecture-wide reasoning" "removed broad GLM risk row"
 
 packet="skills/tdd-implementation-packet/SKILL.md"
 require_text "$packet" "PACKET_STATUS: READY | BLOCKED" "packet readiness status"

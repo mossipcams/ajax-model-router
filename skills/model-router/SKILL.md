@@ -100,20 +100,22 @@ ACCEPT tripwire.
 ### Implementation Lane
 
 For `DELEGATE`, use the rules below.
-Risk and reasoning depth take precedence over file category. TypeScript alone
-is not a frontend signal. Follow the first matching rule.
+Default to `CURSOR`. Divert only when an exception row matches.
+Risk and reasoning depth still take precedence over file category when choosing
+among exceptions. TypeScript alone is not a frontend signal. Follow the first
+matching rule.
 
 | Packet facts | Lane | Mode | Model key |
 |---|---|---|---|
 | User explicitly asked Codex to implement | `codex-delegate` | `implementation` | `CODEX` |
 | Packet records unresolved specification or architecture uncertainty | `pi-delegate` | `implement` or `test-only` | `GLM` |
-| Authentication, security, data-loss, backend, server, session, PTY, or supervisor work; or architecture-wide reasoning | `pi-delegate` | `implement` or `test-only` | `GLM` |
-| Routine docs, generated cleanup, exact replacements, named boilerplate, shallow tests-only work, or any bounded change with exact anchors touching at most 2 files and roughly 60 changed lines with no term from the risk row above — including frontend UI that fits those bounds | `pi-delegate` | `implement` or `test-only` | `MINIMAX` |
-| Frontend UI behavior with bounded files and anchors that exceeds the MiniMax row (more than 2 files, or roughly more than ~60 changed lines, or multi-surface visual/layout work) | `cursor-delegate` | `implement` or `test-only` | `CURSOR` |
-| No lane matched | `pi-delegate` | `implement` or `test-only` | `GLM` |
+| Routine docs, generated cleanup, exact replacements, or named boilerplate with exact anchors, at most 2 files and roughly 60 changed lines, and no authentication/security/data-loss concerns | `pi-delegate` | `implement` or `test-only` | `MINIMAX` |
+| No exception matched | `cursor-delegate` | `implement` or `test-only` | `CURSOR` |
 
-Before selecting `CURSOR`, verify the MiniMax row does not match. A path under
-`ajax-web`, CSS, or terminal surface is not by itself a Cursor signal.
+Do not divert to MiniMax or GLM just because the change is backend, PTY,
+frontend, multi-file, or under `ajax-web` — those stay on `CURSOR` by default.
+MiniMax is only the shallow docs/boilerplate row above; GLM is only recorded
+uncertainty (or a MiniMax revise escalation).
 
 Tests-only work keeps the lane selected by reasoning depth. It changes `MODE`
 to `test-only`; it does not select MiniMax by itself.

@@ -14,6 +14,12 @@ Entry format:
 - Checkpoint: <commit hash>
 ```
 
+## 2026-08-04 Strong Composer default; narrow Pi exceptions
+- Tripwire: user-directed
+- Evidence: first-choice Composer was ~56% of tasks; broad GLM risk/backend row + MiniMax ≤2-file residual stole most DELEGATEs; user wants Composer strongly preferred with some remaining chance for other lanes
+- Change: default Implementation Lane residual to `CURSOR`; keep Codex (explicit ask), GLM (recorded uncertainty), MiniMax (shallow docs/boilerplate ≤2 files/~60 lines); drop broad auth/backend/PTY→GLM and frontend-exceeds-MiniMax rows
+- Checkpoint: pending
+
 ## 2026-07-31 Drop tiny-local writes; no Grok in registry
 - Tripwire: user-directed
 - Evidence: user wants parent LOCAL only for architecture planning / Q&A, and does not want Grok 4.5 in the router at all

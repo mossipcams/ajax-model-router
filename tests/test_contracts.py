@@ -200,27 +200,38 @@ Anchor moved or scope grows.
 
     def test_implementation_lane_precedence_for_representative_cases(self):
         text = ROUTER.read_text()
-        risk = text.index("Authentication, security, data-loss, backend")
-        cheap = text.index("Routine docs, generated cleanup")
-        frontend = text.index("Frontend UI behavior with bounded files")
-        fallback = text.index("No lane matched")
-        self.assertLess(risk, cheap)
-        self.assertLess(cheap, frontend)
-        self.assertLess(frontend, fallback)
+        self.assertIn("Default to `CURSOR`", text)
+        uncertainty = text.index(
+            "Packet records unresolved specification or architecture uncertainty"
+        )
+        cheap = text.index("Routine docs, generated cleanup, exact replacements, or named boilerplate")
+        fallback = text.index("No exception matched")
+        self.assertLess(uncertainty, cheap)
+        self.assertLess(cheap, fallback)
+        self.assertNotIn("No lane matched", text)
+        self.assertNotIn(
+            "Authentication, security, data-loss, backend, server, session, PTY, or supervisor work; or architecture-wide reasoning",
+            text,
+        )
 
-        def lane(*, high_risk=False, frontend_ui=False, files=1, lines=10):
-            if high_risk:
+        def lane(
+            *,
+            uncertainty=False,
+            docs_boilerplate=False,
+            files=1,
+            lines=10,
+        ):
+            if uncertainty:
                 return "GLM"
-            if files <= 2 and lines <= 60:
+            if docs_boilerplate and files <= 2 and lines <= 60:
                 return "MINIMAX"
-            if frontend_ui:
-                return "CURSOR"
-            return "GLM"
+            return "CURSOR"
 
-        self.assertEqual(lane(high_risk=True, files=1), "GLM")
-        self.assertEqual(lane(frontend_ui=True, files=2, lines=40), "MINIMAX")
-        self.assertEqual(lane(frontend_ui=True, files=3, lines=100), "CURSOR")
-        self.assertEqual(lane(files=3, lines=100), "GLM")
+        self.assertEqual(lane(uncertainty=True, files=1), "GLM")
+        self.assertEqual(lane(docs_boilerplate=True, files=2, lines=40), "MINIMAX")
+        self.assertEqual(lane(files=3, lines=100), "CURSOR")
+        self.assertEqual(lane(files=1, lines=20), "CURSOR")
+        self.assertEqual(lane(docs_boilerplate=False, files=2, lines=40), "CURSOR")
 
     def test_delegate_preferred_and_no_grok(self):
         text = ROUTER.read_text()
