@@ -18,7 +18,7 @@ Entry format:
 - Tripwire: user-directed
 - Evidence: first-choice Composer was ~56% of tasks; broad GLM risk/backend row + MiniMax ≤2-file residual stole most DELEGATEs; user wants Composer strongly preferred with some remaining chance for other lanes
 - Change: default Implementation Lane residual to `CURSOR`; keep Codex (explicit ask), GLM (recorded uncertainty), MiniMax (shallow docs/boilerplate ≤2 files/~60 lines); drop broad auth/backend/PTY→GLM and frontend-exceeds-MiniMax rows
-- Checkpoint: pending
+- Checkpoint: b306125
 
 ## 2026-07-31 Drop tiny-local writes; no Grok in registry
 - Tripwire: user-directed
