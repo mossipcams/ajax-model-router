@@ -1,43 +1,30 @@
 #!/usr/bin/env python3
-"""Normalized lifecycle context + evidence-reuse index for router transactions."""
+"""Normalized execution context for thin router transactions."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-DISPATCH_LEVELS = ("direct", "compact", "full")
+AGENTS = ("parent", "cursor", "codex", "pi")
 RISKS = ("low", "medium", "high")
 
-# Byte/line caps reject oversized dispatches before model tokens are spent.
-DISPATCH_LIMITS = {
-    "direct": {"max_bytes": 8192, "max_lines": 200},
-    "compact": {"max_bytes": 24576, "max_lines": 600},
-    "full": {"max_bytes": 65536, "max_lines": 2000},
-}
-
 STAGES = (
-    "before_dispatch",
-    "build_dispatch",
-    "validate_dispatch",
+    "before_execute",
     "snapshot",
-    "delegate",
-    "after_delegate",
-    "run_verification",
-    "before_review",
-    "after_review",
-    "log_calibration",
+    "execute",
+    "after_execute",
+    "log_outcome",
 )
 
 # Stages that spend model tokens; everything before must fail closed first.
-TOKEN_STAGES = frozenset({"delegate"})
+TOKEN_STAGES = frozenset({"execute"})
 
 REQUIRED_FIELDS = (
     "task_id",
-    "dispatch_level",
-    "risk",
-    "provider",
+    "agent",
     "model",
+    "risk",
     "allowed_files",
     "acceptance",
     "working_directory",
@@ -49,7 +36,7 @@ CONTEXT_STATE_NAME = "context.json"
 
 
 class ContextError(ValueError):
-    """Invalid or incomplete lifecycle context."""
+    """Invalid or incomplete execution context."""
 
 
 def _require_str(value, field):
@@ -110,12 +97,9 @@ def normalize_allowed_files(paths, working_directory):
 
 def empty_artifacts():
     return {
-        "dispatch_path": "",
         "prompt_path": "",
         "raw_log": "",
         "report_path": "",
-        "review_bundle_path": "",
-        "review_artifact_path": "",
         "delegate_output": {},
         "verification_results": [],
         "scope_violations": [],
@@ -148,20 +132,21 @@ def validate_context(data):
     if not ctx["task_id"]:
         raise ContextError("task_id must be non-empty")
 
-    level = _require_str(ctx["dispatch_level"], "dispatch_level")
-    if level not in DISPATCH_LEVELS:
-        raise ContextError(f"dispatch_level must be one of {DISPATCH_LEVELS}")
-    ctx["dispatch_level"] = level
+    agent = _require_str(ctx["agent"], "agent").strip().lower()
+    if agent not in AGENTS:
+        raise ContextError(f"agent must be one of {AGENTS}")
+    ctx["agent"] = agent
 
-    risk = _require_str(ctx["risk"], "risk")
+    risk = _require_str(ctx["risk"], "risk").strip().lower()
     if risk not in RISKS:
         raise ContextError(f"risk must be one of {RISKS}")
     ctx["risk"] = risk
 
-    ctx["provider"] = _require_str(ctx["provider"], "provider")
     ctx["model"] = _require_str(ctx["model"], "model")
+    if agent != "parent" and not ctx["model"].strip():
+        raise ContextError("model must be non-empty for non-parent agents")
     if not ctx["model"].strip():
-        raise ContextError("model must be non-empty")
+        ctx["model"] = "NONE"
 
     working = normalize_path(ctx["working_directory"])
     ctx["working_directory"] = str(working)
@@ -170,70 +155,36 @@ def validate_context(data):
     ctx["allowed_files"] = normalize_allowed_files(ctx["allowed_files"], working)
     ctx["acceptance"] = _require_str_list(ctx["acceptance"], "acceptance")
 
-    # Optional dispatch inputs (parent-supplied; hooks never invent them).
     for key in (
         "user_request",
-        "goal",
-        "packet_path",
+        "fallback",
         "tool",
         "repository_id",
-        "route_rule_id",
-        "task_kind",
-        "lane",
-        "escalation_reason",
-        "escalation_destination",
+        "requested_agent",
         "gate_result",
         "failure_classification",
-        "critique_result",
-        "ci_result",
-        "estimated_files",
-        "estimated_lines",
         "duration_seconds",
         "resume",
         "sandbox",
         "reasoning_effort",
-        "calibration_log",
+        "outcome_log",
     ):
         if key in data and data[key] is not None:
             ctx[key] = _require_str(data[key], key)
 
-    for key in (
-        "verification_commands",
-        "verification_methods",
-        "stop_conditions",
-        "forbidden_changes",
-        "code_anchors",
-        "edit_instructions",
-        "constraints",
-        "follow_up",
-    ):
+    for key in ("verify", "follow_up"):
         if key in data and data[key] is not None:
             ctx[key] = _require_str_list(data[key], key)
 
-    ctx.setdefault("verification_commands", [])
-    ctx.setdefault("verification_methods", [])
-    ctx.setdefault("stop_conditions", [])
-    ctx.setdefault("forbidden_changes", [])
-    ctx.setdefault("code_anchors", [])
-    ctx.setdefault("edit_instructions", [])
-    ctx.setdefault("constraints", [])
+    ctx.setdefault("verify", [])
     ctx.setdefault("follow_up", [])
     ctx.setdefault("user_request", "")
-    ctx.setdefault("goal", "")
-    ctx.setdefault("packet_path", "")
-    ctx.setdefault("verification_reason", data.get("verification_reason") or "")
-    if ctx["verification_reason"] is not None and not isinstance(
-        ctx["verification_reason"], str
-    ):
-        raise ContextError("verification_reason must be a string")
-    ctx.setdefault("tool", ctx.get("provider", ""))
+    ctx.setdefault("fallback", "STOP")
+    ctx.setdefault("tool", ctx["agent"] if ctx["agent"] != "parent" else "")
+    ctx.setdefault("requested_agent", ctx["agent"])
     ctx.setdefault("retry_count", int(data.get("retry_count", 0)))
     if not isinstance(ctx["retry_count"], int) or ctx["retry_count"] < 0:
         raise ContextError("retry_count must be a non-negative integer")
-
-    ctx.setdefault("round", int(data.get("round", 1)))
-    if not isinstance(ctx["round"], int) or ctx["round"] < 1:
-        raise ContextError("round must be a positive integer")
 
     ctx.setdefault("status", data.get("status", "NEW"))
     ctx.setdefault("completed_stages", list(data.get("completed_stages", [])))
@@ -313,22 +264,6 @@ def record_artifact(evidence, name, *, root, path, meta=None):
         "meta": meta or {},
     }
     return evidence
-
-
-def enforce_dispatch_limits(text, dispatch_level):
-    limits = DISPATCH_LIMITS[dispatch_level]
-    raw = text.encode("utf-8")
-    lines = text.count("\n") + (1 if text and not text.endswith("\n") else 0)
-    if len(raw) > limits["max_bytes"]:
-        raise ContextError(
-            f"dispatch exceeds {dispatch_level} byte limit "
-            f"({len(raw)} > {limits['max_bytes']})"
-        )
-    if lines > limits["max_lines"]:
-        raise ContextError(
-            f"dispatch exceeds {dispatch_level} line limit "
-            f"({lines} > {limits['max_lines']})"
-        )
 
 
 def stage_index(name):

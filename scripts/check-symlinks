@@ -122,7 +122,6 @@ check_no_ancestor_links
 check_one ".agents" "model-router"
 for skill in \
   "model-router" \
-  "tdd-implementation-packet" \
   "cursor-delegate" \
   "pi-delegate" \
   "codex-delegate"
@@ -132,7 +131,6 @@ done
 
 for skill in \
   "model-router" \
-  "tdd-implementation-packet" \
   "cursor-delegate" \
   "pi-delegate" \
   "codex-delegate"
@@ -146,12 +144,19 @@ for script in \
   "run-transaction" \
   "delegate-snapshot" \
   "delegate-delta" \
-  "check-packet" \
-  "check-dispatch" \
   "check-report" \
   "extract-report" \
   "router-log" \
   "router-log-summary"
 do
-  check_script "$script"
+  if [[ "$TARGET" == "$CANONICAL" ]]; then
+    # Canonical repo owns the real scripts; only verify they exist.
+    if [[ ! -f "$CANONICAL/scripts/$script" ]]; then
+      echo "missing-source: $CANONICAL/scripts/$script"
+      exit 1
+    fi
+    echo "ok-canonical-script: $CANONICAL/scripts/$script"
+  else
+    check_script "$script"
+  fi
 done

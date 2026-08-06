@@ -63,7 +63,7 @@ for line in sys.stdin:
     print(json.dumps({"type": "agent_start"}), flush=True)
     print(json.dumps({"type": "response", "command": command["type"], "success": True}), flush=True)
     if command["type"] == "follow_up":
-        report = "ROUTER_REPORT_BEGIN\\nDELEGATE_REPORT:\\n  STATUS: COMPLETE\\n  SUMMARY: follow-up complete\\n  FILES_CHANGED: []\\n  TEST_FIRST: NOT_APPLICABLE\\n  COMMAND_EVIDENCE: []\\n  STOP_CONDITIONS_HIT: []\\n  REMAINING_RISKS: []\\nROUTER_REPORT_END"
+        report = "ROUTER_REPORT_BEGIN\\nDELEGATE_REPORT:\\n  STATUS: COMPLETE\\n  CHANGED_FILES: []\\n  VERIFICATION:\\n    - TYPE: other\\n      COMMAND: NONE\\n      RESULT: pass\\n      DETAILS: follow-up complete\\n  CONCERNS: []\\nROUTER_REPORT_END"
         print(json.dumps({"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": report}]}}), flush=True)
     print(json.dumps({"type": "agent_settled"}), flush=True)
 Path(os.environ["COMMANDS_FILE"]).write_text(json.dumps(commands))
@@ -106,7 +106,7 @@ Path(os.environ["COMMANDS_FILE"]).write_text(json.dumps(commands))
             commands = json.loads(commands_file.read_text())
             self.assertEqual([item["type"] for item in commands], ["prompt", "follow_up"])
             self.assertIn('"type": "agent_settled"', raw.read_text())
-            self.assertIn("SUMMARY: follow-up complete", report.read_text())
+            self.assertIn("DETAILS: follow-up complete", report.read_text())
 
     def test_cursor_stream_json_resume_and_structured_completion(self):
         fake = """#!/usr/bin/env python3
@@ -116,7 +116,7 @@ import sys
 from pathlib import Path
 
 Path(os.environ["ARGS_FILE"]).write_text(json.dumps(sys.argv[1:]))
-report = "ROUTER_REPORT_BEGIN\\nDELEGATE_REPORT:\\n  STATUS: COMPLETE\\n  SUMMARY: cursor complete\\n  FILES_CHANGED: []\\n  TEST_FIRST: NOT_APPLICABLE\\n  COMMAND_EVIDENCE: []\\n  STOP_CONDITIONS_HIT: []\\n  REMAINING_RISKS: []\\nROUTER_REPORT_END"
+report = "ROUTER_REPORT_BEGIN\\nDELEGATE_REPORT:\\n  STATUS: COMPLETE\\n  CHANGED_FILES: []\\n  VERIFICATION:\\n    - TYPE: other\\n      COMMAND: NONE\\n      RESULT: pass\\n      DETAILS: cursor complete\\n  CONCERNS: []\\nROUTER_REPORT_END"
 print(json.dumps({"type": "system", "subtype": "init", "session_id": "chat-1"}), flush=True)
 print(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "working"}]}},), flush=True)
 print(json.dumps({"type": "result", "is_error": False, "result": report}), flush=True)
@@ -161,7 +161,7 @@ print(json.dumps({"type": "result", "is_error": False, "result": report}), flush
                 ],
             )
             self.assertIn('"type": "result"', raw.read_text())
-            self.assertIn("SUMMARY: cursor complete", report.read_text())
+            self.assertIn("DETAILS: cursor complete", report.read_text())
 
     def test_native_failure_unknown_lines_and_unexpected_exit_are_explicit(self):
         cases = (
@@ -267,20 +267,13 @@ while True:
         report = """\
 DELEGATE_REPORT:
   STATUS: COMPLETE
-  SUMMARY: completed
-  FILES_CHANGED: [src/example.py]
-  TEST_FIRST: PROVEN
-  COMMAND_EVIDENCE:
-    - PHASE: RED
-      COMMAND: test red
-      EXIT_CODE: 1
-      OUTPUT_EXCERPT: intended assertion
-    - PHASE: GREEN
+  CHANGED_FILES: [src/example.py]
+  VERIFICATION:
+    - TYPE: test
       COMMAND: test green
-      EXIT_CODE: 0
-      OUTPUT_EXCERPT: passed
-  STOP_CONDITIONS_HIT: []
-  REMAINING_RISKS: []
+      RESULT: pass
+      DETAILS: passed
+  CONCERNS: []
 """ + "".join(f"  # retained report line {line}\n" for line in range(100))
         raw_text = "tool prelude\nROUTER_REPORT_BEGIN\n" + report + "ROUTER_REPORT_END\n"
         with tempfile.TemporaryDirectory() as tmp:
@@ -294,7 +287,7 @@ DELEGATE_REPORT:
             self.assertIn("retained report line 99", result.stdout)
             self.assertEqual(raw.read_text(), raw_text)
 
-    def test_review_and_packet_review_items_require_complete_schemas(self):
+    def test_obsolete_review_schemas_are_rejected(self):
         review = """\
 REVIEW_REPORT:
   VERDICT: REVISE
@@ -321,17 +314,11 @@ PACKET_REVIEW:
 """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "report.yaml"
-            for complete, missing, label in (
-                (review, "      REQUIRED_CHANGE: fix it\n", "REQUIRED_CHANGE"),
-                (packet, "      REQUIRED_EVIDENCE: dependency anchor\n", "REQUIRED_EVIDENCE"),
-            ):
-                path.write_text(complete)
-                result = subprocess.run([CHECK, path], text=True, capture_output=True)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                path.write_text(complete.replace(missing, ""))
+            for body in (review, packet):
+                path.write_text(body)
                 result = subprocess.run([CHECK, path], text=True, capture_output=True)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn(label, result.stderr)
+                self.assertIn("unknown report schema", result.stderr)
 
     def test_incomplete_and_missing_reports_fail_explicitly(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -356,12 +343,13 @@ PACKET_REVIEW:
                 "ROUTER_REPORT_END\nROUTER_REPORT_BEGIN\n"
                 "DELEGATE_REPORT:\n"
                 "  STATUS: COMPLETE\n"
-                "  SUMMARY: invalid marker order\n"
-                "  FILES_CHANGED: []\n"
-                "  TEST_FIRST: NOT_APPLICABLE\n"
-                "  COMMAND_EVIDENCE: []\n"
-                "  STOP_CONDITIONS_HIT: []\n"
-                "  REMAINING_RISKS: []\n"
+                "  CHANGED_FILES: []\n"
+                "  VERIFICATION:\n"
+                "    - TYPE: other\n"
+                "      COMMAND: NONE\n"
+                "      RESULT: pass\n"
+                "      DETAILS: invalid marker order\n"
+                "  CONCERNS: []\n"
             )
             result = subprocess.run(
                 [EXTRACT, raw, output], text=True, capture_output=True
@@ -451,7 +439,7 @@ import sys
 from pathlib import Path
 
 Path(os.environ["ARGS_FILE"]).write_text(json.dumps(sys.argv[1:]))
-report = "ROUTER_REPORT_BEGIN\\nDELEGATE_REPORT:\\n  STATUS: COMPLETE\\n  SUMMARY: complete\\n  FILES_CHANGED: []\\n  TEST_FIRST: NOT_APPLICABLE\\n  COMMAND_EVIDENCE: []\\n  STOP_CONDITIONS_HIT: []\\n  REMAINING_RISKS: []\\nROUTER_REPORT_END"
+report = "ROUTER_REPORT_BEGIN\\nDELEGATE_REPORT:\\n  STATUS: COMPLETE\\n  CHANGED_FILES: []\\n  VERIFICATION:\\n    - TYPE: other\\n      COMMAND: NONE\\n      RESULT: pass\\n      DETAILS: complete\\n  CONCERNS: []\\nROUTER_REPORT_END"
 if "--mode" in sys.argv:
     for line in sys.stdin:
         print(json.dumps({"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": report}]}}), flush=True)
@@ -527,13 +515,13 @@ else:
         router = (ROOT / "skills" / "model-router" / "SKILL.md").read_text()
         for phrase in (
             "Initial dispatch",
-            "full READY packet",
+            "outcome-based Dispatch prompt",
             "Same-session Cursor resume",
-            "findings and immutable constraints",
+            "immutable constraints",
             "Cross-tool revision",
         ):
             self.assertIn(phrase, cursor + router)
-        self.assertIn("does not resend the full packet", cursor + router)
+        self.assertIn("Do not resend the\n  full prompt", cursor)
 
 
 if __name__ == "__main__":

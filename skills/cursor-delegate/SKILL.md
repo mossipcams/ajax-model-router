@@ -1,19 +1,18 @@
 ---
 name: cursor-delegate
-description: Run Cursor CLI only from a model-router ROUTING_DECISION.
+description: Run Cursor CLI only from a model-router EXECUTION decision.
 ---
 
 # Cursor Delegate
 
-Thin adapter for a router-selected Cursor lane. Do not reconstruct routing from
-the user request. If no `ROUTING_DECISION` is supplied, return `STOP` and ask the
-parent to run `model-router`.
+Thin adapter for a router-selected Cursor agent. Do not reconstruct routing
+from the user request. If no `EXECUTION` is supplied, return `STOP` and ask
+the parent to run `model-router`.
 
 Required inputs:
 
-- mode: `implement` or `test-only`
-- model: the exact `MODEL` from the router decision
-- allowed scope: the decision's `ALLOWED_SCOPE`
+- model: the exact `MODEL` from the execution decision
+- allowed scope: the decision's `SCOPE`
 - the prepared prompt file and persistent run directory
 - `CHAT_ID` only when continuing an existing Cursor conversation
 
@@ -29,24 +28,19 @@ another tool inside this adapter.
 
 ## Payloads
 
-- **Initial dispatch**: the router wrapper followed by the full READY packet.
-- **Same-session Cursor resume**: the Review Gate findings and immutable constraints
-  (task ID, Allowed files, Forbidden changes, verification, and
-  stop conditions). It does not resend the full packet because `CHAT_ID`
-  retains that context.
-- **Cross-tool revision**: the router wrapper, full READY packet, and Review
-  Gate findings because the new tool has no session context.
-
-Resume keeps the original mode; `resume` is not a separate mode.
+- **Initial dispatch**: the router's outcome-based Dispatch prompt.
+- **Same-session Cursor resume**: Review findings and immutable constraints
+  (task ID, scope, acceptance, verification expectation). Do not resend the
+  full prompt when `CHAT_ID` retains context.
+- **Cross-tool revision**: full Dispatch prompt plus findings.
 
 ## Invocation
 
 The shared runner uses Cursor's native stream output:
 `-p -f --trust --model "$MODEL" --output-format stream-json
 --stream-partial-output`, plus `--resume "$CHAT_ID"` for a same-session
-revision. It consumes Cursor JSONL events directly; it does not invent an RPC
-layer. The full JSONL/stderr stream is preserved in the raw log and only the
-validated structured report is printed.
+revision. Full JSONL/stderr is preserved in the raw log; only the validated
+structured report is printed.
 
 ```bash
 scripts/run-delegate --tool cursor --model "$MODEL" \
@@ -57,6 +51,5 @@ scripts/run-delegate --tool cursor --model "$MODEL" \
 
 For resume, append `--resume "$CHAT_ID"`. Timeout, malformed/unknown events,
 missing terminal events, missing report, or invalid report returns an explicit
-failed `DELEGATE_REPORT`. Native result events are authoritative when present;
-process exit remains a final safety check. Return the extracted report
-unchanged to the router's Review Gate.
+failed `DELEGATE_REPORT`. Return the extracted report unchanged for parent
+acceptance.

@@ -44,15 +44,21 @@ class SymlinkTests(unittest.TestCase):
             self.assertEqual(installed.resolve(), CANONICAL.resolve())
             for name in (
                 "run-delegate",
+                "run-transaction",
                 "delegate-snapshot",
                 "delegate-delta",
-                "check-packet",
+                "check-report",
+                "router-log",
             ):
                 script = target / "scripts" / name
                 self.assertTrue(script.is_symlink(), name)
                 self.assertEqual(
                     script.resolve(), (ROOT / "scripts" / name).resolve(), name
                 )
+            self.assertFalse((target / "scripts" / "check-packet").exists())
+            self.assertFalse(
+                (target / ".cursor" / "skills" / "tdd-implementation-packet").exists()
+            )
 
             help_run = subprocess.run(
                 [target / "scripts" / "run-delegate", "--help"],

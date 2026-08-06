@@ -1,6 +1,6 @@
 interface:
   display_name: "Cursor Delegate"
-  short_description: "Delegate bounded work to Cursor CLI"
-  default_prompt: "Run model-router first, then use $cursor-delegate only with its ROUTING_DECISION."
+  short_description: "Execute a router-bound Cursor agent"
+  default_prompt: "Run model-router first, then use $cursor-delegate only with its EXECUTION decision."
 policy:
   allow_implicit_invocation: false

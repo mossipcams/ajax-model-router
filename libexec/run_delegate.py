@@ -211,15 +211,14 @@ def run_native(args, prompt):
                             elif args.tool == "pi":
                                 close_stdin()
                 if process.poll() is not None:
-                    if terminal or failure:
-                        break
                     if "stdout" in eof and "stderr" in eof:
-                        failure = "delegate exited without a terminal native event"
-                        failure_reason = "MISSING_TERMINAL_EVENT"
+                        if not terminal and not failure:
+                            failure = "delegate exited without a terminal native event"
+                            failure_reason = "MISSING_TERMINAL_EVENT"
                         break
-                if terminal and args.tool == "cursor":
-                    break
-                if failure:
+                # Wait for stderr EOF before leaving on terminal/failure so the
+                # raw log includes late stderr lines from a fast-exiting process.
+                if (terminal or failure) and "stderr" in eof:
                     break
     except KeyboardInterrupt:
         terminate_group(process, args.term_grace_seconds)

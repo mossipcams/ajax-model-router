@@ -146,7 +146,6 @@ echo "target: $TARGET"
 install_one ".agents" "model-router"
 for skill in \
   "model-router" \
-  "tdd-implementation-packet" \
   "cursor-delegate" \
   "pi-delegate" \
   "codex-delegate"
@@ -156,7 +155,6 @@ done
 
 for skill in \
   "model-router" \
-  "tdd-implementation-packet" \
   "cursor-delegate" \
   "pi-delegate" \
   "codex-delegate"
@@ -167,17 +165,20 @@ done
 
 # Skills invoke these as worktree-relative `scripts/...`; keep them wired to
 # the canonical router so any task worktree can dispatch without improvising.
-for script in \
-  "run-delegate" \
-  "run-transaction" \
-  "delegate-snapshot" \
-  "delegate-delta" \
-  "check-packet" \
-  "check-dispatch" \
-  "check-report" \
-  "extract-report" \
-  "router-log" \
-  "router-log-summary"
-do
-  install_script "$script"
-done
+# Never self-link scripts when installing into this repo (would create loops).
+if [[ "$TARGET" != "$CANONICAL" ]]; then
+  for script in \
+    "run-delegate" \
+    "run-transaction" \
+    "delegate-snapshot" \
+    "delegate-delta" \
+    "check-report" \
+    "extract-report" \
+    "router-log" \
+    "router-log-summary"
+  do
+    install_script "$script"
+  done
+else
+  echo "skipped-scripts: target is canonical router"
+fi

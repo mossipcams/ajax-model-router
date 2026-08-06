@@ -1,258 +1,148 @@
+#!/usr/bin/env python3
+"""Outcome and boundary contracts for the thin router control plane."""
+
+import re
+import tempfile
 import unittest
 from pathlib import Path
 import subprocess
-import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKET = ROOT / "skills" / "tdd-implementation-packet" / "SKILL.md"
 ROUTER = ROOT / "skills" / "model-router" / "SKILL.md"
+CHECK_REPORT = ROOT / "scripts" / "check-report"
+
+VALID_COMPLETE = """\
+DELEGATE_REPORT:
+  STATUS: COMPLETE
+  CHANGED_FILES: [src/example.py]
+  VERIFICATION:
+    - TYPE: test
+      COMMAND: python -m unittest tests.test_example
+      RESULT: pass
+      DETAILS: ok
+  CONCERNS: []
+"""
 
 
 class ContractTests(unittest.TestCase):
+    def test_one_execution_decision_leads_to_execute(self):
+        text = ROUTER.read_text()
+        self.assertIn("route → execute → verify", text)
+        self.assertIn("EXECUTION:", text)
+        self.assertNotIn("GATHER_EVIDENCE", text)
+        self.assertNotIn("BUILD_PACKET", text)
+        self.assertNotIn("CRITIQUE_PACKET", text)
+        # No multi-stage reroute theater between route and execute.
+        self.assertIn("Do not reroute between artificial lifecycle stages.", text)
+
+    def test_delegate_autonomy_inside_scope(self):
+        text = ROUTER.read_text()
+        for phrase in (
+            "Investigate the repository as needed.",
+            "Choose the implementation approach.",
+            "Run appropriate verification.",
+            "delegate owns investigation, planning, edit selection, test selection, and",
+        ):
+            self.assertIn(phrase, text)
+        self.assertNotIn("Follow Code anchors when provided.", text)
+        self.assertNotIn("Edit instructions", text)
+
+    def test_scope_expansion_rejected(self):
+        text = ROUTER.read_text()
+        self.assertIn(
+            "Stop if completing the task requires expanding beyond the allowed scope.",
+            text,
+        )
+        self.assertIn("Expanding scope requires a new `EXECUTION`.", text)
+
+    def test_reroute_after_executor_failure(self):
+        text = ROUTER.read_text()
+        self.assertIn("the selected executor fails", text)
+        self.assertIn("reroute once via `FALLBACK`", text)
+        self.assertIn("Stop after two failed execute rounds", text)
+
+    def test_proportional_review_by_risk(self):
+        text = ROUTER.read_text()
+        self.assertIn("## Risk-based review", text)
+        self.assertIn("Delegate verification is sufficient by default.", text)
+        self.assertIn("Parent reads all changed hunks.", text)
+        self.assertIn("Parent independently reviews affected behavior.", text)
+        self.assertIn(
+            "Do not apply high-risk ceremony to routine changes.", text
+        )
+
+    def test_absent_obsolete_packet_and_tdd_requirements(self):
+        text = ROUTER.read_text()
+        for forbidden in (
+            "tdd-implementation-packet",
+            "PACKET_STATUS",
+            "TEST_FIRST",
+            "PACKET_REVIEW",
+            "dispatch_level",
+            "estimated_lines",
+            "R-SIZE-SPLIT",
+            "check-packet",
+            "check-dispatch",
+        ):
+            self.assertNotIn(forbidden, text)
+        self.assertFalse((ROOT / "skills" / "tdd-implementation-packet").exists())
+        self.assertFalse((ROOT / "scripts" / "check-packet").exists())
+        self.assertFalse((ROOT / "scripts" / "check-dispatch").exists())
+        self.assertFalse((ROOT / "CALIBRATION.md").exists())
+
     def test_codex_uses_requested_model_and_xhigh_effort(self):
         router = ROUTER.read_text()
         adapter = (ROOT / "skills" / "codex-delegate" / "SKILL.md").read_text()
-
         self.assertIn("| `CODEX` | `gpt-5.6-sol` |", router)
         self.assertNotIn("gpt-5.5", router)
-        # Codex now runs through the shared app-server runner; xhigh reasoning is
-        # carried by the runner flag and enforced behaviorally in
-        # test_codex_app_server.RunnerIntegrationTests.test_reasoning_effort_defaults_to_xhigh.
         self.assertIn("--reasoning-effort xhigh", adapter)
         self.assertIn("--tool codex", adapter)
-        for sandbox in ("read-only", "workspace-write"):
-            self.assertIn(sandbox, adapter)
+        self.assertIn("workspace-write", adapter)
+        self.assertNotIn("packet-critique", adapter)
 
-    def test_packet_requires_evidence_not_tool_ceremony(self):
-        text = PACKET.read_text()
-        for category in (
-            "Desired outcome / acceptance criteria",
-            "Exact source anchors when known",
-            "Existing patterns to reuse when helpful",
-            "Architecture boundaries",
-        ):
-            self.assertIn(category, text)
-        for method in ("direct file inspection", "Serena", "ast-grep", "Graphify"):
-            self.assertIn(method, text)
-        self.assertNotIn("explicit `NOT_REQUIRED` reason for each", text)
-        self.assertNotIn("Graphify, Serena, and ast-grep evidence when applicable", text)
-
-    def test_missing_evidence_routes_before_packet_build(self):
-        rows = {}
-        order = []
+    def test_implementation_lane_defaults_to_cursor(self):
+        rows = []
         for line in ROUTER.read_text().splitlines():
             if not line.startswith("| `R-"):
                 continue
             cells = [cell.strip().strip("`") for cell in line.strip("|").split("|")]
-            rows[cells[0]] = cells
-            order.append(cells[0])
+            rows.append(cells)
+        ids = [row[0] for row in rows]
+        self.assertLess(ids.index("R-GLM"), ids.index("R-MINIMAX"))
+        self.assertLess(ids.index("R-MINIMAX"), ids.index("R-CURSOR"))
+        cursor = next(row for row in rows if row[0] == "R-CURSOR")
+        self.assertEqual(cursor[2], "cursor")
+        self.assertEqual(cursor[3], "CURSOR")
 
-        expected = {
-            "R-GATE": "LOCAL",
-            "R-EVIDENCE": "GATHER_EVIDENCE",
-            "R-BUILD": "BUILD_PACKET",
-        }
-        for rule, action in expected.items():
-            self.assertIn(rule, rows)
-            self.assertEqual(rows[rule][2], action)
-        self.assertLess(order.index("R-GATE"), order.index("R-EVIDENCE"))
-        self.assertLess(order.index("R-EVIDENCE"), order.index("R-BUILD"))
-
-        cases = (
-            ({"ungated_delta": True, "missing_evidence": True}, "R-GATE"),
-            ({"missing_evidence": True}, "R-EVIDENCE"),
-            ({"evidence_complete": True, "packet_exists": False}, "R-BUILD"),
-        )
-        for facts, expected_rule in cases:
-            if facts.get("ungated_delta"):
-                actual = "R-GATE"
-            elif facts.get("missing_evidence"):
-                actual = "R-EVIDENCE"
-            elif facts.get("evidence_complete") and not facts.get("packet_exists"):
-                actual = "R-BUILD"
-            else:
-                actual = "NONE"
-            self.assertEqual(actual, expected_rule)
-
-    def test_packet_completeness_is_checked_by_script(self):
-        valid = """\
-PACKET_STATUS: READY
-UNRESOLVED_UNCERTAINTY: NONE
-BLOCKERS: []
-## Task
-Change one behavior.
-## Scope
-Allowed:
-- src/example.py
-Forbidden:
-- No unrelated edits.
-## Acceptance
-- Focused check passes.
-## Constraints
-NONE
-## Verification
-methods:
-  - type: test
-    command: python -m unittest tests.test_example
-    expected: pass
-reason: focused unit test
-## Stop if
-Anchor moved or scope grows.
-"""
+    def test_check_report_requires_verification_for_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
-            packet = Path(tmp) / "packet.md"
-            packet.write_text(valid)
+            path = Path(tmp) / "report.yaml"
+            path.write_text(VALID_COMPLETE)
             result = subprocess.run(
-                [ROOT / "scripts" / "check-packet", packet],
-                text=True,
-                capture_output=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-            packet.write_text(valid.replace("## Verification\n", "## Verification\n\n"))
-            # Still has methods below? Replace with empty verification body.
-            packet.write_text(
-                valid.replace(
-                    "## Verification\nmethods:\n  - type: test\n    command: python -m unittest tests.test_example\n    expected: pass\nreason: focused unit test\n",
-                    "## Verification\n\n",
-                )
-            )
-            result = subprocess.run(
-                [ROOT / "scripts" / "check-packet", packet],
-                text=True,
-                capture_output=True,
-            )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Verification", result.stderr)
-
-            legacy = """\
-PACKET_STATUS: READY
-TASK_KIND: behavior
-TEST_FIRST: REQUIRED
-PRODUCTION_EDIT: REQUIRED
-UNRESOLVED_UNCERTAINTY: NONE
-BLOCKERS: []
-## Goal
-Change one behavior.
-## Allowed files
-src/example.py
-## Forbidden changes
-No unrelated edits.
-## Context evidence
-Desired behavior and exact anchors recorded.
-## Code anchors
-src/example.py:10
-## Test-first instructions
-tests/test_example.py assertion and focused command.
-## Edit instructions
-Edit example at line 10.
-## Verification commands
-python -m unittest tests.test_example
-## Acceptance criteria
-Focused test passes.
-## Stop conditions
-Anchor moved or scope grows.
-"""
-            packet.write_text(legacy)
-            result = subprocess.run(
-                [ROOT / "scripts" / "check-packet", packet],
-                text=True,
-                capture_output=True,
+                [CHECK_REPORT, path], text=True, capture_output=True
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("deprecated", result.stderr)
 
-    def test_critique_is_uncertainty_only_and_stops_after_second_block(self):
+            bad = Path(tmp) / "bad.yaml"
+            bad.write_text(
+                "DELEGATE_REPORT:\n"
+                "  STATUS: COMPLETE\n"
+                "  CHANGED_FILES: []\n"
+                "  VERIFICATION: []\n"
+                "  CONCERNS: []\n"
+            )
+            result = subprocess.run(
+                [CHECK_REPORT, bad], text=True, capture_output=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_route_table_has_no_packet_stages(self):
+        actions = re.findall(r"\| `R-[A-Z-]+` \|.*?\| `(parent|cursor|codex|pi|—)` \|", ROUTER.read_text())
+        self.assertTrue(actions)
         text = ROUTER.read_text()
-        for field in (
-            "VERDICT: PASS | BLOCK",
-            "REVIEWED_UNCERTAINTY:",
-            "PACKET_CHECK: PASS",
-            "TYPE: SPECIFICATION | ARCHITECTURE",
-            "ISSUE:",
-            "REQUIRED_EVIDENCE:",
-            "REMAINING_RISKS:",
-        ):
-            self.assertIn(field, text)
-
-        rows = {}
-        for line in text.splitlines():
-            if line.startswith("| `R-"):
-                cells = [cell.strip().strip("`") for cell in line.strip("|").split("|")]
-                rows[cells[0]] = cells
-        self.assertIn("unresolved specification or architecture uncertainty", rows["R-CRITIQUE"][1])
-        self.assertEqual(rows["R-REBUILD"][2], "BUILD_PACKET")
-        self.assertEqual(rows["R-RECRITIQUE"][2], "CRITIQUE_PACKET")
-        self.assertEqual(rows["R-CRITIQUE-STOP"][2], "STOP")
-        self.assertNotIn("dispatch after the next rebuild", text)
-        self.assertIn("after one rebuild", rows["R-DELEGATE"][1])
-        self.assertNotIn("no critique returned", rows["R-DELEGATE"][1])
-        self.assertIn("records unresolved specification or architecture uncertainty", text)
-        self.assertIn("R-SIZE-SPLIT", rows)
-        self.assertEqual(rows["R-SIZE-SPLIT"][2], "STOP")
-        self.assertIn("250", rows["R-SIZE-SPLIT"][1])
-        self.assertLess(
-            text.index("| `R-SIZE-SPLIT`"),
-            text.index("| `R-DELEGATE`"),
-        )
-        self.assertIn("pre-dispatch-size-split", text)
-
-    def test_implementation_lane_precedence_for_representative_cases(self):
-        text = ROUTER.read_text()
-        self.assertIn("Default to `CURSOR`", text)
-        uncertainty = text.index(
-            "Packet records unresolved specification or architecture uncertainty"
-        )
-        cheap = text.index("Routine docs, generated cleanup, exact replacements, or named boilerplate")
-        fallback = text.index("No exception matched")
-        self.assertLess(uncertainty, cheap)
-        self.assertLess(cheap, fallback)
-        self.assertNotIn("No lane matched", text)
-        self.assertNotIn(
-            "Authentication, security, data-loss, backend, server, session, PTY, or supervisor work; or architecture-wide reasoning",
-            text,
-        )
-
-        def lane(
-            *,
-            uncertainty=False,
-            docs_boilerplate=False,
-            files=1,
-            lines=10,
-        ):
-            if uncertainty:
-                return "GLM"
-            if docs_boilerplate and files <= 2 and lines <= 60:
-                return "MINIMAX"
-            return "CURSOR"
-
-        self.assertEqual(lane(uncertainty=True, files=1), "GLM")
-        self.assertEqual(lane(docs_boilerplate=True, files=2, lines=40), "MINIMAX")
-        self.assertEqual(lane(files=3, lines=100), "CURSOR")
-        self.assertEqual(lane(files=1, lines=20), "CURSOR")
-        self.assertEqual(lane(docs_boilerplate=False, files=2, lines=40), "CURSOR")
-
-    def test_delegate_preferred_and_no_grok(self):
-        text = ROUTER.read_text()
-        self.assertIn("Pure Q&A or architecture planning", text)
-        self.assertNotIn("`R-LOCAL-TINY`", text)
-        self.assertNotIn("at most 10 changed lines", text)
-        self.assertNotIn("GROK", text)
-        self.assertNotIn("grok", text.lower())
-
-    def test_documentation_states_expected_call_counts(self):
-        readme = (ROOT / "README.md").read_text()
-        self.assertIn("## Expected model calls", readme)
-        for scenario in (
-            "Localized bounded change",
-            "Unfamiliar cross-module change",
-            "High-risk backend change",
-            "Failed cheap-model implementation",
-        ):
-            self.assertIn(scenario, readme)
-        self.assertIn("pre-versus-post", readme)
-        self.assertIn("no tiny-local write shortcut", readme)
+        self.assertNotRegex(text, r"ACTION:.*GATHER_EVIDENCE")
+        self.assertNotRegex(text, r"ACTION:.*BUILD_PACKET")
 
 
 if __name__ == "__main__":

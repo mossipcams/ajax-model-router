@@ -1,4 +1,0 @@
-interface:
-  display_name: "TDD Implementation Packet"
-  short_description: "Write exact TDD packets for coding agents"
-  default_prompt: "Use $tdd-implementation-packet to turn this behavior change into an exact TDD packet."

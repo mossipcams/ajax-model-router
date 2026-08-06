@@ -1,24 +1,23 @@
 # ajax-model-router
 
-Canonical shared router skill bundle.
+Canonical shared router skill bundle — a thin control plane, not a workflow
+engine.
 
-Ajax Model Router requires evidence that the implementation works.
-It does not require test-first development or TDD.
-Tests should be used when they are the most effective verification method.
+The router decides who executes, which model, risk, scope, verification
+expectation, and fallback. The delegate owns investigation, planning,
+implementation, test selection, and verification. The parent owns acceptance
+with risk-proportional review.
+
+Pipeline: **route → execute → verify**.
 
 ## Layout
 
-- `skills/model-router/` — the `model-router` skill. Owns the pipeline:
-  structured routing decision, model registry, route table, shared Delegate
-  Prompt, report schemas, and Review Gate.
-- `skills/` — all canonical skills, including `tdd-implementation-packet`
-  (implementation packet lane; outcome-based verification, not mandatory TDD),
-  `cursor-delegate`, `pi-delegate`, `codex-delegate`. The delegate
-  skills are thin tool adapters; shared rules live only in the router.
+- `skills/model-router/` — control plane: execution decision, model registry,
+  route table, outcome dispatch, risk-based review, outcome logging.
+- `skills/cursor-delegate`, `pi-delegate`, `codex-delegate` — thin tool
+  adapters. Shared rules live only in the router.
 - `.claude/skills/`, `.codex/skills/` — symlink views over the canonical
   files. Never edit through these; every file exists exactly once.
-- `CALIBRATION.md` — ledger of routing-calibration rule changes; the decision log lives
-  at `~/.ajax-router/log.tsv`, summarized by `scripts/router-log-summary`.
 
 ## Install
 
@@ -32,11 +31,10 @@ scripts/check-contracts
 ```
 
 Install wires skill symlinks under `.cursor` / `.codex` / `.claude` and also
-links the delegation helpers (`scripts/run-delegate`, `run-transaction`,
-`delegate-snapshot`, `delegate-delta`, `check-packet`, `check-dispatch`, …)
-into the target's `scripts/` so a task worktree can run the skill commands as
-written. Re-run install for each worktree that needs dispatch (git worktrees do
-not share untracked scripts).
+links the execute helpers (`scripts/run-delegate`, `run-transaction`,
+`delegate-snapshot`, `delegate-delta`, `check-report`, `router-log`, …) into
+the target's `scripts/` so a task worktree can run them as written. Re-run
+install for each worktree that needs dispatch.
 
 Use `--force` only when replacing an existing non-canonical install:
 
@@ -44,55 +42,39 @@ Use `--force` only when replacing an existing non-canonical install:
 scripts/install-symlinks --target ../ajax-cli --force
 ```
 
-## Enforced workflow
+## Safety controls (kept)
 
-- `scripts/check-packet` rejects mechanically incomplete packets before any
-  optional critique call. Legacy TDD packets remain readable with a deprecation
-  warning; RED/GREEN sequencing is not enforced.
-- `scripts/check-dispatch` validates `direct` / `compact` / `full` dispatch
-  packages (`full` delegates to `check-packet`).
-- `scripts/run-transaction` runs the deterministic lifecycle
-  (before_dispatch → … → before_review) and emits `review_bundle.json` for the
-  parent Review Gate; resume with `--from-stage after_review`.
-  `before_dispatch` rejects known `estimated_lines` ≥ 250
-  (`pre-dispatch-size-split` / `R-SIZE-SPLIT`); split packets before DELEGATE.
-  The ~400 changed-line stop remains the post-delta Review Gate backstop.
-- `scripts/delegate-snapshot` and `scripts/delegate-delta` generate the
-  pre-versus-post patch reviewed by the parent and safely restore only that
-  delta on `DISCARD`.
-- `scripts/run-delegate` bounds Cursor and Pi process groups and keeps
-  full native JSONL logs while returning complete structured reports.
-- `scripts/router-log` writes validated v2 calibration rows (optional v3
-  verification-metric trailer); `scripts/router-log-summary` excludes
-  incomplete legacy rows from metrics.
+| Control | Why |
+|---|---|
+| Worktree / branch safety | No accidental commits, branch switches, or new worktrees |
+| Bounded write scope | Reject edits outside `SCOPE` |
+| Pre/post snapshot + delta | Reviewable change set; restore on discard |
+| Bounded retries | Stop after two failed execute rounds |
+| Risk escalation | Auth/security/PTY/supervisor/data-loss stay high-risk |
 
-## Expected model calls
+`scripts/run-transaction` runs only:
 
-| Scenario | Before | After |
-|---|---:|---:|
-| Localized bounded change | 1 cheap implementation call | 1 Composer call by default; MiniMax only for shallow docs/boilerplate |
-| Unfamiliar cross-module change | 1 automatic critique + 1 GLM implementation | 1 Composer call; add 1 critique + GLM only if evidence leaves recorded uncertainty |
-| High-risk backend change | 1 automatic critique + 1 GLM implementation | 1 Composer call; critique + GLM only for recorded uncertainty |
-| Failed cheap-model implementation | 1 cheap call + 1 critique + 1 GLM revision | 1 MiniMax call + 1 GLM revision; critique only if uncertainty is recorded |
+```text
+before_execute → snapshot → execute → after_execute → log_outcome
+```
 
-Architecture planning and pure Q&A stay parent-local (0 delegate writes). Bounded
-implementation writes default to Composer; MiniMax/GLM remain narrow exceptions.
-There is no tiny-local write shortcut.
+Outcome logging (`scripts/router-log`) is lightweight and non-blocking.
+
+## Expected routing
+
+| Scenario | Agent / model |
+|---|---|
+| Bounded implementation (default) | `cursor` / `composer-2.5` |
+| Explicit Codex ask | `codex` / `gpt-5.6-sol` |
+| Recorded spec/architecture uncertainty | `pi` / `glm-5.2` |
+| Shallow docs/boilerplate ≤2 files/~60 lines | `pi` / `minimax-m3` |
+| Pure Q&A / architecture planning | `parent` (no write) |
 
 ## Native delegate transports
 
 Pi uses one `pi --mode rpc --model MODEL --no-session --no-context-files
---no-skills` process per active delegation. The runner sends JSONL `prompt` and
-`follow_up` commands, keeps the process alive for that delegation, and closes
-stdin during cleanup. Pi's native events map to the router's small normalized
-set: `started`, `activity/tool started`, `activity/tool finished`,
-`message/progress`, `completed`, and `failed`.
-
-Cursor uses `cursor-agent -p -f --trust --model MODEL --output-format
-stream-json --stream-partial-output`, preserving `--resume CHAT_ID`. Cursor's
-native JSONL events feed the same normalized set without an invented RPC layer.
-Unknown or malformed lines are retained in the raw log and skipped when safe;
-native terminal events are authoritative, with process exit as the final safety
-signal. Worktree isolation, READY packets, model selection, report schema,
-timeouts, cancellation, and Review Gate behavior remain unchanged. Sessions
-are not persisted beyond the lifetime of a Pi delegation.
+--no-skills` process per active delegation. Cursor uses `cursor-agent -p -f
+--trust --model MODEL --output-format stream-json --stream-partial-output`.
+Codex uses `codex app-server`. Unknown or malformed lines are retained in the
+raw log; native terminal events are authoritative, with process exit as the
+final safety signal.

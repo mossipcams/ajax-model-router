@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Thin execute transaction: safety stages only."""
+
 import json
 import subprocess
 import tempfile
@@ -8,7 +10,6 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 TRANSACTION = ROOT / "scripts" / "run-transaction"
-CHECK_DISPATCH = ROOT / "scripts" / "check-dispatch"
 
 import sys
 
@@ -45,23 +46,18 @@ class LifecycleTransactionTests(unittest.TestCase):
     def base_context(self, repo, snap, **overrides):
         data = {
             "task_id": "task-1",
-            "dispatch_level": "direct",
-            "risk": "low",
-            "provider": "pi",
+            "agent": "pi",
             "model": "test-model",
+            "risk": "low",
             "tool": "pi",
             "allowed_files": ["src/example.py"],
             "acceptance": ["example.py exposes VALUE = 2"],
             "working_directory": str(repo),
             "snapshot_directory": str(snap),
             "user_request": "Change VALUE to 2 in src/example.py",
-            "verification_commands": ["true"],
-            "stop_conditions": ["Edit outside allowed files"],
-            "repository_id": "test-repo",
-            "route_rule_id": "R-DELEGATE",
-            "task_kind": "mechanical",
-            "lane": "pi-delegate",
-            "calibration_log": str(snap / "log.tsv"),
+            "verify": ["true"],
+            "requested_agent": "pi",
+            "outcome_log": str(snap / "outcome.tsv"),
         }
         data.update(overrides)
         return data
@@ -70,26 +66,28 @@ class LifecycleTransactionTests(unittest.TestCase):
         path.write_text(json.dumps(data, indent=2) + "\n")
         return path
 
-    def test_stage_plan_is_ordered(self):
-        plan = run_transaction.stage_slice("before_dispatch", "before_review")
-        self.assertEqual(plan[0], "before_dispatch")
-        self.assertEqual(plan[-1], "before_review")
-        self.assertIn("delegate", plan)
-        self.assertNotIn("after_review", plan)
+    def test_stage_plan_is_route_execute_verify_only(self):
+        plan = run_transaction.stage_slice("before_execute", "after_execute")
         self.assertEqual(
-            run_transaction.stage_slice("after_review", "log_calibration"),
-            ["after_review", "log_calibration"],
+            plan,
+            ["before_execute", "snapshot", "execute", "after_execute"],
+        )
+        self.assertNotIn("build_dispatch", plan)
+        self.assertNotIn("validate_dispatch", plan)
+        self.assertNotIn("before_review", plan)
+        self.assertEqual(
+            run_transaction.stage_slice("log_outcome", "log_outcome"),
+            ["log_outcome"],
         )
 
-    def test_context_rejects_bad_dispatch_level(self):
+    def test_context_rejects_bad_agent(self):
         with self.assertRaises(ctxlib.ContextError):
             ctxlib.validate_context(
                 {
                     "task_id": "t",
-                    "dispatch_level": "mega",
-                    "risk": "low",
-                    "provider": "pi",
+                    "agent": "opencode",
                     "model": "m",
+                    "risk": "low",
                     "allowed_files": ["a.py"],
                     "acceptance": ["ok"],
                     "working_directory": "/",
@@ -97,261 +95,125 @@ class LifecycleTransactionTests(unittest.TestCase):
                 }
             )
 
-    def test_check_dispatch_direct_and_compact(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            direct = tmp / "direct.md"
-            direct.write_text(
-                "DISPATCH_LEVEL: direct\n"
-                "## User request\n\ndo the thing\n"
-                "## Allowed files\n\n- a.py\n"
-                "## Acceptance criteria\n\n- done\n"
-                "## Stop conditions\n\n- stop\n"
-            )
-            result = run(CHECK_DISPATCH, "direct", direct, check=False)
-            self.assertEqual(result.returncode, 0, result.stderr)
-
-            compact = tmp / "compact.md"
-            compact.write_text(
-                "PACKET_STATUS: READY\n"
-                "UNRESOLVED_UNCERTAINTY: NONE\n"
-                "BLOCKERS: []\n"
-                "DISPATCH_LEVEL: compact\n"
-                "## Task\n\ngoal\n"
-                "## Allowed files\n\n- a.py\n"
-                "## Forbidden changes\n\n- none\n"
-                "## Acceptance\n\n- ok\n"
-                "## Constraints\n\n- NONE\n"
-                "## Verification\n\nmethods:\n  - type: other\n    command: true\n    expected: exit 0\nreason: smoke\n"
-                "## Stop if\n\n- stop\n"
-            )
-            result = run(CHECK_DISPATCH, "compact", compact, check=False)
-            self.assertEqual(result.returncode, 0, result.stderr)
-
-            compact.write_text(compact.read_text() + "\n## Context evidence\n\nleak\n")
-            result = run(CHECK_DISPATCH, "compact", compact, check=False)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Context evidence", result.stderr)
-
-    def test_invalid_dispatch_fails_before_delegate_tokens(self):
+    def test_before_execute_rejects_parent_and_empty_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
             snap = Path(tmp) / "snap"
             snap.mkdir()
-            context_path = Path(tmp) / "context.json"
-            # Missing user_request → before_dispatch fails before any transport.
-            self.write_context(
-                context_path,
-                self.base_context(repo, snap, user_request=""),
+            ctx = ctxlib.validate_context(self.base_context(repo, snap, agent="parent"))
+            with self.assertRaises(hooks.HookError):
+                hooks.before_execute(ctx)
+
+            ctx = ctxlib.validate_context(
+                self.base_context(repo, snap, allowed_files=["src/example.py"])
             )
-            called = {"delegate": False}
+            ctx["allowed_files"] = []
+            with self.assertRaises(hooks.HookError):
+                hooks.before_execute(ctx)
 
-            def boom(ctx):
-                called["delegate"] = True
-                raise AssertionError("delegate must not run")
-
-            with mock.patch.dict(hooks.HOOKS, {"delegate": boom}):
-                result = run(
-                    TRANSACTION,
-                    "--context",
-                    context_path,
-                    "--until-stage",
-                    "before_review",
-                    check=False,
-                )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertFalse(called["delegate"])
-            self.assertIn("user_request", result.stderr)
-
-    def test_before_dispatch_rejects_estimated_lines_at_size_split(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = self.make_repo(tmp)
-            snap = Path(tmp) / "snap"
-            snap.mkdir()
-            over = ctxlib.validate_context(
-                self.base_context(repo, snap, estimated_lines="250")
-            )
-            with self.assertRaises(hooks.HookError) as raised:
-                hooks.before_dispatch(over)
-            self.assertIn("pre-dispatch-size-split", str(raised.exception))
-
-            under = ctxlib.validate_context(
-                self.base_context(repo, snap, estimated_lines="249")
-            )
-            hooks.before_dispatch(under)
-            self.assertEqual(under["status"], "BEFORE_DISPATCH_OK")
-
-            unknown = ctxlib.validate_context(
-                self.base_context(repo, snap, estimated_lines="UNKNOWN")
-            )
-            hooks.before_dispatch(unknown)
-            self.assertEqual(unknown["status"], "BEFORE_DISPATCH_OK")
-
-    def test_direct_build_does_not_read_implementation_files(self):
+    def test_before_execute_builds_outcome_prompt_not_packet(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
             snap = Path(tmp) / "snap"
             snap.mkdir()
             ctx = ctxlib.validate_context(self.base_context(repo, snap))
-            opened = []
-            real_open = open
-
-            def tracking_open(path, *args, **kwargs):
-                text = str(path)
-                if text.endswith("example.py") or text.endswith("src/example.py"):
-                    opened.append(text)
-                return real_open(path, *args, **kwargs)
-
-            with mock.patch("builtins.open", tracking_open):
-                hooks.before_dispatch(ctx)
-                hooks.build_dispatch(ctx)
-                hooks.validate_dispatch(ctx)
-            self.assertEqual(opened, [])
+            ctx = hooks.before_execute(ctx)
             prompt = Path(ctx["artifacts"]["prompt_path"]).read_text()
-            self.assertIn("DISPATCH_LEVEL: direct", prompt)
-            self.assertIn("Change VALUE to 2", prompt)
-            self.assertNotIn("## Context evidence", prompt)
+            self.assertIn("Implement the requested outcome.", prompt)
+            self.assertIn("Investigate the repository as needed.", prompt)
+            self.assertIn("src/example.py", prompt)
+            self.assertNotIn("Code anchors", prompt)
+            self.assertNotIn("PACKET_STATUS", prompt)
 
-    def test_snapshot_evidence_reuse_on_repeat(self):
+    def test_worktree_must_be_git_toplevel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            nested = repo / "src"
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            data = self.base_context(repo, snap, working_directory=str(nested))
+            # validate_context resolves paths; force nested by patching after.
+            ctx = ctxlib.validate_context(self.base_context(repo, snap))
+            ctx["working_directory"] = str(nested)
+            with self.assertRaises(hooks.HookError) as raised:
+                hooks.before_execute(ctx)
+            self.assertIn("git toplevel", str(raised.exception))
+
+    def test_scope_violation_recorded_in_after_execute(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
             snap = Path(tmp) / "snap"
             snap.mkdir()
             ctx = ctxlib.validate_context(self.base_context(repo, snap))
-            hooks.before_dispatch(ctx)
-            hooks.build_dispatch(ctx)
-            hooks.validate_dispatch(ctx)
-            hooks.snapshot(ctx)
-            self.assertEqual(ctx["status"], "SNAPSHOT_OK")
-            first_mtime = (snap / "pre.json").stat().st_mtime_ns
-            hooks.snapshot(ctx)
-            self.assertEqual(ctx["status"], "SNAPSHOT_REUSED")
-            self.assertEqual((snap / "pre.json").stat().st_mtime_ns, first_mtime)
+            ctx = hooks.before_execute(ctx)
+            ctx = hooks.snapshot(ctx)
 
-    def test_review_bundle_is_minimal(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = self.make_repo(tmp)
-            snap = Path(tmp) / "snap"
-            snap.mkdir()
-            ctx = ctxlib.validate_context(self.base_context(repo, snap))
-            hooks.before_dispatch(ctx)
-            hooks.build_dispatch(ctx)
-            hooks.validate_dispatch(ctx)
-            hooks.snapshot(ctx)
-
-            # Simulate delegate write without spending tokens.
+            # Simulate delegate writing outside scope without invoking a model.
+            (repo / "outside.py").write_text("oops\n")
             (repo / "src" / "example.py").write_text("VALUE = 2\n")
-            report = snap / "run" / "report.yaml"
-            report.parent.mkdir(parents=True, exist_ok=True)
+            run_dir = Path(ctx["snapshot_directory"]) / "run"
+            report = run_dir / "report.yaml"
             report.write_text(
                 "DELEGATE_REPORT:\n"
                 "  STATUS: COMPLETE\n"
-                "  CHANGED_FILES: [src/example.py]\n"
+                "  CHANGED_FILES: [src/example.py, outside.py]\n"
                 "  VERIFICATION:\n"
-                "    - TYPE: test\n"
-                "      COMMAND: true\n"
-                "      STEPS: []\n"
+                "    - TYPE: other\n"
+                "      COMMAND: NONE\n"
                 "      RESULT: pass\n"
                 "      DETAILS: ok\n"
-                "  CONCERNS: [watch nearby callers]\n"
+                "  CONCERNS: []\n"
             )
             ctx["artifacts"]["report_path"] = str(report)
-            hooks.after_delegate(ctx)
-            hooks.run_verification(ctx)
-            hooks.before_review(ctx)
+            ctx["status"] = "EXECUTED"
+            ctx = hooks.after_execute(ctx)
+            self.assertTrue(ctx["artifacts"]["scope_violations"])
+            self.assertIn("outside.py", ctx["artifacts"]["scope_violations"])
 
-            bundle_path = Path(ctx["artifacts"]["review_bundle_path"])
-            bundle = json.loads(bundle_path.read_text())
-            self.assertEqual(bundle["dispatch_level"], "direct")
-            self.assertEqual(bundle["acceptance"], ctx["acceptance"])
-            self.assertIn("src/example.py", bundle["changed_files"])
-            self.assertIn("watch nearby callers", bundle["delegate_concerns"])
-            self.assertIn("delta_hunks", bundle)
-            for banned in (
-                "transcript",
-                "raw_log",
-                "packet",
-                "repository_summary",
-                "reasoning",
-                "full_prompt",
-            ):
-                self.assertNotIn(banned, bundle)
-            # Full packet / prompt must not be embedded.
-            blob = json.dumps(bundle)
-            self.assertNotIn("ROUTER_REPORT_BEGIN", blob)
-            self.assertNotIn("You are a bounded implementation worker", blob)
-
-    def test_after_review_and_calibration_log(self):
+    def test_log_outcome_does_not_block_on_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
             snap = Path(tmp) / "snap"
             snap.mkdir()
-            log = snap / "log.tsv"
-            ctx = ctxlib.validate_context(self.base_context(repo, snap, calibration_log=str(log)))
-            hooks.before_dispatch(ctx)
-            hooks.build_dispatch(ctx)
-            ctx["artifacts"]["review_bundle_path"] = str(snap / "run" / "review_bundle.json")
-            (snap / "run").mkdir(parents=True, exist_ok=True)
-            (snap / "run" / "review_bundle.json").write_text("{}\n")
+            ctx = ctxlib.validate_context(
+                self.base_context(repo, snap, outcome_log="/no/such/dir/log.tsv")
+            )
             ctx["gate_result"] = "ACCEPT"
-            hooks.after_review(ctx)
-            hooks.log_calibration(ctx)
-            self.assertTrue(log.is_file())
-            self.assertIn("ACCEPT", log.read_text())
+            # Force logger path that cannot be created by mocking subprocess.
+            with mock.patch("lifecycle_hooks.subprocess.run") as mocked:
+                mocked.return_value = subprocess.CompletedProcess(
+                    args=[], returncode=1, stdout="", stderr="boom"
+                )
+                ctx = hooks.log_outcome(ctx)
+            self.assertIn("outcome_log_warning", ctx)
             self.assertEqual(ctx["status"], "COMPLETE")
 
-    def test_cli_dry_run_plan(self):
+    def test_dry_run_plan_lists_thin_stages(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
             snap = Path(tmp) / "snap"
             snap.mkdir()
-            context_path = Path(tmp) / "context.json"
-            self.write_context(context_path, self.base_context(repo, snap))
+            ctx_path = self.write_context(
+                Path(tmp) / "context.json", self.base_context(repo, snap)
+            )
             result = run(
                 TRANSACTION,
                 "--context",
-                context_path,
-                "--until-stage",
-                "validate_dispatch",
+                ctx_path,
                 "--dry-run-plan",
+                check=False,
             )
+            self.assertEqual(result.returncode, 0, result.stderr)
             plan = json.loads(result.stdout)
             self.assertEqual(
                 plan["stages"],
                 [
-                    "before_dispatch",
-                    "build_dispatch",
-                    "validate_dispatch",
-                ],
-            )
-
-    def test_cli_runs_until_validate_without_delegate(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = self.make_repo(tmp)
-            snap = Path(tmp) / "snap"
-            snap.mkdir()
-            context_path = Path(tmp) / "context.json"
-            self.write_context(context_path, self.base_context(repo, snap))
-            result = run(
-                TRANSACTION,
-                "--context",
-                context_path,
-                "--until-stage",
-                "snapshot",
-            )
-            payload = json.loads(result.stdout)
-            self.assertIn(payload["status"], {"SNAPSHOT_OK", "SNAPSHOT_REUSED"})
-            self.assertEqual(
-                payload["executed_stages"],
-                [
-                    "before_dispatch",
-                    "build_dispatch",
-                    "validate_dispatch",
+                    "before_execute",
                     "snapshot",
+                    "execute",
+                    "after_execute",
                 ],
             )
-            self.assertTrue((snap / "pre.json").is_file())
-            self.assertTrue((snap / "run" / "prompt.txt").is_file())
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ordered lifecycle transaction runner for router delegation."""
+"""Ordered execute runner for thin router delegation."""
 
 from __future__ import annotations
 
@@ -15,30 +15,30 @@ from lifecycle_hooks import HOOKS, HookError
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
-        description="Run deterministic router lifecycle stages for one delegation transaction."
+        description="Run deterministic safety stages for one router execute transaction."
     )
     parser.add_argument(
         "--context",
         type=Path,
         required=True,
-        help="Path to normalized lifecycle context JSON",
+        help="Path to normalized execution context JSON",
     )
     parser.add_argument(
         "--from-stage",
         default=ctxlib.STAGES[0],
         choices=ctxlib.STAGES,
-        help="First stage to run (default: before_dispatch)",
+        help="First stage to run (default: before_execute)",
     )
     parser.add_argument(
         "--until-stage",
-        default="before_review",
+        default="after_execute",
         choices=ctxlib.STAGES,
-        help="Last stage to run inclusive (default: before_review / AWAITING_REVIEW)",
+        help="Last stage to run inclusive (default: after_execute / AWAITING_ACCEPTANCE)",
     )
     parser.add_argument(
         "--gate-result",
         choices=("ACCEPT", "REVISE", "DISCARD", "STOP"),
-        help="Parent Review Gate verdict; required when running after_review",
+        help="Parent acceptance verdict; optional for log_outcome",
     )
     parser.add_argument(
         "--dry-run-plan",
@@ -62,19 +62,16 @@ def run_stages(ctx, stages):
     executed = []
     for name in stages:
         if name in ctxlib.TOKEN_STAGES:
-            # Fail closed: never spend tokens without a validated prompt on disk.
             prompt = Path(ctx.get("artifacts", {}).get("prompt_path") or "")
             if not prompt.is_file():
                 raise HookError(
-                    "refusing delegate: prompt missing (validate_dispatch must succeed first)"
+                    "refusing execute: prompt missing (before_execute must succeed first)"
                 )
-            if "validate_dispatch" not in ctx.get("completed_stages", []) and name == "delegate":
-                # Allow resume mid-flight only when prior run recorded validation.
-                if ctx.get("status") not in {"DISPATCH_VALID", "SNAPSHOT_OK", "SNAPSHOT_REUSED", "DELEGATED"}:
-                    if "validate_dispatch" not in executed and "validate_dispatch" not in ctx.get(
-                        "completed_stages", []
-                    ):
-                        raise HookError("refusing delegate before validate_dispatch")
+            if "before_execute" not in ctx.get("completed_stages", []) and name == "execute":
+                if "before_execute" not in executed and "before_execute" not in ctx.get(
+                    "completed_stages", []
+                ):
+                    raise HookError("refusing execute before before_execute")
 
         hook = HOOKS[name]
         ctx = hook(ctx)
@@ -107,17 +104,9 @@ def main(argv=None):
 
     if args.gate_result:
         ctx["gate_result"] = args.gate_result
-    if "after_review" in stages and not (ctx.get("gate_result") or "").strip():
-        print(
-            "transaction failed: after_review requires --gate-result or context.gate_result",
-            file=sys.stderr,
-        )
-        return 2
 
-    # Persist under snapshot_directory so resume shares one transaction state.
     state_path = Path(ctx["snapshot_directory"]) / ctxlib.CONTEXT_STATE_NAME
     if state_path.is_file() and args.from_stage != ctxlib.STAGES[0]:
-        # Resume: merge parent-supplied overrides onto saved state.
         try:
             saved = ctxlib.load_context(state_path)
         except ctxlib.ContextError:
@@ -125,21 +114,14 @@ def main(argv=None):
         if saved:
             for key in (
                 "gate_result",
-                "escalation_reason",
-                "escalation_destination",
                 "failure_classification",
                 "duration_seconds",
-                "token_usage",
-                "calibration_log",
+                "outcome_log",
                 "retry_count",
             ):
                 if key in ctx and ctx[key] not in (None, ""):
-                    if key == "token_usage":
-                        saved["artifacts"]["token_usage"] = ctx[key]
-                    else:
-                        saved[key] = ctx[key]
-            # Keep latest parent classification fields when re-supplied.
-            for key in ("dispatch_level", "risk", "model", "provider", "tool"):
+                    saved[key] = ctx[key]
+            for key in ("agent", "risk", "model", "tool", "requested_agent"):
                 if args.context and key in json.loads(args.context.read_text()):
                     saved[key] = ctx[key]
             ctx = saved
@@ -160,11 +142,15 @@ def main(argv=None):
         "status": ctx.get("status"),
         "executed_stages": executed,
         "completed_stages": ctx.get("completed_stages"),
-        "dispatch_level": ctx.get("dispatch_level"),
+        "agent": ctx.get("agent"),
+        "risk": ctx.get("risk"),
         "snapshot_directory": ctx.get("snapshot_directory"),
-        "review_bundle_path": ctx.get("artifacts", {}).get("review_bundle_path") or "",
-        "review_artifact_path": ctx.get("artifacts", {}).get("review_artifact_path") or "",
+        "delta_json": ctx.get("artifacts", {}).get("delta_json") or "",
+        "delta_patch": ctx.get("artifacts", {}).get("delta_patch") or "",
+        "scope_violations": ctx.get("artifacts", {}).get("scope_violations") or [],
+        "changed_files": ctx.get("artifacts", {}).get("changed_files") or [],
         "context_path": str(Path(ctx["snapshot_directory"]) / ctxlib.CONTEXT_STATE_NAME),
+        "outcome_log_warning": ctx.get("outcome_log_warning") or "",
     }
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
