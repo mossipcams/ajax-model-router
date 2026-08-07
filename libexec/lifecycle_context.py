@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Normalized execution context for thin router transactions."""
+"""Normalized execution context for cross-harness DELEGATE transactions."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-AGENTS = ("parent", "cursor", "codex", "pi")
-RISKS = ("low", "medium", "high")
+import model_registry as registry
+
+CALLERS = registry.CALLERS
+TRANSPORTS = registry.TRANSPORTS
+HARNESSES = TRANSPORTS  # legacy alias = supported transports only
 
 STAGES = (
     "before_execute",
@@ -22,11 +25,14 @@ TOKEN_STAGES = frozenset({"execute"})
 
 REQUIRED_FIELDS = (
     "task_id",
-    "agent",
+    "caller_harness",
+    "target_transport",
     "model",
-    "risk",
+    "task",
     "allowed_files",
     "acceptance",
+    "verification",
+    "stop_if",
     "working_directory",
     "snapshot_directory",
 )
@@ -108,6 +114,7 @@ def empty_artifacts():
         "delta_patch": "",
         "token_usage": "UNKNOWN",
         "provider_metadata": {},
+        "routing_decision": {},
     }
 
 
@@ -123,6 +130,24 @@ def load_context(path):
 def validate_context(data):
     if not isinstance(data, dict):
         raise ContextError("context must be a JSON object")
+
+    data = dict(data)
+    # Prefer new names; accept prior CURRENT/TARGET_HARNESS and agent aliases.
+    if "caller_harness" not in data and "current_harness" in data:
+        data["caller_harness"] = data["current_harness"]
+    if "target_transport" not in data and "target_harness" in data:
+        data["target_transport"] = data["target_harness"]
+    if "target_transport" not in data and "agent" in data:
+        agent = str(data.get("agent") or "").strip().lower()
+        if agent in TRANSPORTS:
+            data["target_transport"] = agent
+    if "task" not in data and "user_request" in data:
+        data["task"] = data.get("user_request") or ""
+    if "verification" not in data and "verify" in data:
+        data["verification"] = data.get("verify") or []
+    if "stop_if" not in data:
+        data["stop_if"] = list(data.get("stop_if") or [])
+
     missing = [field for field in REQUIRED_FIELDS if field not in data]
     if missing:
         raise ContextError(f"missing required fields: {', '.join(missing)}")
@@ -132,35 +157,39 @@ def validate_context(data):
     if not ctx["task_id"]:
         raise ContextError("task_id must be non-empty")
 
-    agent = _require_str(ctx["agent"], "agent").strip().lower()
-    if agent not in AGENTS:
-        raise ContextError(f"agent must be one of {AGENTS}")
-    ctx["agent"] = agent
+    caller = _require_str(ctx["caller_harness"], "caller_harness").strip().lower()
+    if caller not in CALLERS:
+        raise ContextError(f"caller_harness must be one of {CALLERS}")
+    ctx["caller_harness"] = caller
 
-    risk = _require_str(ctx["risk"], "risk").strip().lower()
-    if risk not in RISKS:
-        raise ContextError(f"risk must be one of {RISKS}")
-    ctx["risk"] = risk
+    transport = _require_str(ctx["target_transport"], "target_transport").strip().lower()
+    if transport not in TRANSPORTS:
+        raise ContextError(f"target_transport must be one of {TRANSPORTS}")
+    ctx["target_transport"] = transport
+
+    # Mirrors for older hooks / outcome logging.
+    ctx["current_harness"] = caller
+    ctx["target_harness"] = transport
 
     ctx["model"] = _require_str(ctx["model"], "model")
-    if agent != "parent" and not ctx["model"].strip():
-        raise ContextError("model must be non-empty for non-parent agents")
     if not ctx["model"].strip():
-        ctx["model"] = "NONE"
+        raise ContextError("model must be non-empty for DELEGATE transactions")
+    ctx["model"] = ctx["model"].strip()
 
+    ctx["task"] = _require_str(ctx["task"], "task")
     working = normalize_path(ctx["working_directory"])
     ctx["working_directory"] = str(working)
     snapshot = normalize_path(ctx["snapshot_directory"], base=working)
     ctx["snapshot_directory"] = str(snapshot)
     ctx["allowed_files"] = normalize_allowed_files(ctx["allowed_files"], working)
     ctx["acceptance"] = _require_str_list(ctx["acceptance"], "acceptance")
+    ctx["verification"] = _require_str_list(ctx["verification"], "verification")
+    ctx["stop_if"] = _require_str_list(ctx["stop_if"], "stop_if")
 
     for key in (
-        "user_request",
-        "fallback",
         "tool",
         "repository_id",
-        "requested_agent",
+        "requested_harness",
         "gate_result",
         "failure_classification",
         "duration_seconds",
@@ -168,20 +197,28 @@ def validate_context(data):
         "sandbox",
         "reasoning_effort",
         "outcome_log",
+        "user_request",
+        "fallback",
+        "requested_agent",
+        "agent",
+        "risk",
     ):
         if key in data and data[key] is not None:
             ctx[key] = _require_str(data[key], key)
 
-    for key in ("verify", "follow_up"):
+    for key in ("follow_up", "verify"):
         if key in data and data[key] is not None:
             ctx[key] = _require_str_list(data[key], key)
 
-    ctx.setdefault("verify", [])
     ctx.setdefault("follow_up", [])
-    ctx.setdefault("user_request", "")
-    ctx.setdefault("fallback", "STOP")
-    ctx.setdefault("tool", ctx["agent"] if ctx["agent"] != "parent" else "")
-    ctx.setdefault("requested_agent", ctx["agent"])
+    ctx.setdefault("tool", ctx["target_transport"])
+    ctx.setdefault("requested_harness", ctx["target_transport"])
+    ctx.setdefault("agent", ctx["target_transport"])
+    ctx.setdefault(
+        "requested_agent", ctx.get("requested_harness") or ctx["target_transport"]
+    )
+    ctx.setdefault("verify", list(ctx["verification"]))
+    ctx.setdefault("user_request", ctx["task"])
     ctx.setdefault("retry_count", int(data.get("retry_count", 0)))
     if not isinstance(ctx["retry_count"], int) or ctx["retry_count"] < 0:
         raise ContextError("retry_count must be a non-negative integer")

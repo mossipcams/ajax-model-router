@@ -17,10 +17,15 @@ def git_z(*args):
     return [os.fsdecode(item) for item in result.stdout.split(b"\0") if item]
 
 
+def _lstat(path):
+    # os.lstat works on 3.9+; Path.stat(follow_symlinks=False) needs 3.12+.
+    return os.lstat(path)
+
+
 def payload(path, info):
     if stat.S_ISREG(info.st_mode):
         data = path.read_bytes()
-        current = path.stat(follow_symlinks=False)
+        current = _lstat(path)
         before = (info.st_ino, info.st_size, info.st_mtime_ns, info.st_mode)
         after = (current.st_ino, current.st_size, current.st_mtime_ns, current.st_mode)
         if before != after:
@@ -50,7 +55,7 @@ def capture(snapshot_dir, label, quiet=False):
     for relative in sorted(set(git_z("ls-files", "-co", "--exclude-standard", "-z"))):
         path = root / relative
         try:
-            info = path.stat(follow_symlinks=False)
+            info = _lstat(path)
         except FileNotFoundError:
             continue
         kind, data = payload(path, info)

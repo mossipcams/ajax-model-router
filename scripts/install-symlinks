@@ -53,19 +53,31 @@ timestamp() {
   date -u +%Y%m%dT%H%M%SZ
 }
 
+# Map install location + visible skill name → source directory under skills/.
 source_for() {
   local base="$1"
   local name="$2"
 
-  case "$base" in
-    .agents|.cursor|.codex|.claude) ;;
+  case "$name" in
+    model-router)
+      case "$base" in
+        .cursor) echo "$CANONICAL/skills/model-router-cursor" ;;
+        .codex|.agents) echo "$CANONICAL/skills/model-router-codex" ;;
+        .claude) echo "$CANONICAL/skills/model-router-claude" ;;
+        *)
+          echo "error: no model-router source for $base" >&2
+          return 1
+          ;;
+      esac
+      ;;
+    cursor-delegate|pi-delegate|codex-delegate)
+      echo "$CANONICAL/skills/$name"
+      ;;
     *)
       echo "error: no source configured for $base/skills/$name" >&2
       return 1
       ;;
   esac
-
-  echo "$CANONICAL/skills/$name"
 }
 
 link_path() {
@@ -168,6 +180,7 @@ done
 # Never self-link scripts when installing into this repo (would create loops).
 if [[ "$TARGET" != "$CANONICAL" ]]; then
   for script in \
+    "route" \
     "run-delegate" \
     "run-transaction" \
     "delegate-snapshot" \

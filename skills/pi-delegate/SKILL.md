@@ -1,18 +1,19 @@
 ---
 name: pi-delegate
-description: Run Pi only from a model-router EXECUTION decision.
+description: Run Pi only from a model-router ROUTING_DECISION with ACTION DELEGATE.
 ---
 
 # Pi Delegate
 
-Thin adapter for router-selected Pi agents (including MiniMax / GLM model
-IDs). Do not reconstruct routing from the user request. If no `EXECUTION` is
+Thin transport adapter for cross-harness Pi agents (including MiniMax / GLM
+model IDs). Do not reconstruct routing from the user request. If no
+`ROUTING_DECISION` with `ACTION: DELEGATE` and `TARGET_TRANSPORT: pi` is
 supplied, return `STOP` and ask the parent to run `model-router`.
 
 Required inputs:
 
-- model: the exact `MODEL` from the execution decision
-- allowed scope: the decision's `SCOPE`
+- model: the exact `MODEL` from the routing decision
+- allowed scope: the decision's `ALLOWED_SCOPE` / request `ALLOWED_FILES`
 - the router Dispatch prompt
 
 ## Preflight
@@ -32,6 +33,7 @@ delegation:
 `pi --mode rpc --model "$MODEL" --no-session --no-context-files --no-skills`.
 It sends JSONL `prompt` / `follow_up` over stdin and consumes
 Pi's native events until `agent_settled`. Closing stdin ends the process.
+Pass the exact registry model ID — no aliases.
 
 ```bash
 scripts/run-delegate --tool pi --model "$MODEL" \
