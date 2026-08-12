@@ -20,14 +20,22 @@ ROUTING_DECISION:
   ACTION: USE_NATIVE
   CALLER_HARNESS: cursor
   TARGET_TRANSPORT: cursor
-  MODEL: <requested or NONE>
+  MODEL: composer-2.5
   ALLOWED_SCOPE: []
-  REASON: caller matches transport (cursor); use Cursor-native delegation and bypass Ajax Model Router
+  REASON: caller matches transport (cursor); native Task → composer-2.5, bypass Ajax Model Router
 ```
 
 Do not snapshot, launch `cursor-agent` through this router, or create
-transaction artifacts. Use Cursor’s native subagent / Task mechanism instead.
-Pstack inside Cursor also stays on that native path.
+transaction artifacts.
+
+**`USE_NATIVE` means native Task with `model: composer-2.5`, not parent-local
+implementation.** The Cursor parent (often Grok High) orchestrates and reviews;
+it does not Write/StrReplace the bounded change itself. Default `MODEL` is
+`composer-2.5` even when the request omitted it. Pstack playbooks stay on this
+same native path and already map code roles to Composer via `pstack-models.mdc`.
+
+Parent-local edits are only for trivial one-liners, non-code work, or after
+Composer failed the same scoped task three times.
 
 ## Cross-transport
 
