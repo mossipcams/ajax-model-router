@@ -30,6 +30,6 @@ ROUTING_DECISION:
 
 ```bash
 scripts/route --caller-harness claude \
-  --target-transport cursor --model composer-2.5 \
+  --target-transport cursor --model cursor-grok-4.6-high \
   --allowed <path>
 ```

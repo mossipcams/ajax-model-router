@@ -58,6 +58,18 @@ class RouteDecisionTests(unittest.TestCase):
         self.assertEqual(decision["TARGET_TRANSPORT"], "cursor")
         self.assertEqual(decision["MODEL"], "composer-2.5")
 
+    def test_claude_to_grok_high_delegates(self):
+        decision = route_mod.decide(
+            caller_harness="claude",
+            target_transport="cursor",
+            model="cursor-grok-4.6-high",
+            which=lambda cmd: "/fake/" + cmd,
+        )
+        self.assertEqual(decision["ACTION"], "DELEGATE")
+        self.assertEqual(decision["CALLER_HARNESS"], "claude")
+        self.assertEqual(decision["TARGET_TRANSPORT"], "cursor")
+        self.assertEqual(decision["MODEL"], "cursor-grok-4.6-high")
+
     def test_claude_never_use_native(self):
         # Even if someone passed a bogus matching name, claude is not a transport.
         decision = route_mod.decide(

@@ -45,6 +45,7 @@ require_text "$ROUTER" "CALLER_HARNESS: cursor | codex | claude | pi | other" "c
 require_text "$ROUTER" "TARGET_TRANSPORT: cursor | codex | pi" "target transport field"
 require_text "$ROUTER" "## Model Registry" "central model registry"
 require_text "$ROUTER" "| \`cursor\` | \`composer-2.5\` |" "cursor registry model"
+require_text "$ROUTER" "| \`cursor\` | \`cursor-grok-4.6-high\` |" "cursor grok registry model"
 require_text "$ROUTER" "| \`codex\` | \`gpt-5.6-sol\` |" "codex registry model"
 require_text "$ROUTER" "| \`pi\` | \`opencode-go/minimax-m3\` |" "pi minimax registry model"
 require_text "$ROUTER" "| \`pi\` | \`opencode-go/glm-5.2\` |" "pi glm registry model"
@@ -79,8 +80,6 @@ forbid_text "$ROUTER" "R-MINIMAX" "removed semantic R-MINIMAX route"
 forbid_text "$ROUTER" "R-GLM" "removed semantic R-GLM route"
 forbid_text "$ROUTER" "Default implementation agent is" "removed composer-default implementation lane"
 forbid_text "$ROUTER" "## Risk-based review" "removed risk-tier review ceremony"
-forbid_text "$ROUTER" "GROK" "no Grok registry or route"
-forbid_text "$ROUTER" "grok" "no Grok model id"
 forbid_text "$ROUTER" "Complete exactly one bounded task from the packet below." "removed packet-prescriptive prompt"
 forbid_text "$ROUTER" "CALIBRATION.md" "no calibration ledger"
 forbid_text "$ROUTER" "## Calibration" "no calibration section"
@@ -93,14 +92,14 @@ require_text "$CLAUDE_ADAPTER" "never emits \`USE_NATIVE\`" "claude never USE_NA
 require_text "$CURSOR_ADAPTER" "name: model-router" "cursor adapter visible name"
 require_text "$CODEX_ADAPTER" "name: model-router" "codex adapter visible name"
 
-for model_id in composer-2.5 gpt-5.6-sol opencode-go/minimax-m3 opencode-go/glm-5.2; do
+for model_id in composer-2.5 cursor-grok-4.6-high gpt-5.6-sol opencode-go/minimax-m3 opencode-go/glm-5.2; do
   # Shared skill + two adapters pointing via shared-rules symlink resolve to one file;
   # count unique occurrences under skills/*/SKILL.md bodies (adapters are thin).
   :
 done
 
 # Exact IDs appear once in the shared registry table (adapters must not duplicate them).
-for model_id in "composer-2.5" "gpt-5.6-sol" "opencode-go/minimax-m3" "opencode-go/glm-5.2"; do
+for model_id in "composer-2.5" "cursor-grok-4.6-high" "gpt-5.6-sol" "opencode-go/minimax-m3" "opencode-go/glm-5.2"; do
   actual="$( (grep -RohF --include='SKILL.md' -- "$model_id" "$ROOT/skills/model-router" "$ROOT/skills/model-router-cursor" "$ROOT/skills/model-router-codex" || true) | wc -l | tr -d ' ')"
   # shared SKILL once; adapters may mention composer/codex in examples — allow thin adapter mentions
   if [[ "$actual" -lt 1 ]]; then

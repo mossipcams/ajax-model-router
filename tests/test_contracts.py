@@ -106,6 +106,7 @@ class ContractTests(unittest.TestCase):
         text = ROUTER.read_text()
         self.assertIn("| Transport | Model ID |", text)
         self.assertIn("| `cursor` | `composer-2.5` |", text)
+        self.assertIn("| `cursor` | `cursor-grok-4.6-high` |", text)
         self.assertIn("| `pi` | `opencode-go/minimax-m3` |", text)
 
     def test_check_report_requires_verification_for_complete(self):

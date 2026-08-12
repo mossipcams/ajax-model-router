@@ -59,7 +59,7 @@ MODEL_ROUTING_REQUEST → ROUTING_DECISION
 
 ```bash
 scripts/route --caller-harness claude \
-  --target-transport cursor --model composer-2.5 --allowed src/foo.py
+  --target-transport cursor --model cursor-grok-4.6-high --allowed src/foo.py
 ```
 
 ## Safety controls (DELEGATE)
