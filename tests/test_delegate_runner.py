@@ -150,6 +150,39 @@ class DelegateRunnerTests(unittest.TestCase):
         self.assertEqual(event.text, "")
         self.assertEqual(event.report_text, "")
 
+    def test_nested_tool_call_string_status_does_not_crash(self):
+        started = json.dumps({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "s1",
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "call-1",
+                    "status": "pending",
+                    "title": "Edit file",
+                },
+            },
+        })
+        finished = json.dumps({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "s1",
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "call-1",
+                    "status": "completed",
+                },
+            },
+        })
+        event = normalize_record(parse_jsonl_line(started))
+        self.assertIsNotNone(event)
+        self.assertEqual(event.kind, "activity/tool started")
+        event = normalize_record(parse_jsonl_line(finished))
+        self.assertIsNotNone(event)
+        self.assertEqual(event.kind, "activity/tool finished")
+
     def test_legacy_native_event_parser_still_available(self):
         line = json.dumps({
             "type": "message_end",
@@ -183,6 +216,57 @@ class DelegateRunnerTests(unittest.TestCase):
                 self.assertIn("exec", args)
                 self.assertIn("--file", args)
                 self.assertEqual(args[args.index("--file") + 1], str(prompt))
+
+    def test_run_delegate_survives_string_status_tool_calls(self):
+        records = (
+            {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "s1",
+                    "update": {
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": "call-1",
+                        "status": "pending",
+                    },
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "s1",
+                    "update": {
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": "call-1",
+                        "status": "completed",
+                    },
+                },
+            },
+        )
+        body = "".join(
+            f"print({json.dumps(json.dumps(record))}, flush=True)\n" for record in records
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(
+                tmp, fake_acpx_script(body=body, detail="tool calls ok")
+            )
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("bounded task")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("DETAILS: tool calls ok", report.read_text())
 
     def test_acpx_extracts_report_from_nested_fragmented_chunks(self):
         report = REPORT_COMPLETE.format(detail="fragmented")

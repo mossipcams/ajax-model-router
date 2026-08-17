@@ -52,6 +52,19 @@ def _update_body(params):
     return params
 
 
+def _tool_status(body):
+    # Live Cursor ACP uses status as a string on tool_call / tool_call_update.
+    value = body.get("status")
+    if isinstance(value, str) and value:
+        return value.lower()
+    nested = body.get("toolCall")
+    if isinstance(nested, dict):
+        value = nested.get("status")
+        if isinstance(value, str) and value:
+            return value.lower()
+    return ""
+
+
 def normalize_record(record):
     if not isinstance(record, dict):
         return None
@@ -69,7 +82,7 @@ def normalize_record(record):
                 _report_text(text),
             )
         if update in {"tool_call", "tool_call_update"}:
-            status = str((body.get("status") or body.get("toolCall") or {}).get("status", "")).lower()
+            status = _tool_status(body)
             if status in {"pending", "in_progress", "running", "started"}:
                 return NormalizedEvent("activity/tool started", "acpx", record)
             if status in {"completed", "finished", "success"}:
