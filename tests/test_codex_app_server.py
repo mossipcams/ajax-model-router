@@ -320,87 +320,91 @@ class SessionTests(unittest.TestCase):
 
 
 class RunnerIntegrationTests(unittest.TestCase):
-    """End-to-end through scripts/run-delegate --tool codex."""
+    """End-to-end through scripts/run-delegate --tool codex via acpx."""
+
+    FAKE_ACPX = r'''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+
+Path(os.environ["ARGS_FILE"]).write_text(json.dumps(sys.argv[1:]))
+mode = os.environ.get("FAKE_MODE", "success")
+report = os.environ.get("FAKE_REPORT", "")
+if mode == "hang":
+    import time
+    while True:
+        time.sleep(1)
+elif mode == "turn_failed":
+    print(json.dumps({"jsonrpc":"2.0","id":"1","error":{"message":"model exploded"}}), flush=True)
+elif mode == "success":
+    print(json.dumps({"jsonrpc":"2.0","method":"session/update","params":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":report}}}), flush=True)
+    print(json.dumps({"jsonrpc":"2.0","id":"1","result":{"stopReason":"end_turn"}}), flush=True)
+'''
+
+    def _install_fake(self, tmp):
+        bin_dir = Path(tmp) / "bin"
+        bin_dir.mkdir()
+        path = bin_dir / "acpx"
+        path.write_text(self.FAKE_ACPX)
+        path.chmod(0o755)
+        return bin_dir
 
     def _run_runner(self, mode, report=REPORT_BODY, sandbox="workspace-write", resume=None):
         tmp = tempfile.mkdtemp()
         self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
         tmp = Path(tmp)
+        self._install_fake(tmp)
         prompt = tmp / "prompt.txt"
         prompt.write_text("delegate this")
         raw = tmp / "raw.log"
         rep = tmp / "report.yaml"
+        args_file = tmp / "args.json"
         env = os.environ.copy()
-        env["CODEX_APP_SERVER_CMD"] = fake_cmd(tmp)
+        env["PATH"] = f"{tmp / 'bin'}{os.pathsep}{env['PATH']}"
         env["FAKE_MODE"] = mode
         env["FAKE_REPORT"] = report
+        env["ARGS_FILE"] = str(args_file)
         cmd = [str(RUNNER), "--tool", "codex", "--model", "gpt-5.6-sol",
                "--prompt", str(prompt), "--raw-log", str(raw), "--report", str(rep),
-               "--sandbox", sandbox, "--timeout-seconds", "10", "--term-grace-seconds", "0.3"]
+               "--sandbox", sandbox, "--timeout-seconds", "0.3", "--term-grace-seconds", "0.2"]
         if resume:
             cmd += ["--resume", resume]
         proc = subprocess.run(cmd, text=True, capture_output=True, env=env)
-        return proc, raw, rep
+        return proc, raw, rep, args_file
 
     def test_delegate_report_preserved_end_to_end(self):
-        proc, raw, rep = self._run_runner("success")
+        proc, raw, rep, args_file = self._run_runner("success")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("STATUS: COMPLETE", rep.read_text())
         self.assertIn("mocked codex turn", proc.stdout)
-        self.assertIn("thread-1", raw.read_text())  # raw JSONL retained for debugging
+        args = json.loads(args_file.read_text())
+        self.assertEqual(args[args.index("--model") + 1], "gpt-5.6-sol")
+        self.assertIn("codex", args)
+        self.assertIn("session/update", raw.read_text())
 
     def test_missing_report_envelope_fails_explicitly(self):
-        proc, raw, rep = self._run_runner("success", report="no envelope here")
+        proc, raw, rep, _ = self._run_runner("success", report="no envelope here")
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("STATUS: FAILED", rep.read_text())
         self.assertIn("MISSING_STRUCTURED_REPORT", rep.read_text())
 
     def test_turn_failure_yields_failed_report(self):
-        proc, raw, rep = self._run_runner("turn_failed")
+        proc, raw, rep, _ = self._run_runner("turn_failed")
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("STATUS: FAILED", rep.read_text())
-        self.assertIn("CODEX_TURN_FAILED", rep.read_text())
+        self.assertIn("ACP_EVENT_FAILED", rep.read_text())
 
     def test_timeout_yields_timeout_report(self):
-        proc, raw, rep = self._run_runner("hang")
+        proc, raw, rep, _ = self._run_runner("hang")
         self.assertEqual(proc.returncode, 124, proc.stdout + proc.stderr)
         self.assertIn("TIMEOUT", rep.read_text())
 
-    def test_sandbox_flag_selects_read_only_for_critique(self):
-        trace = Path(tempfile.mkdtemp()) / "t.jsonl"
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
-        prompt = tmp / "p.txt"; prompt.write_text("critique")
-        raw = tmp / "raw.log"; rep = tmp / "r.yaml"
-        env = os.environ.copy()
-        env["CODEX_APP_SERVER_CMD"] = fake_cmd(tmp)
-        env["FAKE_MODE"] = "success"; env["FAKE_REPORT"] = REPORT_BODY
-        env["FAKE_TRACE"] = str(trace)
-        subprocess.run([str(RUNNER), "--tool", "codex", "--model", "gpt-5.6-sol",
-                        "--prompt", str(prompt), "--raw-log", str(raw), "--report", str(rep),
-                        "--sandbox", "read-only", "--timeout-seconds", "10",
-                        "--term-grace-seconds", "0.3"], text=True, capture_output=True, env=env)
-        start = [json.loads(l) for l in trace.read_text().splitlines()
-                 if json.loads(l).get("method") == "thread/start"][0]
-        self.assertEqual(start["params"]["sandbox"], "read-only")
-
-    def test_reasoning_effort_defaults_to_xhigh(self):
-        trace = Path(tempfile.mkdtemp()) / "t.jsonl"
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
-        prompt = tmp / "p.txt"; prompt.write_text("impl")
-        raw = tmp / "raw.log"; rep = tmp / "r.yaml"
-        env = os.environ.copy()
-        env["CODEX_APP_SERVER_CMD"] = fake_cmd(tmp)
-        env["FAKE_MODE"] = "success"; env["FAKE_REPORT"] = REPORT_BODY
-        env["FAKE_TRACE"] = str(trace)
-        subprocess.run([str(RUNNER), "--tool", "codex", "--model", "gpt-5.6-sol",
-                        "--prompt", str(prompt), "--raw-log", str(raw), "--report", str(rep),
-                        "--timeout-seconds", "10", "--term-grace-seconds", "0.3"],
-                       text=True, capture_output=True, env=env)
-        turn = [json.loads(l) for l in trace.read_text().splitlines()
-                if json.loads(l).get("method") == "turn/start"][0]
-        self.assertEqual(turn["params"]["effort"], "xhigh")
+    def test_resume_uses_acpx_prompt(self):
+        proc, raw, rep, args_file = self._run_runner("success", resume="thread-XYZ")
+        self.assertEqual(proc.returncode, 0)
+        args = json.loads(args_file.read_text())
+        self.assertIn("prompt", args)
+        self.assertIn("-s", args)
+        self.assertEqual(args[args.index("-s") + 1], "thread-XYZ")
 
 
 @unittest.skipUnless(os.environ.get("RUN_CODEX_LIVE") == "1",

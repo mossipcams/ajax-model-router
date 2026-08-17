@@ -18,20 +18,19 @@ Required inputs:
 ## Preflight
 
 ```bash
-command -v pi
+command -v acpx
 git status --short
 ```
 
-Missing `pi` means return `STOP`; never substitute local work or another
+Missing `acpx` means return `STOP`; never substitute local work or another
 tool inside this adapter.
 
 ## Invocation
 
-Headless only. The shared runner starts one native RPC process per
-delegation:
-`pi --mode rpc --model "$MODEL" --no-session --no-context-files --no-skills`.
-It sends JSONL `prompt` / `follow_up` over stdin and consumes
-Pi's native events until `agent_settled`. Closing stdin ends the process.
+Headless only. The shared runner dispatches through acpx ACP (`pi` profile).
+One-shot delegations use `exec`; follow-up turns use `sessions ensure` then
+chained `prompt` invocations in the same cwd scope. The router-selected model
+is passed as `--model "$MODEL"`.
 
 ```bash
 scripts/run-delegate --tool pi --model "$MODEL" \

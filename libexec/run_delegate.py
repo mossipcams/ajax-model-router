@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
+"""Run router delegates through acpx (ACP client) for cursor, codex, and pi."""
+
 import argparse
-import json
 import os
 import queue
 import shutil
@@ -12,11 +13,11 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import codex_app_server
-from delegate_events import normalize_record, parse_jsonl_line
+from acpx_events import normalize_record, parse_jsonl_line
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PROFILE_BY_TOOL = {"cursor": "cursor", "codex": "codex", "pi": "pi"}
 
 
 def failed_report(report, reason, summary):
@@ -34,53 +35,32 @@ def failed_report(report, reason, summary):
     sys.stdout.write(text)
 
 
-EXECUTABLES = {"cursor": "cursor-agent", "pi": "pi"}
-
-
-def command_for(tool, model, prompt, resume):
-    executable = shutil.which(EXECUTABLES[tool])
-    if not executable:
-        return None
-    if tool == "cursor":
-        command = [executable, "-p", "-f", "--trust", "--model", model]
-        if resume:
-            command.extend(["--resume", resume])
-        command.extend(["--output-format", "stream-json", "--stream-partial-output"])
-        command.append(prompt)
-        return command
-    if resume:
-        raise ValueError("Pi resume is not a router mode")
-    # ponytail: packet is the contract; AGENTS.md / skill catalogs push the
-    # worker into parent-orchestrator re-reads. Ceiling: misses project
-    # conventions not in the packet. Upgrade: put those in the packet.
-    return [
-        executable,
-        "--mode",
-        "rpc",
-        "--model",
-        model,
-        "--no-session",
-        "--no-context-files",
-        "--no-skills",
-    ]
-
-
 def terminate_group(process, grace):
     try:
         os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            process.terminate()
+        except OSError:
+            return
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline:
         try:
             os.killpg(process.pid, 0)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                process.wait(timeout=0.05)
+            except subprocess.TimeoutExpired:
+                pass
             return
         time.sleep(min(0.05, max(0, deadline - time.monotonic())))
     try:
         os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            process.kill()
+        except OSError:
+            pass
 
 
 def extract_report(raw_or_message, report):
@@ -100,29 +80,68 @@ def extract_report_text(text, raw_log, report):
     return extract_report(message, report)
 
 
-def _native_command(args, prompt):
-    command = command_for(args.tool, args.model, prompt, args.resume)
-    if args.tool == "pi" and args.resume:
-        raise ValueError("Pi resume is not a router mode")
+def acpx_path():
+    return shutil.which("acpx")
+
+
+def build_acpx_base(args, cwd, executable):
+    return [
+        executable,
+        "--approve-all",
+        "--non-interactive-permissions",
+        "fail",
+        "--format",
+        "json",
+        "--json-strict",
+        "--cwd",
+        str(cwd),
+        "--model",
+        args.model,
+        "--timeout",
+        str(args.timeout_seconds),
+    ]
+
+
+def build_acpx_command(base, tool, subcommand, prompt_path, session=None):
+    profile = PROFILE_BY_TOOL[tool]
+    command = base + [profile, subcommand]
+    if session:
+        command.extend(["-s", session])
+    command.extend(["--file", str(prompt_path)])
     return command
 
 
-def run_native(args, prompt):
-    command = _native_command(args, prompt)
+def planned_invocations(args):
+    profile = PROFILE_BY_TOOL[args.tool]
     follow_ups = list(args.follow_up)
     if follow_ups and args.tool != "pi":
         raise ValueError("--follow-up is only supported for Pi")
+    if args.tool == "pi" and args.resume:
+        raise ValueError("Pi resume is not a router mode")
 
-    args.raw_log.parent.mkdir(parents=True, exist_ok=True)
+    prompt_dir = args.prompt.parent
+    turns = [(args.prompt, "prompt" if args.resume or follow_ups else "exec", args.resume)]
+    for index, text in enumerate(follow_ups):
+        path = prompt_dir / f"follow-up-{index}.txt"
+        path.write_text(text)
+        turns.append((path, "prompt", args.resume))
+
+    preflight = []
+    if follow_ups and not args.resume:
+        preflight.append(("sessions", "ensure", None))
+    return profile, preflight, turns
+
+
+def run_acpx_process(command, args, raw, deadline):
     events = queue.Queue()
     report_text = ""
+    assistant_text = []
     failure = ""
-    failure_reason = "NATIVE_EVENT_FAILED"
+    failure_reason = "ACP_EVENT_FAILED"
     terminal = False
-    follow_up_index = 0
     process = subprocess.Popen(
         command,
-        stdin=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         start_new_session=True,
@@ -144,89 +163,67 @@ def run_native(args, prompt):
     for thread in threads:
         thread.start()
 
-    def send(kind, message):
-        try:
-            process.stdin.write(json.dumps({"id": f"delegate-{kind}", "type": kind, "message": message}) + "\n")
-            process.stdin.flush()
-            return True
-        except (BrokenPipeError, OSError):
-            return False
-
-    def close_stdin():
-        if process.stdin and not process.stdin.closed:
-            process.stdin.close()
-
-    if not send("prompt", prompt):
-        failure = "delegate stdin closed before prompt was accepted"
-        failure_reason = "NATIVE_EVENT_FAILED"
-    deadline = time.monotonic() + args.timeout_seconds
     eof = set()
     try:
-        with args.raw_log.open("w") as raw:
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    terminate_group(process, args.term_grace_seconds)
-                    failed_report(
-                        args.report,
-                        "TIMEOUT",
-                        f"{args.tool} delegation timed out after {args.timeout_seconds:g} seconds",
-                    )
-                    return 124
-                try:
-                    stream, line = events.get(timeout=min(0.1, remaining))
-                except queue.Empty:
-                    line = None
-                    stream = None
-                if stream is not None:
-                    if line is None:
-                        eof.add(stream)
-                    elif stream == "stderr":
-                        raw.write("[stderr] " + line)
-                        raw.flush()
-                    else:
-                        raw.write(line)
-                        raw.flush()
-                        record = parse_jsonl_line(line)
-                        if record is None:
-                            continue
-                        event = normalize_record(args.tool, record)
-                        if event is None:
-                            continue
-                        if event.report_text:
-                            report_text = event.report_text
-                        if event.kind == "failed":
-                            failure = event.error or "native delegate event reported failure"
-                            failure_reason = "NATIVE_EVENT_FAILED"
-                            terminal = True
-                            close_stdin()
-                        elif event.kind == "completed":
-                            terminal = True
-                            if follow_up_index < len(follow_ups):
-                                if not send("follow_up", follow_ups[follow_up_index]):
-                                    failure = "delegate stdin closed before follow-up was accepted"
-                                    failure_reason = "NATIVE_EVENT_FAILED"
-                                follow_up_index += 1
-                                terminal = False
-                            elif args.tool == "pi":
-                                close_stdin()
-                if process.poll() is not None:
-                    if "stdout" in eof and "stderr" in eof:
-                        if not terminal and not failure:
-                            failure = "delegate exited without a terminal native event"
-                            failure_reason = "MISSING_TERMINAL_EVENT"
-                        break
-                # Wait for stderr EOF before leaving on terminal/failure so the
-                # raw log includes late stderr lines from a fast-exiting process.
-                if (terminal or failure) and "stderr" in eof:
-                    break
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                terminate_group(process, args.term_grace_seconds)
+                return {
+                    "exit_code": 124,
+                    "failure_reason": "TIMEOUT",
+                    "failure": f"{args.tool} delegation timed out after {args.timeout_seconds:g} seconds",
+                }
+            try:
+                stream, line = events.get(timeout=min(0.1, remaining))
+            except queue.Empty:
+                stream = None
+                line = None
+            if stream is not None:
+                if line is None:
+                    eof.add(stream)
+                elif stream == "stderr":
+                    raw.write("[stderr] " + line)
+                    raw.flush()
+                    if line.startswith("[acpx] error:"):
+                        failure = line.strip()
+                        failure_reason = "ACP_EVENT_FAILED"
+                        terminal = True
+                else:
+                    raw.write(line)
+                    raw.flush()
+                    record = parse_jsonl_line(line)
+                    if record is None:
+                        continue
+                    event = normalize_record(record)
+                    if event is None:
+                        continue
+                    if event.text:
+                        assistant_text.append(event.text)
+                    if event.report_text:
+                        report_text = event.report_text
+                    if event.kind == "failed":
+                        failure = event.error or "acpx ACP event reported failure"
+                        failure_reason = "ACP_EVENT_FAILED"
+                        terminal = True
+                    elif event.kind == "completed":
+                        terminal = True
+            if process.poll() is not None and "stdout" in eof and "stderr" in eof:
+                if not terminal and not failure:
+                    failure = "delegate exited without a terminal ACP event"
+                    failure_reason = "MISSING_TERMINAL_EVENT"
+                break
+            if (terminal or failure) and "stderr" in eof:
+                break
     except KeyboardInterrupt:
         terminate_group(process, args.term_grace_seconds)
-        failed_report(args.report, "CANCELLED", f"{args.tool} delegation cancelled")
-        return 130
+        return {
+            "exit_code": 130,
+            "failure_reason": "CANCELLED",
+            "failure": f"{args.tool} delegation cancelled",
+        }
     finally:
         if process.poll() is None:
-            close_stdin()
             try:
                 process.wait(timeout=max(1.0, args.term_grace_seconds))
             except subprocess.TimeoutExpired:
@@ -235,70 +232,102 @@ def run_native(args, prompt):
             thread.join(timeout=1)
         for stream in (process.stdin, process.stdout, process.stderr):
             try:
-                stream.close()
+                if stream:
+                    stream.close()
             except (AttributeError, OSError):
                 pass
 
+    exit_code = process.returncode if process.returncode is not None else 1
+    if exit_code == 3:
+        return {
+            "exit_code": 124,
+            "failure_reason": "TIMEOUT",
+            "failure": f"{args.tool} delegation timed out after {args.timeout_seconds:g} seconds",
+        }
+    if exit_code == 130:
+        return {
+            "exit_code": 130,
+            "failure_reason": "CANCELLED",
+            "failure": f"{args.tool} delegation cancelled",
+        }
     if failure:
-        failed_report(args.report, failure_reason, failure)
-        return 1
+        return {
+            "exit_code": 1,
+            "failure_reason": failure_reason,
+            "failure": failure,
+        }
+    if exit_code not in (0,) and not terminal:
+        return {
+            "exit_code": exit_code or 1,
+            "failure_reason": "ACP_EVENT_FAILED",
+            "failure": f"acpx exited with status {exit_code}",
+        }
     if not terminal:
-        failed_report(args.report, "MISSING_TERMINAL_EVENT", "delegate produced no terminal native event")
-        return 1
+        return {
+            "exit_code": 1,
+            "failure_reason": "MISSING_TERMINAL_EVENT",
+            "failure": "delegate produced no terminal ACP event",
+        }
     if not report_text:
-        failed_report(args.report, "MISSING_STRUCTURED_REPORT", "delegate produced no structured report text")
-        return 1
-    code = extract_report_text(report_text, args.raw_log, args.report)
-    return code or process.returncode
+        combined = "".join(assistant_text)
+        report_text = combined if _report_text(combined) else ""
+    if not report_text:
+        return {
+            "exit_code": 1,
+            "failure_reason": "MISSING_STRUCTURED_REPORT",
+            "failure": "delegate produced no structured report text",
+        }
+    return {"exit_code": exit_code, "report_text": report_text}
 
 
-def run_codex(args, prompt):
-    """Codex uses `codex app-server` (native JSON-RPC), not a one-shot subprocess.
+def _report_text(text):
+    if "ROUTER_REPORT_BEGIN" in text and "ROUTER_REPORT_END" in text:
+        return text
+    return ""
 
-    The raw log holds the protocol JSONL (+ stderr under a marker); the worker's
-    final agent message carries the DELEGATE_REPORT envelope, which is fed to the
-    same extract-report/check-report contract as Pi/Cursor."""
+
+def run_acpx(args):
+    executable = acpx_path()
+    if not executable:
+        args.raw_log.parent.mkdir(parents=True, exist_ok=True)
+        args.raw_log.write_text("missing delegate CLI: acpx\n")
+        failed_report(args.report, "MISSING_TOOL", "acpx is unavailable")
+        return 127
+
+    try:
+        profile, preflight, turns = planned_invocations(args)
+    except ValueError as error:
+        raise error
+
+    cwd = Path.cwd()
+    base = build_acpx_base(args, cwd, executable)
     args.raw_log.parent.mkdir(parents=True, exist_ok=True)
-    message_file = args.raw_log.with_suffix(args.raw_log.suffix + ".message")
+    deadline = time.monotonic() + args.timeout_seconds
+    last_report = ""
+
     with args.raw_log.open("w") as raw:
-        try:
-            result = codex_app_server.run_delegation(
-                prompt,
-                cwd=Path.cwd(),
-                model=args.model,
-                raw_log=raw,
-                sandbox=args.sandbox,
-                reasoning_effort=args.reasoning_effort,
-                timeout=args.timeout_seconds,
-                term_grace_seconds=args.term_grace_seconds,
-                resume_thread_id=args.resume,
-            )
-        except codex_app_server.CodexTimeout:
-            failed_report(
-                args.report,
-                "TIMEOUT",
-                f"codex delegation timed out after {args.timeout_seconds:g} seconds",
-            )
-            return 124
-        except codex_app_server.CodexError as error:
-            failed_report(args.report, error.reason, f"codex app-server: {error}")
-            return 1
-        except FileNotFoundError:
-            raw.write("missing delegate CLI: codex app-server\n")
-            failed_report(args.report, "MISSING_TOOL", "codex CLI is unavailable")
-            return 127
+        for kind, subcommand, _session in preflight:
+            command = base + [profile, "sessions", subcommand]
+            outcome = run_acpx_process(command, args, raw, deadline)
+            if outcome.get("failure"):
+                failed_report(args.report, outcome["failure_reason"], outcome["failure"])
+                return outcome.get("exit_code", 1)
 
-    if result.status == "failed":
-        failed_report(args.report, "CODEX_TURN_FAILED", result.error or "codex turn failed")
-        return 1
+        for prompt_path, subcommand, session in turns:
+            command = build_acpx_command(base, args.tool, subcommand, prompt_path, session)
+            outcome = run_acpx_process(command, args, raw, deadline)
+            if outcome.get("failure"):
+                failed_report(args.report, outcome["failure_reason"], outcome["failure"])
+                return outcome.get("exit_code", 1)
+            last_report = outcome.get("report_text") or last_report
 
-    message_file.write_text(result.final_message or "")
-    return extract_report(message_file, args.report)
+    code = extract_report_text(last_report, args.raw_log, args.report)
+    return code or 0
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tool", choices=("cursor", "pi", "codex"), required=True)
+    parser.add_argument("--tool", choices=tuple(PROFILE_BY_TOOL), required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--prompt", type=Path, required=True)
     parser.add_argument("--raw-log", type=Path, required=True)
@@ -309,12 +338,12 @@ def main():
         "--sandbox",
         choices=("read-only", "workspace-write"),
         default="workspace-write",
-        help="codex only: read-only for packet-critique, workspace-write for implementation",
+        help="retained for router contract; not forwarded to acpx ACP in this transport",
     )
     parser.add_argument(
         "--reasoning-effort",
         default="xhigh",
-        help="codex only: model_reasoning_effort (default xhigh)",
+        help="retained for router contract; not forwarded to acpx ACP in this transport",
     )
     parser.add_argument("--resume")
     parser.add_argument("--follow-up", action="append", default=[])
@@ -324,55 +353,10 @@ def main():
     if not 0 <= args.term_grace_seconds <= 30:
         parser.error("--term-grace-seconds must be between 0 and 30")
 
-    prompt = args.prompt.read_text()
-
-    if args.tool == "codex":
-        return run_codex(args, prompt)
-
-    if args.tool in {"pi", "cursor"}:
-        try:
-            return run_native(args, prompt)
-        except ValueError as error:
-            parser.error(str(error))
-
     try:
-        command = command_for(args.tool, args.model, prompt, args.resume)
+        return run_acpx(args)
     except ValueError as error:
         parser.error(str(error))
-    if command is None:
-        args.raw_log.parent.mkdir(parents=True, exist_ok=True)
-        args.raw_log.write_text(f"missing delegate CLI: {args.tool}\n")
-        failed_report(args.report, "MISSING_TOOL", f"{args.tool} CLI is unavailable")
-        return 127
-
-    args.raw_log.parent.mkdir(parents=True, exist_ok=True)
-    with args.raw_log.open("wb") as raw:
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=raw,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-        try:
-            status = process.wait(timeout=args.timeout_seconds)
-        except subprocess.TimeoutExpired:
-            terminate_group(process, args.term_grace_seconds)
-            try:
-                process.wait(timeout=max(1.0, args.term_grace_seconds))
-            except subprocess.TimeoutExpired:
-                pass
-            failed_report(
-                args.report,
-                "TIMEOUT",
-                f"{args.tool} delegation timed out after {args.timeout_seconds:g} seconds",
-            )
-            return 124
-
-    code = extract_report(args.raw_log, args.report)
-    if code:
-        return code
-    return status
 
 
 if __name__ == "__main__":

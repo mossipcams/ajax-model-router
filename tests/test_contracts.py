@@ -107,8 +107,10 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("gpt-5.5", router)
         self.assertIn("--reasoning-effort xhigh", adapter)
         self.assertIn("--tool codex", adapter)
+        self.assertIn("acpx", adapter)
         self.assertIn("workspace-write", adapter)
         self.assertNotIn("packet-critique", adapter)
+        self.assertNotIn("codex app-server", adapter)
 
     def test_implementation_lane_defaults_to_cursor(self):
         rows = []

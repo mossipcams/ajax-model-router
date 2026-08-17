@@ -19,11 +19,11 @@ Required inputs:
 ## Preflight
 
 ```bash
-command -v cursor-agent
+command -v acpx
 git status --short
 ```
 
-Missing `cursor-agent` means return `STOP`; never substitute local work or
+Missing `acpx` means return `STOP`; never substitute local work or
 another tool inside this adapter.
 
 ## Payloads
@@ -36,11 +36,10 @@ another tool inside this adapter.
 
 ## Invocation
 
-The shared runner uses Cursor's native stream output:
-`-p -f --trust --model "$MODEL" --output-format stream-json
---stream-partial-output`, plus `--resume "$CHAT_ID"` for a same-session
-revision. Full JSONL/stderr is preserved in the raw log; only the validated
-structured report is printed.
+The shared runner dispatches through acpx ACP (`cursor` profile). One-shot
+delegations use `exec`; same-session resume uses `prompt -s "$CHAT_ID"`.
+The router-selected model is passed as `--model "$MODEL"`. Full ACP NDJSON is
+preserved in the raw log; only the validated structured report is printed.
 
 ```bash
 scripts/run-delegate --tool cursor --model "$MODEL" \

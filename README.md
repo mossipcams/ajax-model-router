@@ -70,11 +70,13 @@ Outcome logging (`scripts/router-log`) is lightweight and non-blocking.
 | Shallow docs/boilerplate ≤2 files/~60 lines | `pi` / `minimax-m3` |
 | Pure Q&A / architecture planning | `parent` (no write) |
 
-## Native delegate transports
+## Delegate transport
 
-Pi uses one `pi --mode rpc --model MODEL --no-session --no-context-files
---no-skills` process per active delegation. Cursor uses `cursor-agent -p -f
---trust --model MODEL --output-format stream-json --stream-partial-output`.
-Codex uses `codex app-server`. Unknown or malformed lines are retained in the
-raw log; native terminal events are authoritative, with process exit as the
-final safety signal.
+All three delegates (`cursor`, `codex`, `pi`) dispatch through
+[acpx](https://github.com/openclaw/acpx) ACP (`npm install -g acpx@0.13.0`, Node
+22.13+). Pin that release and ensure `acpx` is on `PATH`; missing
+`acpx` is a hard stop with no fallback to harness-native CLIs. The runner
+invokes `acpx <profile> exec|prompt --cwd <worktree> --format json --model
+<registry-id>` and extracts `DELEGATE_REPORT` markers from agent output.
+Unknown or malformed ACP lines are retained in the raw log; terminal ACP
+events and acpx exit codes are authoritative.
