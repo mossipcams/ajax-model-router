@@ -36,6 +36,15 @@ class ContractTests(unittest.TestCase):
         # No multi-stage reroute theater between route and execute.
         self.assertIn("Do not reroute between artificial lifecycle stages.", text)
 
+    def test_parent_must_not_pre_explore_before_dispatch(self):
+        text = ROUTER.read_text()
+        self.assertIn(
+            "Before dispatch, the parent must not Grep, Read, or search the repository",
+            text,
+        )
+        self.assertIn("do not explore to perfect scope first", text)
+        self.assertIn("no pre-dispatch repo exploration", text)
+
     def test_delegate_autonomy_inside_scope(self):
         text = ROUTER.read_text()
         for phrase in (

@@ -44,8 +44,12 @@ performs implementation: no product or docs writes, no commits, pushes, merges,
 rebases, branch creation, branch switches, or `gh pr create`. Route
 (`EXECUTION`), review the delta, and accept.
 
-The parent must not pre-investigate and reconstruct the implementation unless
-needed for risk-based review.
+Before dispatch, the parent must not Grep, Read, or search the repository to
+gather context or reconstruct the implementation. Name outcome, acceptance,
+bounded `SCOPE`, and `VERIFY` on `EXECUTION` and dispatch. If `SCOPE` is wrong,
+the delegate stops and the parent emits a new `EXECUTION` — do not explore to perfect scope first. The delegate investigates inside `SCOPE`. After execute,
+risk-based review of the delegate report and actual delta is allowed; do not
+read the whole subsystem for that review unless risk requires it.
 
 ## Model Registry
 
@@ -137,8 +141,8 @@ work. Do not apply high-risk ceremony to routine changes.
 ## Dispatch
 
 Replace detailed implementation packets with this outcome-based prompt. The
-parent owns planning. The delegate owns investigation, edit selection, test selection, and
-verification.
+parent owns planning and routing only — no pre-dispatch repo exploration. The
+delegate owns investigation, edit selection, test selection, and verification.
 
 ```text
 You are a bounded implementation worker for a parent agent.
