@@ -1,69 +1,80 @@
 # ajax-model-router
 
-Canonical shared skill bundle for **Ajax Model Router** — harness-boundary
-mediation for cross-harness model delegation.
+Canonical shared router skill bundle — a thin control plane, not a workflow
+engine.
 
-Separate the **caller harness** from the **target transport**. A harness can
-invoke Ajax without being a supported DELEGATE target (e.g. Claude → Cursor).
-When a caller that is itself a supported transport targets that same transport,
-return `USE_NATIVE` and bypass Ajax. Otherwise validate the exact model ID and
-transport, then run the deterministic DELEGATE lifecycle.
+The router decides who executes, which model, risk, scope, verification
+expectation, and fallback. The delegate owns investigation, planning,
+implementation, test selection, and verification. The parent owns acceptance
+with risk-proportional review.
 
-Pstack remains independent and Cursor-native; this repo does not vendor or
-integrate it.
+Pipeline: **route → execute → verify**.
 
 ## Layout
 
-- `skills/model-router/` — shared rules: registry, request/decision contracts,
-  dispatch prompt, lifecycle, parent review.
-- `skills/model-router-cursor/` — `CALLER_HARNESS=cursor`
-- `skills/model-router-codex/` — `CALLER_HARNESS=codex`
-- `skills/model-router-claude/` — `CALLER_HARNESS=claude` (caller only; never
-  `USE_NATIVE`)
-- `skills/cursor-delegate`, `pi-delegate`, `codex-delegate` — thin **transport**
-  adapters for `ACTION: DELEGATE` only.
-- `.cursor` / `.codex` / `.claude` / `.agents` — symlink views.
+- `skills/model-router/` — control plane: execution decision, model registry,
+  route table, outcome dispatch, risk-based review, outcome logging.
+- `skills/cursor-delegate`, `pi-delegate`, `codex-delegate` — thin tool
+  adapters. Shared rules live only in the router.
+- `.claude/skills/`, `.codex/skills/` — symlink views over the canonical
+  files. Never edit through these; every file exists exactly once.
 
 ## Install
 
 ```bash
+# From this repo
 scripts/install-symlinks --target ../ajax-cli
+
+# Verify
 scripts/check-symlinks --target ../ajax-cli
 scripts/check-contracts
 ```
 
-| Dest | Source |
-|---|---|
-| `.cursor/skills/model-router` | `skills/model-router-cursor` |
-| `.codex/skills/model-router` | `skills/model-router-codex` |
-| `.agents/skills/model-router` | `skills/model-router-codex` |
-| `.claude/skills/model-router` | `skills/model-router-claude` |
+Install wires skill symlinks under `.cursor` / `.codex` / `.claude` and also
+links the execute helpers (`scripts/run-delegate`, `run-transaction`,
+`delegate-snapshot`, `delegate-delta`, `check-report`, `router-log`, …) into
+the target's `scripts/` so a task worktree can run them as written. Re-run
+install for each worktree that needs dispatch.
 
-## Routing
-
-```text
-MODEL_ROUTING_REQUEST → ROUTING_DECISION
-  USE_NATIVE | DELEGATE | STOP
-```
-
-| Scenario | Action |
-|---|---|
-| Cursor → Cursor | `USE_NATIVE` |
-| Codex → Codex | `USE_NATIVE` |
-| Pi → Pi | `USE_NATIVE` |
-| Claude → Cursor / Codex / Pi | `DELEGATE` |
-| Cursor → Codex / Pi | `DELEGATE` |
-| Codex → Cursor / Pi | `DELEGATE` |
-| Wrong model for transport | `STOP` |
-| Target transport missing | `STOP` |
+Use `--force` only when replacing an existing non-canonical install:
 
 ```bash
-scripts/route --caller-harness claude \
-  --target-transport cursor --model composer-2.5 --allowed src/foo.py
+scripts/install-symlinks --target ../ajax-cli --force
 ```
 
-## Safety controls (DELEGATE)
+## Safety controls (kept)
 
-Pre/post snapshot, delta, write-scope, verification, parent review of the
-actual delta, and safe restore on discard. `USE_NATIVE` / `STOP` write a
-routing decision only.
+| Control | Why |
+|---|---|
+| Worktree / branch safety | No accidental commits, branch switches, or new worktrees |
+| Bounded write scope | Reject edits outside `SCOPE` |
+| Pre/post snapshot + delta | Reviewable change set; restore on discard |
+| Bounded retries | Stop after two failed execute rounds |
+| Risk escalation | Auth/security/PTY/supervisor/data-loss stay high-risk |
+
+`scripts/run-transaction` runs only:
+
+```text
+before_execute → snapshot → execute → after_execute → log_outcome
+```
+
+Outcome logging (`scripts/router-log`) is lightweight and non-blocking.
+
+## Expected routing
+
+| Scenario | Agent / model |
+|---|---|
+| Bounded implementation (default) | `cursor` / `composer-2.5` |
+| Explicit Codex ask | `codex` / `gpt-5.6-sol` |
+| Recorded spec/architecture uncertainty | `pi` / `glm-5.2` |
+| Shallow docs/boilerplate ≤2 files/~60 lines | `pi` / `minimax-m3` |
+| Pure Q&A / architecture planning | `parent` (no write) |
+
+## Native delegate transports
+
+Pi uses one `pi --mode rpc --model MODEL --no-session --no-context-files
+--no-skills` process per active delegation. Cursor uses `cursor-agent -p -f
+--trust --model MODEL --output-format stream-json --stream-partial-output`.
+Codex uses `codex app-server`. Unknown or malformed lines are retained in the
+raw log; native terminal events are authoritative, with process exit as the
+final safety signal.

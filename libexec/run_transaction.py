@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ordered execute runner for cross-harness DELEGATE transactions."""
+"""Ordered execute runner for thin router delegation."""
 
 from __future__ import annotations
 
@@ -10,13 +10,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lifecycle_context as ctxlib
-import route as route_mod
 from lifecycle_hooks import HOOKS, HookError
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
-        description="Run deterministic safety stages for one router DELEGATE transaction."
+        description="Run deterministic safety stages for one router execute transaction."
     )
     parser.add_argument(
         "--context",
@@ -45,11 +44,6 @@ def parse_args(argv=None):
         "--dry-run-plan",
         action="store_true",
         help="Print the stage plan as JSON and exit without executing hooks",
-    )
-    parser.add_argument(
-        "--route-only",
-        action="store_true",
-        help="Emit ROUTING_DECISION and exit without snapshot/execute",
     )
     return parser.parse_args(argv)
 
@@ -108,37 +102,6 @@ def main(argv=None):
         print(f"transaction failed: {error}", file=sys.stderr)
         return 2
 
-    decision = route_mod.decide(
-        caller_harness=ctx.get("caller_harness") or ctx.get("current_harness"),
-        target_transport=ctx.get("target_transport") or ctx.get("target_harness"),
-        model=ctx["model"],
-        allowed_scope=ctx.get("allowed_files") or [],
-    )
-    ctx.setdefault("artifacts", ctxlib.empty_artifacts())
-    ctx["artifacts"]["routing_decision"] = decision
-
-    if args.route_only or decision["ACTION"] in {"USE_NATIVE", "STOP"}:
-        # Same-harness / refused: write decision only — no snapshot artifacts.
-        decision_path = Path(ctx["snapshot_directory"])
-        decision_path.mkdir(parents=True, exist_ok=True)
-        out = decision_path / "routing_decision.json"
-        out.write_text(json.dumps(decision, indent=2, sort_keys=True) + "\n")
-        result = {
-            "status": decision["ACTION"],
-            "executed_stages": [],
-            "completed_stages": [],
-            "routing_decision": decision,
-            "snapshot_directory": ctx.get("snapshot_directory"),
-            "delta_json": "",
-            "delta_patch": "",
-            "scope_violations": [],
-            "changed_files": [],
-            "context_path": "",
-            "outcome_log_warning": "",
-        }
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return 0 if decision["ACTION"] == "USE_NATIVE" else 2
-
     if args.gate_result:
         ctx["gate_result"] = args.gate_result
 
@@ -158,18 +121,8 @@ def main(argv=None):
             ):
                 if key in ctx and ctx[key] not in (None, ""):
                     saved[key] = ctx[key]
-            incoming = json.loads(args.context.read_text())
-            for key in (
-                "caller_harness",
-                "target_transport",
-                "current_harness",
-                "target_harness",
-                "model",
-                "tool",
-                "requested_harness",
-                "task",
-            ):
-                if key in incoming:
+            for key in ("agent", "risk", "model", "tool", "requested_agent"):
+                if args.context and key in json.loads(args.context.read_text()):
                     saved[key] = ctx[key]
             ctx = saved
 
@@ -189,9 +142,8 @@ def main(argv=None):
         "status": ctx.get("status"),
         "executed_stages": executed,
         "completed_stages": ctx.get("completed_stages"),
-        "caller_harness": ctx.get("caller_harness") or ctx.get("current_harness"),
-        "target_transport": ctx.get("target_transport") or ctx.get("target_harness"),
-        "routing_decision": ctx.get("artifacts", {}).get("routing_decision") or {},
+        "agent": ctx.get("agent"),
+        "risk": ctx.get("risk"),
         "snapshot_directory": ctx.get("snapshot_directory"),
         "delta_json": ctx.get("artifacts", {}).get("delta_json") or "",
         "delta_patch": ctx.get("artifacts", {}).get("delta_patch") or "",

@@ -6,36 +6,24 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SHARED = ROOT / "skills" / "model-router"
-CURSOR_ADAPTER = ROOT / "skills" / "model-router-cursor"
-CODEX_ADAPTER = ROOT / "skills" / "model-router-codex"
-CLAUDE_ADAPTER = ROOT / "skills" / "model-router-claude"
+CANONICAL = ROOT / "skills" / "model-router"
 
 
 class SymlinkTests(unittest.TestCase):
-    def test_adapters_and_shared_exist(self):
-        self.assertTrue((SHARED / "SKILL.md").is_file())
-        self.assertTrue((CURSOR_ADAPTER / "SKILL.md").is_file())
-        self.assertTrue((CODEX_ADAPTER / "SKILL.md").is_file())
-        self.assertTrue((CLAUDE_ADAPTER / "SKILL.md").is_file())
-        self.assertTrue((CURSOR_ADAPTER / "shared-rules.md").is_symlink())
-        self.assertTrue((CLAUDE_ADAPTER / "shared-rules.md").is_symlink())
-        self.assertIn(
-            "CALLER_HARNESS is always `cursor`",
-            (CURSOR_ADAPTER / "SKILL.md").read_text(),
-        )
-        self.assertIn(
-            "CALLER_HARNESS is always `codex`",
-            (CODEX_ADAPTER / "SKILL.md").read_text(),
-        )
-        self.assertIn(
-            "CALLER_HARNESS is always `claude`",
-            (CLAUDE_ADAPTER / "SKILL.md").read_text(),
-        )
-        self.assertIn("never emits `USE_NATIVE`", (CLAUDE_ADAPTER / "SKILL.md").read_text())
+    def test_router_is_canonical_under_skills(self):
+        self.assertTrue((CANONICAL / "SKILL.md").is_file())
+        self.assertTrue((CANONICAL / "agents" / "openai.yaml").is_file())
         self.assertFalse((ROOT / "SKILL.md").exists())
 
-    def test_install_binds_harness_adapters(self):
+        for base in (".codex", ".claude"):
+            link = ROOT / base / "skills" / "model-router"
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(link.resolve(), CANONICAL.resolve())
+            self.assertNotEqual(
+                os.path.commonpath((link, link.resolve())), str(link.resolve())
+            )
+
+    def test_install_and_reject_ancestor_pointing_link(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "target"
             target.mkdir()
@@ -52,24 +40,9 @@ class SymlinkTests(unittest.TestCase):
                 capture_output=True,
             )
             self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
-
-            cursor_link = target / ".cursor" / "skills" / "model-router"
-            codex_link = target / ".codex" / "skills" / "model-router"
-            agents_link = target / ".agents" / "skills" / "model-router"
-            claude_link = target / ".claude" / "skills" / "model-router"
-
-            self.assertEqual(cursor_link.resolve(), CURSOR_ADAPTER.resolve())
-            self.assertEqual(codex_link.resolve(), CODEX_ADAPTER.resolve())
-            self.assertEqual(agents_link.resolve(), CODEX_ADAPTER.resolve())
-            self.assertEqual(claude_link.resolve(), CLAUDE_ADAPTER.resolve())
-
-            self.assertIn(
-                "CALLER_HARNESS is always `claude`",
-                (claude_link / "SKILL.md").read_text(),
-            )
-
+            installed = target / ".codex" / "skills" / "model-router"
+            self.assertEqual(installed.resolve(), CANONICAL.resolve())
             for name in (
-                "route",
                 "run-delegate",
                 "run-transaction",
                 "delegate-snapshot",
@@ -82,6 +55,10 @@ class SymlinkTests(unittest.TestCase):
                 self.assertEqual(
                     script.resolve(), (ROOT / "scripts" / name).resolve(), name
                 )
+            self.assertFalse((target / "scripts" / "check-packet").exists())
+            self.assertFalse(
+                (target / ".cursor" / "skills" / "tdd-implementation-packet").exists()
+            )
 
             help_run = subprocess.run(
                 [target / "scripts" / "run-delegate", "--help"],
@@ -89,9 +66,18 @@ class SymlinkTests(unittest.TestCase):
                 capture_output=True,
             )
             self.assertEqual(help_run.returncode, 0, help_run.stderr)
+            self.assertIn("usage", (help_run.stdout + help_run.stderr).lower())
 
-            codex_link.unlink()
-            codex_link.symlink_to(target, target_is_directory=True)
+            scan = subprocess.run(
+                ["find", "-L", target, "-type", "f"],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(scan.returncode, 0, scan.stderr)
+            self.assertNotIn("loop", scan.stderr.lower())
+
+            installed.unlink()
+            installed.symlink_to(target, target_is_directory=True)
             check = subprocess.run(
                 [ROOT / "scripts" / "check-symlinks", "--target", target],
                 text=True,

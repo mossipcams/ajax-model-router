@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-harness DELEGATE transaction: safety stages only."""
+"""Thin execute transaction: safety stages only."""
 
 import json
 import subprocess
@@ -46,36 +46,27 @@ class LifecycleTransactionTests(unittest.TestCase):
     def base_context(self, repo, snap, **overrides):
         data = {
             "task_id": "task-1",
-            "caller_harness": "cursor",
-            "target_transport": "pi",
-            "model": "opencode-go/minimax-m3",
+            "agent": "pi",
+            "model": "test-model",
+            "risk": "low",
             "tool": "pi",
             "allowed_files": ["src/example.py"],
             "acceptance": ["example.py exposes VALUE = 2"],
-            "verification": ["true"],
-            "stop_if": ["scope expansion required"],
             "working_directory": str(repo),
             "snapshot_directory": str(snap),
-            "task": "Change VALUE to 2 in src/example.py",
-            "requested_harness": "pi",
+            "user_request": "Change VALUE to 2 in src/example.py",
+            "verify": ["true"],
+            "requested_agent": "pi",
             "outcome_log": str(snap / "outcome.tsv"),
-            "_transport_which": lambda cmd: f"/fake/{cmd}",
         }
         data.update(overrides)
         return data
 
     def write_context(self, path, data):
-        # Drop non-JSON callables before write.
-        payload = {k: v for k, v in data.items() if not callable(v)}
-        path.write_text(json.dumps(payload, indent=2) + "\n")
+        path.write_text(json.dumps(data, indent=2) + "\n")
         return path
 
-    def validated(self, repo, snap, **overrides):
-        ctx = ctxlib.validate_context(self.base_context(repo, snap, **overrides))
-        ctx["_transport_which"] = lambda cmd: f"/fake/{cmd}"
-        return ctx
-
-    def test_stage_plan_is_delegate_lifecycle_only(self):
+    def test_stage_plan_is_route_execute_verify_only(self):
         plan = run_transaction.stage_slice("before_execute", "after_execute")
         self.assertEqual(
             plan,
@@ -89,82 +80,50 @@ class LifecycleTransactionTests(unittest.TestCase):
             ["log_outcome"],
         )
 
-    def test_context_rejects_bad_harness(self):
+    def test_context_rejects_bad_agent(self):
         with self.assertRaises(ctxlib.ContextError):
             ctxlib.validate_context(
                 {
                     "task_id": "t",
-                    "caller_harness": "cursor",
-                    "target_transport": "opencode",
+                    "agent": "opencode",
                     "model": "m",
-                    "task": "t",
+                    "risk": "low",
                     "allowed_files": ["a.py"],
                     "acceptance": ["ok"],
-                    "verification": [],
-                    "stop_if": [],
                     "working_directory": "/",
                     "snapshot_directory": "/tmp",
                 }
             )
 
-    def test_before_execute_rejects_same_harness_and_empty_scope(self):
+    def test_before_execute_rejects_parent_and_empty_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
             snap = Path(tmp) / "snap"
             snap.mkdir()
-            ctx = self.validated(
-                repo,
-                snap,
-                caller_harness="pi",
-                target_transport="pi",
-                model="opencode-go/minimax-m3",
-            )
-            with self.assertRaises(hooks.HookError) as raised:
+            ctx = ctxlib.validate_context(self.base_context(repo, snap, agent="parent"))
+            with self.assertRaises(hooks.HookError):
                 hooks.before_execute(ctx)
-            self.assertIn("USE_NATIVE", str(raised.exception))
 
-            ctx = self.validated(repo, snap)
+            ctx = ctxlib.validate_context(
+                self.base_context(repo, snap, allowed_files=["src/example.py"])
+            )
             ctx["allowed_files"] = []
             with self.assertRaises(hooks.HookError):
                 hooks.before_execute(ctx)
 
-    def test_claude_caller_can_delegate_to_cursor(self):
+    def test_before_execute_builds_outcome_prompt_not_packet(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
             snap = Path(tmp) / "snap"
             snap.mkdir()
-            ctx = self.validated(
-                repo,
-                snap,
-                caller_harness="claude",
-                target_transport="cursor",
-                model="composer-2.5",
-                tool="cursor",
-            )
-            ctx = hooks.before_execute(ctx)
-            self.assertEqual(ctx["artifacts"]["routing_decision"]["ACTION"], "DELEGATE")
-            self.assertEqual(
-                ctx["artifacts"]["routing_decision"]["CALLER_HARNESS"], "claude"
-            )
-
-    def test_before_execute_builds_delegate_prompt_not_packet(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = self.make_repo(tmp)
-            snap = Path(tmp) / "snap"
-            snap.mkdir()
-            ctx = self.validated(repo, snap)
+            ctx = ctxlib.validate_context(self.base_context(repo, snap))
             ctx = hooks.before_execute(ctx)
             prompt = Path(ctx["artifacts"]["prompt_path"]).read_text()
-            self.assertIn("Task:", prompt)
-            self.assertIn("Stop if:", prompt)
+            self.assertIn("Implement the requested outcome.", prompt)
             self.assertIn("Investigate the repository as needed.", prompt)
             self.assertIn("src/example.py", prompt)
-            self.assertIn("STEPS:", prompt)
             self.assertNotIn("Code anchors", prompt)
             self.assertNotIn("PACKET_STATUS", prompt)
-            self.assertEqual(
-                ctx["artifacts"]["routing_decision"]["ACTION"], "DELEGATE"
-            )
 
     def test_worktree_must_be_git_toplevel(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -172,7 +131,9 @@ class LifecycleTransactionTests(unittest.TestCase):
             nested = repo / "src"
             snap = Path(tmp) / "snap"
             snap.mkdir()
-            ctx = self.validated(repo, snap)
+            data = self.base_context(repo, snap, working_directory=str(nested))
+            # validate_context resolves paths; force nested by patching after.
+            ctx = ctxlib.validate_context(self.base_context(repo, snap))
             ctx["working_directory"] = str(nested)
             with self.assertRaises(hooks.HookError) as raised:
                 hooks.before_execute(ctx)
@@ -183,10 +144,11 @@ class LifecycleTransactionTests(unittest.TestCase):
             repo = self.make_repo(tmp)
             snap = Path(tmp) / "snap"
             snap.mkdir()
-            ctx = self.validated(repo, snap)
+            ctx = ctxlib.validate_context(self.base_context(repo, snap))
             ctx = hooks.before_execute(ctx)
             ctx = hooks.snapshot(ctx)
 
+            # Simulate delegate writing outside scope without invoking a model.
             (repo / "outside.py").write_text("oops\n")
             (repo / "src" / "example.py").write_text("VALUE = 2\n")
             run_dir = Path(ctx["snapshot_directory"]) / "run"
@@ -198,7 +160,6 @@ class LifecycleTransactionTests(unittest.TestCase):
                 "  VERIFICATION:\n"
                 "    - TYPE: other\n"
                 "      COMMAND: NONE\n"
-                "      STEPS: []\n"
                 "      RESULT: pass\n"
                 "      DETAILS: ok\n"
                 "  CONCERNS: []\n"
@@ -214,10 +175,11 @@ class LifecycleTransactionTests(unittest.TestCase):
             repo = self.make_repo(tmp)
             snap = Path(tmp) / "snap"
             snap.mkdir()
-            ctx = self.validated(
-                repo, snap, outcome_log="/no/such/dir/log.tsv"
+            ctx = ctxlib.validate_context(
+                self.base_context(repo, snap, outcome_log="/no/such/dir/log.tsv")
             )
             ctx["gate_result"] = "ACCEPT"
+            # Force logger path that cannot be created by mocking subprocess.
             with mock.patch("lifecycle_hooks.subprocess.run") as mocked:
                 mocked.return_value = subprocess.CompletedProcess(
                     args=[], returncode=1, stdout="", stderr="boom"
@@ -252,33 +214,6 @@ class LifecycleTransactionTests(unittest.TestCase):
                     "after_execute",
                 ],
             )
-
-    def test_same_harness_transaction_writes_decision_only(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = self.make_repo(tmp)
-            snap = Path(tmp) / "snap"
-            snap.mkdir()
-            ctx_path = self.write_context(
-                Path(tmp) / "context.json",
-                self.base_context(
-                    repo,
-                    snap,
-                    caller_harness="cursor",
-                    target_transport="cursor",
-                    model="composer-2.5",
-                    tool="cursor",
-                ),
-            )
-            result = run(TRANSACTION, "--context", ctx_path, check=False)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            payload = json.loads(result.stdout)
-            self.assertEqual(payload["status"], "USE_NATIVE")
-            self.assertEqual(payload["executed_stages"], [])
-            self.assertTrue((snap / "routing_decision.json").is_file())
-            self.assertFalse((snap / "pre.json").exists())
-            self.assertFalse((snap / "post.json").exists())
-            self.assertFalse((snap / "delta.json").exists())
-            self.assertFalse((snap / "context.json").exists())
 
 
 if __name__ == "__main__":

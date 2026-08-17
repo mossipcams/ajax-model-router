@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-harness DELEGATE hooks — safety + transport only, never LLM routing."""
+"""Thin router execute hooks — safety + transport only, never invoke an LLM for routing."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from io import StringIO
 from pathlib import Path
 
 import lifecycle_context as ctxlib
-import route as route_mod
 import router_state
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,26 +21,16 @@ Current directory is the task worktree.
 Never commit, push, merge, rebase, create branches, or change branches
 unless the user explicitly requested a commit.
 
-Task:
-{task}
-
-Allowed files:
+Implement the requested outcome.
+Allowed scope:
 {scope}
-
 Acceptance criteria:
 {acceptance}
-
-Verification requirements:
-{verification}
-
-Stop if:
-{stop_if}
-
 Investigate the repository as needed.
 Choose the implementation approach.
-Run the declared verification.
+Run appropriate verification.
 Return changed files, verification results, and remaining concerns.
-Stop if completing the task requires expanding beyond the allowed files.
+Stop if completing the task requires expanding beyond the allowed scope.
 
 Return exactly this report between marker lines:
 ROUTER_REPORT_BEGIN
@@ -49,11 +38,10 @@ DELEGATE_REPORT:
   STATUS: COMPLETE | BLOCKED | FAILED
   CHANGED_FILES: [<paths>]
   VERIFICATION:
-    - TYPE: test | build | typecheck | lint | static_analysis | integration | browser | manual | other
+    - TYPE: test | existing_test | build | typecheck | lint | static_analysis | integration | browser | manual | other
       COMMAND: <command or NONE>
-      STEPS: []
       RESULT: pass | fail | skipped | blocked
-      DETAILS: <short evidence>
+      DETAILS: <short result note>
   CONCERNS: []
 ROUTER_REPORT_END
 
@@ -100,38 +88,8 @@ def _bullet_lines(items):
     return "\n".join(f"- {item}" for item in items)
 
 
-def ensure_delegate_decision(ctx, *, which=None):
-    """Validate harness boundary; refuse USE_NATIVE/STOP before any snapshot."""
-    kwargs = {}
-    resolver = which if which is not None else ctx.get("_transport_which")
-    if resolver is not None:
-        kwargs["which"] = resolver
-    decision = route_mod.decide(
-        caller_harness=ctx.get("caller_harness") or ctx.get("current_harness"),
-        target_transport=ctx.get("target_transport") or ctx.get("target_harness"),
-        model=ctx["model"],
-        allowed_scope=ctx.get("allowed_files") or [],
-        **kwargs,
-    )
-    ctx.setdefault("artifacts", ctxlib.empty_artifacts())
-    ctx["artifacts"]["routing_decision"] = decision
-    action = decision["ACTION"]
-    if action == "USE_NATIVE":
-        raise HookError(
-            "USE_NATIVE: same harness; refuse snapshot/execute "
-            f"({decision['REASON']})"
-        )
-    if action == "STOP":
-        raise HookError(f"STOP: {decision['REASON']}")
-    if action != "DELEGATE":
-        raise HookError(f"unexpected routing action: {action}")
-    return decision
-
-
 def before_execute(ctx):
     """Normalize paths, prepare snapshot dir, reject unsafe context early."""
-    ensure_delegate_decision(ctx)
-
     working = Path(ctx["working_directory"])
     if not working.is_dir():
         raise HookError(f"working_directory does not exist: {working}")
@@ -142,12 +100,14 @@ def before_execute(ctx):
             f"working_directory must be the git toplevel ({root}), got {working.resolve()}"
         )
 
+    if ctx["agent"] == "parent":
+        raise HookError("parent agent does not use write execute hooks")
+
     if not ctx["allowed_files"]:
         raise HookError("allowed_files must be non-empty for write execute")
 
-    task = (ctx.get("task") or ctx.get("user_request") or "").strip()
-    if not task and not ctx["acceptance"]:
-        raise HookError("task or acceptance is required")
+    if not (ctx.get("user_request") or "").strip() and not ctx["acceptance"]:
+        raise HookError("user_request or acceptance is required")
 
     snapshot = Path(ctx["snapshot_directory"])
     snapshot.mkdir(parents=True, exist_ok=True)
@@ -158,22 +118,21 @@ def before_execute(ctx):
     evidence["root"] = str(working.resolve())
     ctxlib.save_evidence(ctx, evidence)
 
+    # Build outcome prompt once; delegate owns investigation/planning.
     run = _run_dir(ctx)
     prompt = DISPATCH_WRAPPER.format(
-        task=_bullet_lines([task] if task else []),
         scope=_bullet_lines(ctx["allowed_files"]),
         acceptance=_bullet_lines(ctx["acceptance"]),
-        verification=_bullet_lines(ctx.get("verification") or ctx.get("verify") or []),
-        stop_if=_bullet_lines(ctx.get("stop_if") or []),
     )
+    request = (ctx.get("user_request") or "").strip()
+    if request:
+        prompt += f"Requested outcome:\n{request}\n\n"
+    if ctx.get("verify"):
+        prompt += "Verification expectation:\n" + _bullet_lines(ctx["verify"]) + "\n"
 
     prompt_path = run / "prompt.txt"
     prompt_path.write_text(prompt)
     ctx["artifacts"]["prompt_path"] = str(prompt_path)
-    decision_path = run / "routing_decision.json"
-    decision_path.write_text(
-        json.dumps(ctx["artifacts"]["routing_decision"], indent=2, sort_keys=True) + "\n"
-    )
     ctx["status"] = "BEFORE_EXECUTE_OK"
     return ctx
 
@@ -209,19 +168,16 @@ def snapshot(ctx):
 
 
 def _tool_for(ctx):
-    tool = (
-        ctx.get("tool")
-        or ctx.get("target_transport")
-        or ctx.get("target_harness")
-        or ""
-    ).strip().lower()
+    tool = (ctx.get("tool") or ctx.get("agent") or "").strip().lower()
     mapping = {
         "cursor": "cursor",
         "pi": "pi",
         "codex": "codex",
+        "minimax": "pi",
+        "glm": "pi",
     }
     if tool not in mapping:
-        raise HookError(f"unsupported tool/target_transport for execute: {tool!r}")
+        raise HookError(f"unsupported tool/agent for execute: {tool!r}")
     return mapping[tool]
 
 
@@ -308,7 +264,7 @@ def _parse_report_compact(report_text):
     out["changed_files"] = list_field("CHANGED_FILES") or list_field("FILES_CHANGED")
     out["concerns"] = list_field("CONCERNS")
     types = re.findall(
-        r"^\s*- TYPE:\s*(test|build|typecheck|lint|static_analysis|integration|browser|manual|other|existing_test)\s*$",
+        r"^\s*- TYPE:\s*(test|existing_test|build|typecheck|lint|static_analysis|integration|browser|manual|other)\s*$",
         report_text,
         re.M,
     )
@@ -358,8 +314,9 @@ def after_execute(ctx):
     )
     ctx["artifacts"]["delegate_output"] = compact
 
+    # Parent-supplied VERIFY commands are expectations; run when present.
     results = []
-    for command in ctx.get("verification") or ctx.get("verify") or []:
+    for command in ctx.get("verify") or []:
         if command in ("(none)",):
             continue
         completed = subprocess.run(
@@ -403,24 +360,12 @@ def log_outcome(ctx):
     if (ctx.get("failure_classification") or "").upper() == "ESCAPED_DEFECT":
         escaped = "true"
 
-    requested = (
-        ctx.get("requested_harness")
-        or ctx.get("requested_agent")
-        or ctx.get("target_transport")
-        or ctx.get("target_harness")
-        or ctx.get("agent")
-    )
-    actual = (
-        ctx.get("target_transport")
-        or ctx.get("target_harness")
-        or ctx.get("agent")
-    )
     command = [
         str(ROOT / "scripts" / "router-log"),
         "--requested-agent",
-        requested,
+        ctx.get("requested_agent") or ctx["agent"],
         "--actual-agent",
-        actual,
+        ctx["agent"],
     ]
     if success:
         command.extend(["--success", success])
@@ -439,6 +384,7 @@ def log_outcome(ctx):
 
     result = subprocess.run(command, text=True, capture_output=True)
     if result.returncode != 0:
+        # Logging must not block execution.
         ctx["outcome_log_warning"] = (result.stderr or result.stdout or "router-log failed").strip()
     ctx["status"] = "COMPLETE" if gate == "ACCEPT" else ctx.get("status") or "LOGGED"
     return ctx

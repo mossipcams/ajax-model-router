@@ -1,4 +1,0 @@
-interface:
-  display_name: "Ajax Model Router"
-  short_description: "Cursor-bound harness router (CALLER_HARNESS=cursor)"
-  default_prompt: "Use $model-router with CALLER_HARNESS=cursor to emit one ROUTING_DECISION."

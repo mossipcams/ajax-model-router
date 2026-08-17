@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
-# Contract pins for harness-boundary Ajax Model Router.
+# Contract pins for the thin outcome-focused router control plane.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
-# Prefer Homebrew Python when /usr/bin/python3 is too old for the suite.
-if [[ -x /opt/homebrew/bin/python3 ]]; then
-  export PATH="/opt/homebrew/bin:$PATH"
-fi
-PYTHON="${PYTHON:-python3}"
 ROUTER="skills/model-router/SKILL.md"
-CURSOR_ADAPTER="skills/model-router-cursor/SKILL.md"
-CODEX_ADAPTER="skills/model-router-codex/SKILL.md"
 failures=0
 
 require_text() {
@@ -38,30 +31,15 @@ require_count() {
   fi
 }
 
-require_text "$ROUTER" "ROUTING_DECISION:" "routing decision contract"
-require_text "$ROUTER" "MODEL_ROUTING_REQUEST:" "routing request contract"
-require_text "$ROUTER" "ACTION: USE_NATIVE | DELEGATE | STOP" "harness-boundary actions"
-require_text "$ROUTER" "CALLER_HARNESS: cursor | codex | claude | pi | other" "caller harness field"
-require_text "$ROUTER" "TARGET_TRANSPORT: cursor | codex | pi" "target transport field"
-require_text "$ROUTER" "## Model Registry" "central model registry"
-require_text "$ROUTER" "| \`cursor\` | \`composer-2.5\` |" "cursor registry model"
-require_text "$ROUTER" "| \`codex\` | \`gpt-5.6-sol\` |" "codex registry model"
-require_text "$ROUTER" "| \`pi\` | \`opencode-go/minimax-m3\` |" "pi minimax registry model"
-require_text "$ROUTER" "| \`pi\` | \`opencode-go/glm-5.2\` |" "pi glm registry model"
-require_text "$ROUTER" "Never silently substitute another provider or model." "no substitution"
-require_text "$ROUTER" "Pstack is independent and Cursor-native." "pstack independence"
-require_text "$ROUTER" "without Ajax supporting it as a DELEGATE target" "caller vs transport split"
-require_text "$ROUTER" "DELEGATE_REPORT:" "structured delegate report"
-require_text "$ROUTER" "STEPS: []" "verification steps field"
-require_text "$ROUTER" "before_execute → snapshot → execute → after_execute → log_outcome" "delegate stages"
-require_text "$ROUTER" 'scripts/delegate-delta restore "$SNAP"' "delta restore command"
-require_text "$ROUTER" "DISCARD is a verdict, not permission to reset the worktree." "safe discard definition"
-require_text "$ROUTER" 'Never use `git reset`' "destructive restore guard"
-require_text "$ROUTER" "inspect the actual delta" "parent reviews delta"
+for field in AGENT MODEL RISK SCOPE VERIFY FALLBACK; do
+  require_text "$ROUTER" "$field:" "execution decision field $field"
+done
 
-forbid_text "$ROUTER" "EXECUTION:" "removed EXECUTION decision"
-forbid_text "$ROUTER" "CURRENT_HARNESS: cursor | codex | pi" "replaced CURRENT_HARNESS contract"
-forbid_text "$ROUTER" "TARGET_HARNESS: cursor | codex | pi" "replaced TARGET_HARNESS contract"
+require_text "$ROUTER" "## Model Registry" "central model registry"
+require_text "$ROUTER" "route → execute → verify" "thin pipeline"
+require_text "$ROUTER" "Implement the requested outcome." "outcome-based dispatch"
+require_text "$ROUTER" "Investigate the repository as needed." "delegate owns investigation"
+require_text "$ROUTER" "Choose the implementation approach." "delegate owns planning"
 forbid_text "$ROUTER" "GATHER_EVIDENCE" "removed evidence stage"
 forbid_text "$ROUTER" "BUILD_PACKET" "removed packet build stage"
 forbid_text "$ROUTER" "CRITIQUE_PACKET" "removed packet critique stage"
@@ -74,45 +52,34 @@ forbid_text "$ROUTER" "RED | GREEN" "removed RED/GREEN phases"
 forbid_text "$ROUTER" "dispatch_level" "removed progressive dispatch levels"
 forbid_text "$ROUTER" "estimated_lines" "removed line-count routing"
 forbid_text "$ROUTER" "R-SIZE-SPLIT" "removed size-split ceremony"
-forbid_text "$ROUTER" "R-CURSOR" "removed semantic R-CURSOR route"
-forbid_text "$ROUTER" "R-MINIMAX" "removed semantic R-MINIMAX route"
-forbid_text "$ROUTER" "R-GLM" "removed semantic R-GLM route"
-forbid_text "$ROUTER" "Default implementation agent is" "removed composer-default implementation lane"
-forbid_text "$ROUTER" "## Risk-based review" "removed risk-tier review ceremony"
 forbid_text "$ROUTER" "GROK" "no Grok registry or route"
 forbid_text "$ROUTER" "grok" "no Grok model id"
-forbid_text "$ROUTER" "Complete exactly one bounded task from the packet below." "removed packet-prescriptive prompt"
-forbid_text "$ROUTER" "CALIBRATION.md" "no calibration ledger"
-forbid_text "$ROUTER" "## Calibration" "no calibration section"
 
-require_text "$CURSOR_ADAPTER" "CALLER_HARNESS is always \`cursor\`" "cursor adapter bind"
-require_text "$CODEX_ADAPTER" "CALLER_HARNESS is always \`codex\`" "codex adapter bind"
-CLAUDE_ADAPTER="skills/model-router-claude/SKILL.md"
-require_text "$CLAUDE_ADAPTER" "CALLER_HARNESS is always \`claude\`" "claude adapter bind"
-require_text "$CLAUDE_ADAPTER" "never emits \`USE_NATIVE\`" "claude never USE_NATIVE"
-require_text "$CURSOR_ADAPTER" "name: model-router" "cursor adapter visible name"
-require_text "$CODEX_ADAPTER" "name: model-router" "codex adapter visible name"
-
-for model_id in composer-2.5 gpt-5.6-sol opencode-go/minimax-m3 opencode-go/glm-5.2; do
-  # Shared skill + two adapters pointing via shared-rules symlink resolve to one file;
-  # count unique occurrences under skills/*/SKILL.md bodies (adapters are thin).
-  :
-done
-
-# Exact IDs appear once in the shared registry table (adapters must not duplicate them).
-for model_id in "composer-2.5" "gpt-5.6-sol" "opencode-go/minimax-m3" "opencode-go/glm-5.2"; do
-  actual="$( (grep -RohF --include='SKILL.md' -- "$model_id" "$ROOT/skills/model-router" "$ROOT/skills/model-router-cursor" "$ROOT/skills/model-router-codex" || true) | wc -l | tr -d ' ')"
-  # shared SKILL once; adapters may mention composer/codex in examples — allow thin adapter mentions
-  if [[ "$actual" -lt 1 ]]; then
-    echo "missing: model id $model_id in shared/adapters" >&2
+for key in CODEX CURSOR MINIMAX GLM; do
+  model_id="$(awk -F'`' -v key="$key" '$2 == key {print $4; exit}' "$ROOT/$ROUTER")"
+  if [[ -z "$model_id" ]]; then
+    echo "missing: model registry key $key" >&2
     failures=$((failures + 1))
+  else
+    require_count "$model_id" 1 "$key model ID outside registry"
   fi
 done
 
+require_text "$ROUTER" "Default implementation agent is \`cursor\`" "composer-default implementation"
+require_text "$ROUTER" "Pure Q&A or architecture planning" "LOCAL/parent only for Q&A / architecture"
+forbid_text "$ROUTER" '`R-LOCAL-TINY`' "removed tiny-local write shortcut"
+
+uncertainty_line="$(grep -nF 'Recorded unresolved specification or architecture uncertainty' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
+cheap_line="$(grep -nF 'Routine docs, generated cleanup, exact replacements, or named boilerplate' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
+cursor_line="$(grep -nF 'No exception matched' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
+if [[ -z "$uncertainty_line" || -z "$cheap_line" || -z "$cursor_line" || "$uncertainty_line" -ge "$cheap_line" || "$cheap_line" -ge "$cursor_line" ]]; then
+  echo "wrong-order: GLM → MiniMax → CURSOR-default must hold" >&2
+  failures=$((failures + 1))
+fi
+
 for adapter in cursor-delegate pi-delegate codex-delegate; do
   file="skills/$adapter/SKILL.md"
-  require_text "$file" "ROUTING_DECISION" "$adapter requires routing decision binding"
-  require_text "$file" "ACTION: DELEGATE" "$adapter requires DELEGATE action"
+  require_text "$file" "EXECUTION" "$adapter requires execution binding"
   require_text "$file" 'return `STOP`' "$adapter unavailable-tool behavior"
 done
 
@@ -125,6 +92,7 @@ forbid_text "$ROUTER" "delegator" "second orchestrator route"
 forbid_text "$codex" "delegator" "Codex delegator mode"
 forbid_text "$codex" "packet-critique" "removed Codex packet critique"
 forbid_text "$codex" "PACKET_REVIEW" "removed packet review schema"
+require_text "$ROUTER" '| `CODEX` | `gpt-5.6-sol` |' "Codex model registry value"
 require_text "$codex" '--reasoning-effort xhigh' "Codex xhigh reasoning override"
 require_text "$codex" '--tool codex' "Codex routed through the shared app-server runner"
 
@@ -140,9 +108,21 @@ if [[ "$implicit_false_count" != "3" ]]; then
   failures=$((failures + 1))
 fi
 
-require_text "README.md" "harness-boundary" "readme harness-boundary framing"
+require_text "$ROUTER" "DELEGATE_REPORT:" "structured delegate report"
+require_text "$ROUTER" "## Risk-based review" "proportional review"
+require_text "$ROUTER" "Delegate verification is sufficient by default." "low-risk review"
+require_text "$ROUTER" "Parent reads all changed hunks." "medium-risk review"
+require_text "$ROUTER" "Parent independently reviews affected behavior." "high-risk review"
+require_text "$ROUTER" "## Outcome logging" "outcome logging"
+require_text "$ROUTER" "requested_agent:" "outcome log field"
+require_text "$ROUTER" "before_execute → snapshot → execute → after_execute → log_outcome" "thin execute stages"
+require_text "$ROUTER" 'scripts/delegate-delta restore "$SNAP"' "delta restore command"
+require_text "$ROUTER" "DISCARD is a verdict, not permission to reset the worktree." "safe discard definition"
+require_text "$ROUTER" 'Never use `git reset`' "destructive restore guard"
+require_text "$ROUTER" "Stop if completing the task requires expanding beyond the allowed scope." "scope expansion stop"
+forbid_text "$ROUTER" "Complete exactly one bounded task from the packet below." "removed packet-prescriptive prompt"
+require_text "README.md" "thin control plane" "readme control-plane framing"
 require_text "README.md" "scripts/check-contracts" "contract validator documentation"
-require_text "README.md" "USE_NATIVE" "readme USE_NATIVE"
 
 if [[ -e "$ROOT/skills/tdd-implementation-packet" ]]; then
   echo "forbidden: tdd-implementation-packet skill must be deleted" >&2
@@ -161,7 +141,7 @@ if ! bash -n "$ROOT"/scripts/*; then
   echo "failed: shell syntax" >&2
   failures=$((failures + 1))
 fi
-if ! "$PYTHON" -m unittest discover -s "$ROOT/tests" -p 'test_*.py'; then
+if ! python3 -m unittest discover -s "$ROOT/tests" -p 'test_*.py'; then
   echo "failed: behavioral contracts" >&2
   failures=$((failures + 1))
 fi

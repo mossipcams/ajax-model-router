@@ -30,7 +30,7 @@ DELEGATE_REPORT:
   CONCERNS:
     - TYPE: scope_expansion
       DETAIL: needs edits outside allowed scope
-      RECOMMENDED_ACTION: emit a new MODEL_ROUTING_REQUEST with expanded ALLOWED_FILES
+      RECOMMENDED_ACTION: emit a new EXECUTION with expanded SCOPE
 """
 
 FAILED_COMPLETE = """\
@@ -53,7 +53,7 @@ class VerificationTests(unittest.TestCase):
         self.assertNotIn("RED | GREEN", text)
         self.assertNotIn("tdd-implementation-packet", text)
         self.assertIn("Choose the implementation approach.", text)
-        self.assertIn("Run the declared verification.", text)
+        self.assertIn("Run appropriate verification.", text)
 
     def test_complete_report_requires_passing_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -112,7 +112,7 @@ class VerificationTests(unittest.TestCase):
             self.assertIn("unknown report schema", result.stderr)
 
     def test_review_report_schema_rejected(self):
-        """Fixed parent REVIEW_REPORT restate schema is gone; parent reviews the delta."""
+        """Fixed parent REVIEW_REPORT restate schema is gone; review is risk-proportional."""
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "review.yaml"
             path.write_text(

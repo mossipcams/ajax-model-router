@@ -1,137 +1,78 @@
 ---
 name: model-router
-description: Ajax Model Router — harness-boundary mediation for cross-harness model delegation.
+description: Thin control plane — pick executor, model, risk, scope, verification, and fallback for one bounded coding task.
 ---
 
-# Ajax Model Router
+# Model Router
 
-Cross-harness transport and safety control plane. Mediate delegation when the
-caller harness and target transport differ. When a caller that is itself a
-supported transport targets that same transport, return `USE_NATIVE` and let
-the parent use its own native subagent mechanism — Ajax Model Router is
-bypassed.
+Thin control plane for one bounded coding task. Decide who runs, which model,
+risk, scope, verification expectation, and fallback — then execute and verify.
+Do not prescribe the delegate’s implementation procedure.
 
-A harness can be a **caller** without Ajax supporting it as a DELEGATE target.
-For example, Claude can invoke Ajax Model Router to launch Cursor even though
-there is no `claude-delegate` transport.
-
-**Pstack is independent and Cursor-native.** Do not vendor, modify, duplicate,
-or integrate pstack here. Inside Cursor, pstack may select a playbook and
-delegate to Composer 2.5 through Cursor’s native subagent path without this
-router.
-
-This skill owns shared routing and transaction rules. Harness install adapters
-(`model-router-cursor`, `model-router-codex`, `model-router-claude`) bind
-`CALLER_HARNESS` immutably. Delegate skills (`cursor-delegate`, `pi-delegate`,
-`codex-delegate`) are thin **transport** adapters only. If a delegate skill
-conflicts with this file, this file wins.
-
-## Owns
-
-- Cross-harness transport
-- Exact provider model IDs
-- Request validation
-- Process timeouts and cancellation
-- Pre-dispatch snapshots
-- Post-dispatch deltas
-- Write-scope enforcement
-- Verification execution
-- Structured delegate reports
-- Parent review bundles
-- Safe restoration of rejected delegate changes
-
-## Does not own
-
-- Selecting engineering playbooks
-- Deciding investigation vs architecture vs implementation
-- Routing by frontend/backend/file type/risk class/reasoning depth
-- Defaulting all implementation to Composer
-- Forcing parents to delegate every implementation
-- Semantic implementation packets or packet critique loops
-- Model-selection tuning ledgers
-- Preventing parent-local implementation
+This skill owns shared routing and acceptance rules. Delegate skills
+(`cursor-delegate`, `pi-delegate`, `codex-delegate`) are thin tool adapters.
+If a delegate skill conflicts with this file, this file wins.
 
 ## Pipeline
 
 ```text
-route → (USE_NATIVE | STOP | DELEGATE → execute → verify → parent review)
+route → execute → verify
 ```
 
-1. **Route** — emit one `ROUTING_DECISION` from the install-bound caller harness
-   and the request.
-2. **USE_NATIVE** — stop here. No snapshot, no process, no transaction artifacts.
-3. **STOP** — refuse. Never substitute another provider or model.
-4. **DELEGATE** — run the deterministic lifecycle, then parent-review the delta.
+1. **Route** — emit one `EXECUTION` decision.
+2. **Execute** — run under that agent, model, and scope (or parent-local).
+3. **Verify** — accept, revise, discard, or escalate using risk-proportional review.
+
+Do not reroute between artificial lifecycle stages. Reroute only when:
+
+- the selected executor fails,
+- required scope materially changes,
+- new information changes the risk level, or
+- the task cannot be completed by the selected model.
+
+## Roles
+
+| Role | Owns |
+|---|---|
+| **Router** | Classification; executor and model; risk; scope; verification expectation; fallback |
+| **Delegate** | Investigation; planning; implementation; test selection; verification |
+| **Parent** | Acceptance; proportional review; retry, rejection, or escalation |
+
+The parent must not pre-investigate and reconstruct the implementation unless
+needed for risk-based review.
 
 ## Model Registry
 
-Only this table owns provider model IDs for **target transports**. Validate
-that each requested model belongs to its target transport. Do not use aliases
-in transport commands. Editing this registry is enough to add or remove models.
-Callers (`claude`, `other`, …) are not registry rows — they invoke Ajax; they
-are not DELEGATE targets until a transport exists.
+Only this table owns provider model IDs. Route rules refer to registry keys;
+the decision copies the corresponding exact ID into `MODEL`.
 
-| Transport | Model ID |
+| Key | Model ID |
 |---|---|
-| `cursor` | `composer-2.5` |
-| `codex` | `gpt-5.6-sol` |
-| `pi` | `opencode-go/minimax-m3` |
-| `pi` | `opencode-go/glm-5.2` |
+| `CODEX` | `gpt-5.6-sol` |
+| `CURSOR` | `composer-2.5` |
+| `MINIMAX` | `opencode-go/minimax-m3` |
+| `GLM` | `opencode-go/glm-5.2` |
 
-## Request contract
+## Execution Decision
 
-```yaml
-MODEL_ROUTING_REQUEST:
-  CALLER_HARNESS: cursor | codex | claude | pi | other
-  TARGET_TRANSPORT: cursor | codex | pi
-  MODEL: <exact target model ID>
-  TASK: <one bounded task>
-  ALLOWED_FILES:
-    - <path or bounded path pattern>
-  ACCEPTANCE:
-    - <observable outcome>
-  VERIFICATION:
-    - <command or explicit manual verification>
-  STOP_IF:
-    - <observable stop condition>
-```
-
-`CALLER_HARNESS` is filled by the harness install adapter, not invented from
-task text or free model self-declaration. `TARGET_TRANSPORT` is always one of
-the Ajax-supported transports above.
-
-## Routing decision
-
-Emit exactly one decision before any delegation:
+Emit exactly one decision per task before execution. Omit inapplicable optional
+fields rather than inventing placeholders.
 
 ```yaml
-ROUTING_DECISION:
-  ACTION: USE_NATIVE | DELEGATE | STOP
-  CALLER_HARNESS: cursor | codex | claude | pi | other
-  TARGET_TRANSPORT: cursor | codex | pi
-  MODEL: <validated provider model ID or NONE>
-  ALLOWED_SCOPE: []
+EXECUTION:
+  AGENT: parent | cursor | codex | pi
+  MODEL: <exact ID from Model Registry or NONE>
+  RISK: low | medium | high
+  SCOPE:
+    - <allowed paths or subsystem>
+  VERIFY:
+    - <commands or acceptance checks>
+  FALLBACK: <agent/model or STOP>
   REASON: <one sentence>
 ```
 
-Rules:
-
-1. If `CALLER_HARNESS` equals `TARGET_TRANSPORT` and that value is a supported
-   transport, return `USE_NATIVE`. Do not create a snapshot, launch a process,
-   or perform a delegation. Callers that are not transports (`claude`,
-   `other`) never receive `USE_NATIVE`.
-2. If the caller and transport differ and the target transport and model are
-   valid, return `DELEGATE`.
-3. If the target transport is unavailable, the model does not belong to that
-   transport, or the request is incomplete, return `STOP`.
-4. Never silently substitute another provider or model.
-
-Machine helper (optional):
-
-```bash
-scripts/route --caller-harness claude \
-  --target-transport cursor --model composer-2.5 --allowed src/foo.py
-```
+`AGENT: parent` is for pure Q&A, architecture planning, and parent-owned
+acceptance — not for writing the change when a delegate can do it.
 
 ## Invariants
 
@@ -139,12 +80,52 @@ scripts/route --caller-harness claude \
 - Never create worktrees, branches, commits, pushes, merges, rebases, or
   branch switches. No delegate may either.
 - No commits unless the user explicitly requested them.
-- Edit only paths inside `ALLOWED_FILES` / `ALLOWED_SCOPE`. Expanding scope
-  requires a new request and decision.
+- Edit only paths inside `SCOPE`. Expanding scope requires a new `EXECUTION`.
 - Empty diff plus a success claim is failure.
-- Same-transport work for a matching caller stays on the parent’s native path.
+- Stop after two failed execute rounds (bounded retry).
+- Escalate destructive, security-sensitive, authentication, session, PTY,
+  supervisor, and data-loss risks rather than forcing a low-risk path.
 
-## Dispatch (DELEGATE only)
+## Route
+
+Follow the first matching rule. Copy a selected registry value into `MODEL`.
+
+| Rule | Condition | `AGENT` | Model key | Notes |
+|---|---|---|---|---|
+| `R-PARENT` | Pure Q&A or architecture planning (no implementation write) | `parent` | none | Local only |
+| `R-CODEX` | User explicitly asked Codex to implement | `codex` | `CODEX` | |
+| `R-GLM` | Recorded unresolved specification or architecture uncertainty | `pi` | `GLM` | |
+| `R-MINIMAX` | Routine docs, generated cleanup, exact replacements, or named boilerplate; at most 2 files and roughly 60 changed lines; no auth/security/data-loss concerns | `pi` | `MINIMAX` | |
+| `R-CURSOR` | No exception matched | `cursor` | `CURSOR` | Default implementation |
+| `R-STOP` | Selected tool unavailable and every fallback exhausted; or task exceeds one bounded behavior | — | — | `FALLBACK: STOP` |
+
+Default implementation agent is `cursor` / `CURSOR`. Divert only when an
+exception row matches. Do not divert to MiniMax or GLM just because the change
+is backend, PTY, frontend, multi-file, or under `ajax-web`.
+
+If the selected tool is unavailable, reroute once via `FALLBACK` to the next
+matching agent; never retry the same unavailable tool. `STOP` only when no
+agent remains.
+
+### Risk
+
+Assign `RISK` from observable task facts — not from ceremony:
+
+| `RISK` | Typical signals |
+|---|---|
+| `low` | Localized, well-specified, reversible; docs/boilerplate/exact edits |
+| `medium` | Multi-file behavior change inside one subsystem; unclear but bounded |
+| `high` | Auth, security, session, PTY, supervisor, destructive ops, data-loss, or architecture-wide impact |
+
+Escalate to `high` (and prefer `FALLBACK` / parent review) for destructive,
+security-sensitive, authentication, session, PTY, supervisor, and data-loss
+work. Do not apply high-risk ceremony to routine changes.
+
+## Dispatch
+
+Replace detailed implementation packets with this outcome-based prompt. The
+delegate owns investigation, planning, edit selection, test selection, and
+verification.
 
 ```text
 You are a bounded implementation worker for a parent agent.
@@ -152,26 +133,16 @@ Current directory is the task worktree.
 Never commit, push, merge, rebase, create branches, or change branches
 unless the user explicitly requested a commit.
 
-Task:
-- <TASK>
-
-Allowed files:
-- <ALLOWED_FILES>
-
+Implement the requested outcome.
+Allowed scope:
+- <paths or subsystem>
 Acceptance criteria:
-- <ACCEPTANCE>
-
-Verification requirements:
-- <VERIFICATION>
-
-Stop if:
-- <STOP_IF>
-
+- <required behavior>
 Investigate the repository as needed.
 Choose the implementation approach.
-Run the declared verification.
+Run appropriate verification.
 Return changed files, verification results, and remaining concerns.
-Stop if completing the task requires expanding beyond the allowed files.
+Stop if completing the task requires expanding beyond the allowed scope.
 
 Return exactly this report between marker lines:
 ROUTER_REPORT_BEGIN
@@ -179,47 +150,51 @@ DELEGATE_REPORT:
   STATUS: COMPLETE | BLOCKED | FAILED
   CHANGED_FILES: [<paths>]
   VERIFICATION:
-    - TYPE: test | build | typecheck | lint | static_analysis | integration | browser | manual | other
+    - TYPE: test | existing_test | build | typecheck | lint | static_analysis | integration | browser | manual | other
       COMMAND: <command or NONE>
-      STEPS: []
       RESULT: pass | fail | skipped | blocked
-      DETAILS: <short evidence>
+      DETAILS: <short result note>
   CONCERNS: []
 ROUTER_REPORT_END
+
+<outcome / acceptance / scope from EXECUTION>
 ```
 
 A success claim without verification entries is failure. Failed verification
-items make `COMPLETE` invalid. Relevant successful verification is required
-for `COMPLETE`.
+items make `COMPLETE` invalid.
 
-## Execute controls (DELEGATE only)
+## Execute controls
 
-Write-mode cross-harness work uses `scripts/run-transaction`:
+Write-mode work uses `scripts/run-transaction` for deterministic safety only:
 
 ```text
 before_execute → snapshot → execute → after_execute → log_outcome
 ```
 
+Kept because removing them causes concrete failures:
+
 | Control | Failure prevented |
 |---|---|
 | Worktree / branch safety | Accidental commits, branch switches, new worktrees |
-| Bounded write scope | Edits outside allowed files |
+| Bounded write scope | Edits outside `SCOPE` |
 | Pre/post snapshot + delta | Invisible or unreviewable changes |
 | Restore on reject | Leaving rejected edits in the tree |
-| Transport timeout / cancel | Hung external workers |
+| Bounded retries | Infinite revise loops |
+| Risk escalation | Low-ceremony path for destructive/security work |
 
 ```bash
 SNAP="$(mktemp -d)"
-# context.json: task_id, caller_harness, target_transport, model, task,
-# allowed_files, acceptance, verification, stop_if, working_directory,
-# snapshot_directory
+# context.json: task_id, agent, model, risk, allowed_files, acceptance,
+# verify, fallback, working_directory, snapshot_directory, user_request
 scripts/run-transaction --context context.json --until-stage after_execute
-# parent review over delta.json / delta.patch (inspect the actual delta)
+# parent review (risk-proportional) over delta.json / delta.patch
 # on DISCARD:
 scripts/delegate-delta restore "$SNAP"
+# optional resume for outcome log:
+scripts/run-transaction --context context.json \
+  --from-stage log_outcome --until-stage log_outcome \
+  --gate-result ACCEPT
 ```
-
-`USE_NATIVE` and `STOP` create no snapshot or transaction artifacts.
 
 Manual snapshot equivalents remain valid for recovery:
 
@@ -234,16 +209,34 @@ scripts/delegate-delta inspect "$SNAP" --allowed <path> [--allowed <path>...]
 violations. Keep `$SNAP` until acceptance finishes. Snapshot failure → `STOP`
 before execute.
 
-## Parent review
+## Risk-based review
 
-Parent-local. No delegate review lane. A `COMPLETE` report is evidence, not
-acceptance — inspect the actual delta rather than trusting the report.
+Parent-local. No delegate review lane.
 
-- Confirm scope held and acceptance is demonstrated.
-- Confirm verification is meaningful and relevant.
-- Use `REVISE` once for incomplete work still inside scope.
-- Use `DISCARD` for a rejected delta, then restore safely.
-- After two failed rounds, `STOP`.
+**Low risk**
+
+- Delegate verification is sufficient by default.
+- Parent reviews the summary, diff statistics, and failures.
+- Inspect changed hunks only when something looks wrong.
+
+**Medium risk**
+
+- Parent reads all changed hunks.
+- Parent checks acceptance criteria against the implementation.
+- Rerun important verification when useful.
+
+**High risk**
+
+- Parent independently reviews affected behavior.
+- Rerun critical verification.
+- Reject unresolved ambiguity or unsafe behavior.
+
+Accept when scope held, acceptance is demonstrated, and verification is
+meaningful. Use `REVISE` once for incomplete work inside scope. A failed
+`MINIMAX` round revises on `GLM` with findings; never pay for a second
+`MINIMAX` attempt. Same-tool resume (when supported) sends findings and
+constraints only. Use `DISCARD` for a rejected delta. After two failed
+rounds, `STOP`.
 
 DISCARD is a verdict, not permission to reset the worktree. Run
 `scripts/delegate-delta restore "$SNAP"`; it verifies current non-ignored
@@ -257,8 +250,8 @@ Lightweight and non-blocking. Prefer omitting unknown fields over inventing
 precision.
 
 ```text
-requested_harness:
-actual_harness:
+requested_agent:
+actual_agent:
 success:
 revision_needed:
 escaped_defect:

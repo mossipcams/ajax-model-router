@@ -1,23 +1,22 @@
 ---
 name: codex-delegate
-description: Run Codex only from a model-router ROUTING_DECISION with ACTION DELEGATE.
+description: Run Codex only from a model-router EXECUTION decision.
 ---
 
 # Codex Delegate
 
-Thin transport adapter for cross-harness Codex work. Do not reconstruct
-routing from the user request. If no `ROUTING_DECISION` with
-`ACTION: DELEGATE` and `TARGET_TRANSPORT: codex` is supplied, return `STOP`
-and ask the parent to run `model-router`.
+Thin adapter for router-selected Codex work. Do not reconstruct routing from
+the user request. If no `EXECUTION` is supplied, return `STOP` and ask the
+parent to run `model-router`.
 
 Required inputs:
 
-- model: the exact `MODEL` from the routing decision
-- allowed scope: the decision's `ALLOWED_SCOPE` / request `ALLOWED_FILES`
+- model: the exact `MODEL` from the execution decision
+- allowed scope: the decision's `SCOPE`
 - the router Dispatch prompt
 
-Standalone reviews are not a Codex lane; the parent reviews the actual delta
-locally.
+Standalone reviews are not a Codex lane; the parent reviews locally with
+risk-proportional depth.
 
 Never use `--yolo` or `danger-full-access`.
 
@@ -35,7 +34,7 @@ tool inside this adapter.
 
 Codex runs through `codex app-server` (native line-delimited JSON-RPC), driven
 by the shared runner. One app-server process per delegation. Implementation
-uses `workspace-write` sandbox. Pass the exact registry model ID — no aliases.
+uses `workspace-write` sandbox.
 
 ```bash
 scripts/run-delegate --tool codex --model "$MODEL" \

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Ajax Model Router"
-  short_description: "Codex-bound harness router (CALLER_HARNESS=codex)"
-  default_prompt: "Use $model-router with CALLER_HARNESS=codex to emit one ROUTING_DECISION."

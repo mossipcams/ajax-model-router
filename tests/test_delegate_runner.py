@@ -515,13 +515,13 @@ else:
         router = (ROOT / "skills" / "model-router" / "SKILL.md").read_text()
         for phrase in (
             "Initial dispatch",
-            "DELEGATE Dispatch prompt",
+            "outcome-based Dispatch prompt",
             "Same-session Cursor resume",
             "immutable constraints",
             "Cross-tool revision",
         ):
             self.assertIn(phrase, cursor + router)
-        self.assertIn("Do not resend the full prompt", cursor)
+        self.assertIn("Do not resend the\n  full prompt", cursor)
 
 
 if __name__ == "__main__":

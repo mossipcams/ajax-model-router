@@ -1,4 +1,4 @@
 interface:
-  display_name: "Ajax Model Router"
-  short_description: "Harness-boundary mediation: USE_NATIVE, DELEGATE, or STOP"
-  default_prompt: "Use $model-router to emit one ROUTING_DECISION, then USE_NATIVE, DELEGATE, or STOP."
+  display_name: "Model Router"
+  short_description: "Thin control plane: agent, model, risk, scope, verify, fallback"
+  default_prompt: "Use $model-router to emit one EXECUTION decision, then execute and verify."
