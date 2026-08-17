@@ -4,9 +4,9 @@ Canonical shared router skill bundle — a thin control plane, not a workflow
 engine.
 
 The router decides who executes, which model, risk, scope, verification
-expectation, and fallback. The delegate owns investigation, planning,
-implementation, test selection, and verification. The parent owns acceptance
-with risk-proportional review.
+expectation, and fallback. The parent owns planning, routing, and acceptance.
+The delegate owns implementation, verification, and user-requested commits and
+pull requests.
 
 Pipeline: **route → execute → verify**.
 

@@ -20,7 +20,8 @@ route → execute → verify
 ```
 
 1. **Route** — emit one `EXECUTION` decision.
-2. **Execute** — run under that agent, model, and scope (or parent-local).
+2. **Execute** — run under the selected delegate, model, and scope. `R-PARENT` is
+   Q&A and planning only — never parent-local implementation writes.
 3. **Verify** — accept, revise, discard, or escalate using risk-proportional review.
 
 Do not reroute between artificial lifecycle stages. Reroute only when:
@@ -35,8 +36,13 @@ Do not reroute between artificial lifecycle stages. Reroute only when:
 | Role | Owns |
 |---|---|
 | **Router** | Classification; executor and model; risk; scope; verification expectation; fallback |
-| **Delegate** | Investigation; planning; implementation; test selection; verification |
-| **Parent** | Acceptance; proportional review; retry, rejection, or escalation |
+| **Delegate** | Investigation inside scope; implementation; test selection; verification; user-requested commits, pushes, and `gh pr create` |
+| **Parent** | Planning; routing; acceptance; proportional review; retry, rejection, or escalation |
+
+The parent writes the plan when required. The parent (orchestrator) never
+performs implementation: no product or docs writes, no commits, pushes, merges,
+rebases, branch creation, branch switches, or `gh pr create`. Route
+(`EXECUTION`), review the delta, and accept.
 
 The parent must not pre-investigate and reconstruct the implementation unless
 needed for risk-based review.
@@ -77,9 +83,16 @@ acceptance — not for writing the change when a delegate can do it.
 ## Invariants
 
 - Current directory is already the task worktree.
-- Never create worktrees, branches, commits, pushes, merges, rebases, or
-  branch switches. No delegate may either.
-- No commits unless the user explicitly requested them.
+- All implementation — including user-requested commits and pull requests —
+  runs through the selected delegate.
+- When the user asks to create a PR, the delegate runs the repository's local
+  verification gate, commits if needed, pushes, and runs `gh pr create`. The
+  parent reports the PR URL after reviewing the delta. Still no merge, rebase,
+  force-push, or branch switch unless the user explicitly asked.
+- Never create worktrees or new branches without explicit user authority.
+- Delegates must not commit, push, merge, rebase, create branches, or switch
+  branches unless the user explicitly requested that behavior (a PR request
+  implies commit, push, and `gh pr create`).
 - Edit only paths inside `SCOPE`. Expanding scope requires a new `EXECUTION`.
 - Empty diff plus a success claim is failure.
 - Stop after two failed execute rounds (bounded retry).
@@ -124,14 +137,16 @@ work. Do not apply high-risk ceremony to routine changes.
 ## Dispatch
 
 Replace detailed implementation packets with this outcome-based prompt. The
-delegate owns investigation, planning, edit selection, test selection, and
+parent owns planning. The delegate owns investigation, edit selection, test selection, and
 verification.
 
 ```text
 You are a bounded implementation worker for a parent agent.
 Current directory is the task worktree.
-Never commit, push, merge, rebase, create branches, or change branches
-unless the user explicitly requested a commit.
+Never merge, rebase, force-push, or switch branches.
+If the user explicitly requested a commit or pull request, you may create a
+branch when needed, commit, push, and run `gh pr create` after the repository's
+local verification gate. Otherwise never commit, push, or create branches.
 
 Implement the requested outcome.
 Allowed scope:

@@ -42,7 +42,7 @@ class ContractTests(unittest.TestCase):
             "Investigate the repository as needed.",
             "Choose the implementation approach.",
             "Run appropriate verification.",
-            "delegate owns investigation, planning, edit selection, test selection, and",
+            "delegate owns investigation, edit selection, test selection, and",
         ):
             self.assertIn(phrase, text)
         self.assertNotIn("Follow Code anchors when provided.", text)

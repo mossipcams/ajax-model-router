@@ -18,8 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 DISPATCH_WRAPPER = """You are a bounded implementation worker for a parent agent.
 Current directory is the task worktree.
-Never commit, push, merge, rebase, create branches, or change branches
-unless the user explicitly requested a commit.
+Never merge, rebase, force-push, or switch branches.
+If the user explicitly requested a commit or pull request, you may create a branch when needed, commit, push, and run `gh pr create` after the repository's local verification gate. Otherwise never commit, push, or create branches.
 
 Implement the requested outcome.
 Allowed scope:
@@ -118,7 +118,7 @@ def before_execute(ctx):
     evidence["root"] = str(working.resolve())
     ctxlib.save_evidence(ctx, evidence)
 
-    # Build outcome prompt once; delegate owns investigation/planning.
+    # Build outcome prompt once; parent owns planning, delegate owns investigation.
     run = _run_dir(ctx)
     prompt = DISPATCH_WRAPPER.format(
         scope=_bullet_lines(ctx["allowed_files"]),
