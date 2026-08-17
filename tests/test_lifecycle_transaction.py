@@ -121,6 +121,8 @@ class LifecycleTransactionTests(unittest.TestCase):
             prompt = Path(ctx["artifacts"]["prompt_path"]).read_text()
             self.assertIn("Implement the requested outcome.", prompt)
             self.assertIn("Investigate the repository as needed.", prompt)
+            self.assertIn("You are already the selected implementation worker. Implement in-process.", prompt)
+            self.assertIn("Never spawn native Cursor Task, best-of-n, or any other subagent.", prompt)
             self.assertIn("src/example.py", prompt)
             self.assertNotIn("Code anchors", prompt)
             self.assertNotIn("PACKET_STATUS", prompt)

@@ -669,6 +669,8 @@ while True:
         ):
             self.assertIn(phrase, cursor + router)
         self.assertIn("Do not resend the\n  full prompt", cursor)
+        self.assertIn("Do not spawn native Task, best-of-n, or other Cursor subagents.", cursor)
+        self.assertIn("Never spawn native Cursor Task, best-of-n, or any other subagent.", router)
 
 
 if __name__ == "__main__":

@@ -23,8 +23,11 @@ command -v acpx
 git status --short
 ```
 
-Missing `acpx` means return `STOP`; never substitute local work or
-another tool inside this adapter.
+Missing `acpx` means return `STOP`; never substitute local work,
+native Cursor Task, best-of-n, or another tool inside this adapter.
+
+Do not spawn native Task, best-of-n, or other Cursor subagents.
+Implement in-process. Missing `acpx` is `STOP`, not a license to Task.
 
 ## Payloads
 
