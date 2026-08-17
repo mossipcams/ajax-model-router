@@ -10,7 +10,7 @@ CALLERS = ("cursor", "codex", "claude", "pi", "other")
 TRANSPORTS = ("cursor", "codex", "pi")
 
 TRANSPORT_MODELS = {
-    "cursor": frozenset({"composer-2.5", "cursor-grok-4.6-high"}),
+    "cursor": frozenset({"composer-2.5"}),
     "codex": frozenset({"gpt-5.6-sol"}),
     "pi": frozenset({"opencode-go/minimax-m3", "opencode-go/glm-5.2"}),
 }

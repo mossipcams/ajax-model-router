@@ -74,7 +74,6 @@ are not DELEGATE targets until a transport exists.
 | Transport | Model ID |
 |---|---|
 | `cursor` | `composer-2.5` |
-| `cursor` | `cursor-grok-4.6-high` |
 | `codex` | `gpt-5.6-sol` |
 | `pi` | `opencode-go/minimax-m3` |
 | `pi` | `opencode-go/glm-5.2` |
@@ -131,7 +130,7 @@ Machine helper (optional):
 
 ```bash
 scripts/route --caller-harness claude \
-  --target-transport cursor --model cursor-grok-4.6-high --allowed src/foo.py
+  --target-transport cursor --model composer-2.5 --allowed src/foo.py
 ```
 
 ## Invariants
