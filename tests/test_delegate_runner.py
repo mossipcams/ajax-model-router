@@ -105,6 +105,51 @@ class DelegateRunnerTests(unittest.TestCase):
         event = normalize_record(parse_jsonl_line(err))
         self.assertEqual(event.kind, "failed")
 
+    def test_nested_acp_chunks_have_no_report_until_joined(self):
+        report = REPORT_COMPLETE.format(detail="nested fragments")
+        mid = report.index("DELEGATE_REPORT") + len("DELEGATE")
+        first, second = report[:mid], report[mid:]
+        self.assertNotIn("ROUTER_REPORT_END", first)
+        self.assertNotIn("ROUTER_REPORT_BEGIN", second)
+        events = []
+        for chunk in (first, second):
+            line = json.dumps({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "s1",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": chunk},
+                    },
+                },
+            })
+            event = normalize_record(parse_jsonl_line(line))
+            self.assertIsNotNone(event)
+            self.assertEqual(event.kind, "message/progress")
+            self.assertEqual(event.report_text, "")
+            events.append(event)
+        combined = "".join(event.text for event in events)
+        self.assertIn("ROUTER_REPORT_BEGIN", combined)
+        self.assertIn("ROUTER_REPORT_END", combined)
+        self.assertIn("DELEGATE_REPORT", combined)
+
+    def test_thought_chunks_are_not_joined_into_report_text(self):
+        thought = json.dumps({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "agent_thought_chunk",
+                    "content": {"type": "text", "text": "I will output the exact text."},
+                },
+            },
+        })
+        event = normalize_record(parse_jsonl_line(thought))
+        self.assertIsNotNone(event)
+        self.assertEqual(event.text, "")
+        self.assertEqual(event.report_text, "")
+
     def test_legacy_native_event_parser_still_available(self):
         line = json.dumps({
             "type": "message_end",
@@ -138,6 +183,60 @@ class DelegateRunnerTests(unittest.TestCase):
                 self.assertIn("exec", args)
                 self.assertIn("--file", args)
                 self.assertEqual(args[args.index("--file") + 1], str(prompt))
+
+    def test_acpx_extracts_report_from_nested_fragmented_chunks(self):
+        report = REPORT_COMPLETE.format(detail="fragmented")
+        mid = report.index("DELEGATE_REPORT") + len("DELEGATE")
+        first, second = report[:mid], report[mid:]
+        self.assertNotIn("ROUTER_REPORT_END", first)
+        self.assertNotIn("ROUTER_REPORT_BEGIN", second)
+        records = [
+            {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "s1",
+                    "update": {
+                        "sessionUpdate": "agent_thought_chunk",
+                        "content": {"type": "text", "text": "I will output the exact text."},
+                    },
+                },
+            },
+        ]
+        for chunk in (first, second):
+            records.append({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "s1",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": chunk},
+                    },
+                },
+            })
+        body = "".join(
+            f"print({json.dumps(json.dumps(record))}, flush=True)\n" for record in records
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(tmp, fake_acpx_script(body=body, emit_report=False))
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("bounded task")
+            raw = tmp / "raw.log"
+            output = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", output,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("STATUS: COMPLETE", output.read_text())
+            self.assertIn("DETAILS: fragmented", output.read_text())
 
     def test_pi_follow_up_uses_prompt_chain_and_extracts_report(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -238,6 +337,45 @@ class DelegateRunnerTests(unittest.TestCase):
                 contents = report.read_text()
                 self.assertIn("STATUS: FAILED", contents)
                 self.assertIn(expected_reason, contents)
+
+    def test_cursor_retriable_error_text_is_acp_failure_not_missing_report(self):
+        crash = "\n\nError: RetriableError: [internal] Failed to run step, exceeded max retries"
+        body = (
+            "print("
+            + json.dumps(json.dumps({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "s1",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": crash},
+                    },
+                },
+            }))
+            + ", flush=True)\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(tmp, fake_acpx_script(body=body, emit_report=False))
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("packet")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            contents = report.read_text()
+            self.assertIn("STATUS: FAILED", contents)
+            self.assertIn("ACP_EVENT_FAILED", contents)
+            self.assertNotIn("MISSING_STRUCTURED_REPORT", contents)
 
     def test_cancellation_terminates_acpx_process_group(self):
         fake = """#!/usr/bin/env python3

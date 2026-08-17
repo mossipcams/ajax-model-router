@@ -79,4 +79,9 @@ All three delegates (`cursor`, `codex`, `pi`) dispatch through
 invokes `acpx <profile> exec|prompt --cwd <worktree> --format json --model
 <registry-id>` and extracts `DELEGATE_REPORT` markers from agent output.
 Unknown or malformed ACP lines are retained in the raw log; terminal ACP
-events and acpx exit codes are authoritative.
+events and acpx exit codes are authoritative. Cursor may still `end_turn`
+after printing `RetriableError: Failed to run step, exceeded max retries`;
+the runner treats that as `ACP_EVENT_FAILED`. If that repeats for one
+`--cwd`, the per-path Cursor worker under `~/.cursor/projects/` is usually
+stuck — remove that project dir and retry. Do not fall back to a native
+harness CLI.

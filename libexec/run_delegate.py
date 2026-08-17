@@ -75,6 +75,13 @@ def extract_report(raw_or_message, report):
 
 
 def extract_report_text(text, raw_log, report):
+    begin = "ROUTER_REPORT_BEGIN"
+    end = "ROUTER_REPORT_END"
+    start = text.find(begin)
+    stop = text.find(end)
+    if start >= 0 and stop > start:
+        inner = text[start + len(begin) : stop].strip("\n")
+        text = f"{begin}\n{inner}\n{end}\n"
     message = raw_log.with_suffix(raw_log.suffix + ".message")
     message.write_text(text)
     return extract_report(message, report)
@@ -268,8 +275,15 @@ def run_acpx_process(command, args, raw, deadline):
             "failure_reason": "MISSING_TERMINAL_EVENT",
             "failure": "delegate produced no terminal ACP event",
         }
+    combined = "".join(assistant_text)
+    crash = _cursor_step_crash(combined)
+    if crash:
+        return {
+            "exit_code": 1,
+            "failure_reason": "ACP_EVENT_FAILED",
+            "failure": crash,
+        }
     if not report_text:
-        combined = "".join(assistant_text)
         report_text = combined if _report_text(combined) else ""
     if not report_text:
         return {
@@ -278,6 +292,12 @@ def run_acpx_process(command, args, raw, deadline):
             "failure": "delegate produced no structured report text",
         }
     return {"exit_code": exit_code, "report_text": report_text}
+
+
+def _cursor_step_crash(text):
+    if "RetriableError" in text or "Failed to run step, exceeded max retries" in text:
+        return text.strip() or "Cursor ACP failed to run step"
+    return ""
 
 
 def _report_text(text):

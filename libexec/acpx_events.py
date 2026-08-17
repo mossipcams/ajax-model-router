@@ -42,15 +42,25 @@ def _report_text(text):
     return ""
 
 
+def _update_body(params):
+    if not isinstance(params, dict):
+        return {}
+    nested = params.get("update")
+    # Live acpx ACP nests sessionUpdate under params.update; stubs may be flat.
+    if isinstance(nested, dict) and nested.get("sessionUpdate"):
+        return nested
+    return params
+
+
 def normalize_record(record):
     if not isinstance(record, dict):
         return None
 
     if record.get("method") == "session/update":
-        params = record.get("params") or {}
-        update = str(params.get("sessionUpdate", ""))
+        body = _update_body(record.get("params") or {})
+        update = str(body.get("sessionUpdate", ""))
         if update == "agent_message_chunk":
-            text = _text(params.get("content"))
+            text = _text(body.get("content"))
             return NormalizedEvent(
                 "message/progress",
                 "acpx",
@@ -59,13 +69,14 @@ def normalize_record(record):
                 _report_text(text),
             )
         if update in {"tool_call", "tool_call_update"}:
-            status = str((params.get("status") or params.get("toolCall") or {}).get("status", "")).lower()
+            status = str((body.get("status") or body.get("toolCall") or {}).get("status", "")).lower()
             if status in {"pending", "in_progress", "running", "started"}:
                 return NormalizedEvent("activity/tool started", "acpx", record)
             if status in {"completed", "finished", "success"}:
                 return NormalizedEvent("activity/tool finished", "acpx", record)
         if update in {"agent_thought_chunk", "plan_update"}:
-            return NormalizedEvent("message/progress", "acpx", record, _text(params))
+            # Thoughts stay in the raw log; do not glue them onto report text.
+            return NormalizedEvent("message/progress", "acpx", record)
         return None
 
     if "error" in record:
