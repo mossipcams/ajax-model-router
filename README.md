@@ -79,7 +79,9 @@ All three delegates (`cursor`, `codex`, `pi`) dispatch through
 invokes `acpx <profile> exec|prompt --cwd <worktree> --format json --model
 <registry-id>` and extracts `DELEGATE_REPORT` markers from agent output.
 Unknown or malformed ACP lines are retained in the raw log; terminal ACP
-events and acpx exit codes are authoritative. Cursor may still `end_turn`
+events and acpx exit codes are authoritative. Operator-facing dispatch
+diagnostics also land in `run/debug.log` beside `run/raw.log` (timestamped
+`[ajax-router]` lines on stderr during execute). Cursor may still `end_turn`
 after printing `RetriableError: Failed to run step, exceeded max retries`;
 the runner treats that as `ACP_EVENT_FAILED`. If that repeats for one
 `--cwd`, the per-path Cursor worker under `~/.cursor/projects/` is usually

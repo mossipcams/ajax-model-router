@@ -135,9 +135,20 @@ def main(argv=None):
             ctxlib.save_context(ctx)
         except Exception:
             pass
-        print(f"transaction failed: {error}", file=sys.stderr)
+        artifacts = ctx.get("artifacts") or {}
+        paths = []
+        for key in ("debug_log", "raw_log", "report_path"):
+            path = artifacts.get(key)
+            if path:
+                paths.append(f"{key}={path}")
+        message = f"transaction failed: {error}"
+        if paths:
+            message = f"{message} ({', '.join(paths)})"
+        print(message, file=sys.stderr)
         return 1
 
+    artifacts = ctx.get("artifacts") or {}
+    delegate_output = artifacts.get("delegate_output") or {}
     result = {
         "status": ctx.get("status"),
         "executed_stages": executed,
@@ -145,10 +156,14 @@ def main(argv=None):
         "agent": ctx.get("agent"),
         "risk": ctx.get("risk"),
         "snapshot_directory": ctx.get("snapshot_directory"),
-        "delta_json": ctx.get("artifacts", {}).get("delta_json") or "",
-        "delta_patch": ctx.get("artifacts", {}).get("delta_patch") or "",
-        "scope_violations": ctx.get("artifacts", {}).get("scope_violations") or [],
-        "changed_files": ctx.get("artifacts", {}).get("changed_files") or [],
+        "delta_json": artifacts.get("delta_json") or "",
+        "delta_patch": artifacts.get("delta_patch") or "",
+        "scope_violations": artifacts.get("scope_violations") or [],
+        "changed_files": artifacts.get("changed_files") or [],
+        "raw_log": artifacts.get("raw_log") or "",
+        "debug_log": artifacts.get("debug_log") or "",
+        "report_path": artifacts.get("report_path") or "",
+        "delegate_status": delegate_output.get("status") or "",
         "context_path": str(Path(ctx["snapshot_directory"]) / ctxlib.CONTEXT_STATE_NAME),
         "outcome_log_warning": ctx.get("outcome_log_warning") or "",
     }

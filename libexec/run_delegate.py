@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -20,7 +21,27 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILE_BY_TOOL = {"cursor": "cursor", "codex": "codex", "pi": "pi"}
 
 
-def failed_report(report, reason, summary):
+def debug_log_path(raw_log):
+    return raw_log.parent / "debug.log"
+
+
+def emit_debug(log_path, message):
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    line = f"[ajax-router] {timestamp} {message}\n"
+    sys.stderr.write(line)
+    sys.stderr.flush()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a") as handle:
+        handle.write(line)
+
+
+def failed_report(report, reason, summary, *, raw_log=None, debug_log=None):
+    if debug_log and raw_log:
+        action = f"Inspect {debug_log} and {raw_log}"
+    elif raw_log:
+        action = f"Inspect {raw_log}"
+    else:
+        action = "Inspect the preserved raw log"
     text = f"""DELEGATE_REPORT:
   STATUS: FAILED
   CHANGED_FILES: []
@@ -28,7 +49,7 @@ def failed_report(report, reason, summary):
   CONCERNS:
     - TYPE: {reason}
       DETAIL: {summary}
-      RECOMMENDED_ACTION: Inspect the preserved raw log
+      RECOMMENDED_ACTION: {action}
 """
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(text)
@@ -306,12 +327,38 @@ def _report_text(text):
     return ""
 
 
+def _log_failure(debug, args, outcome):
+    emit_debug(
+        debug,
+        "failure "
+        f"reason={outcome['failure_reason']} "
+        f"message={outcome['failure']} "
+        f"exit={outcome.get('exit_code', 1)} "
+        f"raw_log={args.raw_log}",
+    )
+    failed_report(
+        args.report,
+        outcome["failure_reason"],
+        outcome["failure"],
+        raw_log=args.raw_log,
+        debug_log=debug,
+    )
+
+
 def run_acpx(args):
+    debug = debug_log_path(args.raw_log)
     executable = acpx_path()
     if not executable:
         args.raw_log.parent.mkdir(parents=True, exist_ok=True)
         args.raw_log.write_text("missing delegate CLI: acpx\n")
-        failed_report(args.report, "MISSING_TOOL", "acpx is unavailable")
+        emit_debug(debug, "MISSING_TOOL acpx is unavailable")
+        failed_report(
+            args.report,
+            "MISSING_TOOL",
+            "acpx is unavailable",
+            raw_log=args.raw_log,
+            debug_log=debug,
+        )
         return 127
 
     try:
@@ -328,20 +375,37 @@ def run_acpx(args):
     with args.raw_log.open("w") as raw:
         for kind, subcommand, _session in preflight:
             command = base + [profile, "sessions", subcommand]
+            emit_debug(
+                debug,
+                "start "
+                f"tool={args.tool} model={args.model} cwd={cwd} "
+                f"timeout_seconds={args.timeout_seconds:g} "
+                f"argv={' '.join(map(str, command))}",
+            )
             outcome = run_acpx_process(command, args, raw, deadline)
             if outcome.get("failure"):
-                failed_report(args.report, outcome["failure_reason"], outcome["failure"])
+                _log_failure(debug, args, outcome)
                 return outcome.get("exit_code", 1)
 
         for prompt_path, subcommand, session in turns:
             command = build_acpx_command(base, args.tool, subcommand, prompt_path, session)
+            emit_debug(
+                debug,
+                "start "
+                f"tool={args.tool} model={args.model} cwd={cwd} "
+                f"timeout_seconds={args.timeout_seconds:g} "
+                f"argv={' '.join(map(str, command))}",
+            )
             outcome = run_acpx_process(command, args, raw, deadline)
             if outcome.get("failure"):
-                failed_report(args.report, outcome["failure_reason"], outcome["failure"])
+                _log_failure(debug, args, outcome)
                 return outcome.get("exit_code", 1)
             last_report = outcome.get("report_text") or last_report
 
     code = extract_report_text(last_report, args.raw_log, args.report)
+    emit_debug(debug, f"extract-report exit={code}")
+    if code == 0:
+        emit_debug(debug, "complete")
     return code or 0
 
 

@@ -5,6 +5,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
@@ -216,6 +217,91 @@ class LifecycleTransactionTests(unittest.TestCase):
                     "after_execute",
                 ],
             )
+
+    def test_transaction_result_includes_log_paths_and_delegate_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            ctx_path = self.write_context(
+                Path(tmp) / "context.json", self.base_context(repo, snap)
+            )
+            run_dir = snap / "run"
+            run_dir.mkdir(parents=True)
+
+            def fake_execute(ctx):
+                raw_log = run_dir / "raw.log"
+                debug_log = run_dir / "debug.log"
+                report = run_dir / "report.yaml"
+                raw_log.write_text("raw\n")
+                debug_log.write_text("[ajax-router] start\n")
+                report.write_text(
+                    "DELEGATE_REPORT:\n"
+                    "  STATUS: COMPLETE\n"
+                    "  CHANGED_FILES: [src/example.py]\n"
+                    "  VERIFICATION:\n"
+                    "    - TYPE: other\n"
+                    "      COMMAND: NONE\n"
+                    "      RESULT: pass\n"
+                    "      DETAILS: ok\n"
+                    "  CONCERNS: []\n"
+                )
+                ctx["artifacts"]["raw_log"] = str(raw_log.resolve())
+                ctx["artifacts"]["debug_log"] = str(debug_log.resolve())
+                ctx["artifacts"]["report_path"] = str(report.resolve())
+                ctx["status"] = "EXECUTED"
+                return ctx
+
+            stdout = StringIO()
+            with mock.patch.dict(run_transaction.HOOKS, execute=fake_execute):
+                with mock.patch("sys.stdout", stdout):
+                    exit_code = run_transaction.main(["--context", str(ctx_path)])
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(
+                Path(payload["raw_log"]).resolve(),
+                (run_dir / "raw.log").resolve(),
+            )
+            self.assertEqual(
+                Path(payload["debug_log"]).resolve(),
+                (run_dir / "debug.log").resolve(),
+            )
+            self.assertEqual(
+                Path(payload["report_path"]).resolve(),
+                (run_dir / "report.yaml").resolve(),
+            )
+            self.assertEqual(payload["delegate_status"], "COMPLETE")
+
+    def test_transaction_hook_error_includes_log_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            ctx_path = self.write_context(
+                Path(tmp) / "context.json", self.base_context(repo, snap)
+            )
+            run_dir = snap / "run"
+            run_dir.mkdir(parents=True)
+            raw_log = run_dir / "raw.log"
+            debug_log = run_dir / "debug.log"
+            raw_log.write_text("raw\n")
+            debug_log.write_text("[ajax-router] start\n")
+
+            def failing_execute(ctx):
+                ctx["artifacts"]["raw_log"] = str(raw_log.resolve())
+                ctx["artifacts"]["debug_log"] = str(debug_log.resolve())
+                ctx["artifacts"]["report_path"] = str((run_dir / "report.yaml").resolve())
+                raise hooks.HookError("delegate transport failed (1): boom")
+
+            stderr = StringIO()
+            with mock.patch.dict(run_transaction.HOOKS, execute=failing_execute):
+                with mock.patch("sys.stderr", stderr):
+                    exit_code = run_transaction.main(["--context", str(ctx_path)])
+            self.assertEqual(exit_code, 1)
+            err = stderr.getvalue()
+            self.assertIn("delegate transport failed (1): boom", err)
+            self.assertIn(f"debug_log={debug_log.resolve()}", err)
+            self.assertIn(f"raw_log={raw_log.resolve()}", err)
 
 
 if __name__ == "__main__":

@@ -189,7 +189,11 @@ def execute(ctx):
     if not prompt_path.is_file():
         raise HookError("prompt_path missing; refuse to spend tokens")
     raw_log = run / "raw.log"
+    debug_log = run / "debug.log"
     report = run / "report.yaml"
+    ctx["artifacts"]["raw_log"] = str(raw_log)
+    ctx["artifacts"]["debug_log"] = str(debug_log)
+    ctx["artifacts"]["report_path"] = str(report)
     tool = _tool_for(ctx)
     command = [
         str(ROOT / "scripts" / "run-delegate"),
@@ -221,10 +225,9 @@ def execute(ctx):
         command,
         cwd=ctx["working_directory"],
         text=True,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=None,
     )
-    ctx["artifacts"]["raw_log"] = str(raw_log)
-    ctx["artifacts"]["report_path"] = str(report)
     ctx["artifacts"]["provider_metadata"] = {
         "exit_code": result.returncode,
         "stdout_tail": (result.stdout or "")[-2000:],

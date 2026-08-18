@@ -656,6 +656,43 @@ while True:
             self.assertEqual(result.returncode, 127)
             self.assertIn("MISSING_TOOL", report.read_text())
             self.assertIn("acpx is unavailable", report.read_text())
+            debug = tmp / "debug.log"
+            self.assertTrue(debug.is_file(), "expected debug.log beside raw.log")
+            debug_text = debug.read_text()
+            self.assertIn("[ajax-router]", debug_text)
+            self.assertIn("MISSING_TOOL", debug_text)
+            self.assertIn("acpx is unavailable", debug_text)
+            self.assertIn(str(raw), report.read_text())
+
+    def test_acp_failure_writes_debug_log(self):
+        body = (
+            'print(json.dumps({"jsonrpc":"2.0","id":"1","error":{"message":"boom"}}), flush=True)'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(tmp, fake_acpx_script(body=body, emit_report=False))
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("packet")
+            raw = tmp / "raw.log"
+            debug = tmp / "debug.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(debug.is_file(), "expected debug.log beside raw.log")
+            debug_text = debug.read_text()
+            self.assertIn("[ajax-router]", debug_text)
+            self.assertIn("failure reason=ACP_EVENT_FAILED", debug_text)
+            self.assertIn("boom", debug_text)
+            self.assertIn(f"raw_log={raw}", debug_text)
+            self.assertIn("[ajax-router]", result.stderr)
 
     def test_adapter_contract_defines_initial_resume_and_cross_tool_payloads(self):
         cursor = (ROOT / "skills" / "cursor-delegate" / "SKILL.md").read_text()
