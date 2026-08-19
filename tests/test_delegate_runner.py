@@ -2,6 +2,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -9,12 +10,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 CHECK = ROOT / "scripts" / "check-report"
 EXTRACT = ROOT / "scripts" / "extract-report"
 RUNNER = ROOT / "scripts" / "run-delegate"
 
 from libexec.acpx_events import normalize_record, parse_jsonl_line
-from libexec.delegate_events import normalize_record as normalize_native_record
 
 
 REPORT_COMPLETE = (
@@ -183,13 +184,6 @@ class DelegateRunnerTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.kind, "activity/tool finished")
 
-    def test_legacy_native_event_parser_still_available(self):
-        line = json.dumps({
-            "type": "message_end",
-            "message": {"role": "assistant", "content": [{"type": "text", "text": "x"}]},
-        })
-        self.assertIsNotNone(normalize_native_record("pi", parse_jsonl_line(line)))
-
     def test_acpx_passes_model_and_profile_for_all_tools(self):
         for tool, profile in (("cursor", "cursor"), ("pi", "pi"), ("codex", "codex")):
             with self.subTest(tool=tool), tempfile.TemporaryDirectory() as tmp:
@@ -321,66 +315,6 @@ class DelegateRunnerTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("STATUS: COMPLETE", output.read_text())
             self.assertIn("DETAILS: fragmented", output.read_text())
-
-    def test_pi_follow_up_uses_prompt_chain_and_extracts_report(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            invocations_file = tmp / "invocations.json"
-            invocations_file.write_text("[]")
-            env, args_file = install_fake_acpx(
-                tmp,
-                fake_acpx_script(detail="follow-up complete", track_invocations=True),
-            )
-            env["INVOCATIONS_FILE"] = str(invocations_file)
-            prompt = tmp / "prompt.txt"
-            prompt.write_text("initial packet")
-            raw = tmp / "raw.log"
-            report = tmp / "report.yaml"
-            result = subprocess.run(
-                [
-                    RUNNER, "--tool", "pi", "--model", "test-model",
-                    "--prompt", prompt, "--raw-log", raw, "--report", report,
-                    "--follow-up", "correction",
-                ],
-                text=True,
-                capture_output=True,
-                env=env,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            invocations = json.loads(invocations_file.read_text())
-            self.assertGreaterEqual(len(invocations), 3)
-            flat = [item for invocation in invocations for item in invocation]
-            self.assertEqual(flat[flat.index("--model") + 1], "test-model")
-            self.assertIn("sessions", flat)
-            self.assertIn("ensure", flat)
-            self.assertEqual(flat.count("prompt"), 2)
-            self.assertIn("DETAILS: follow-up complete", report.read_text())
-
-    def test_cursor_resume_uses_acpx_prompt_session(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            env, args_file = install_fake_acpx(tmp, fake_acpx_script(detail="cursor complete"))
-            prompt = tmp / "prompt.txt"
-            prompt.write_text("packet")
-            raw = tmp / "raw.log"
-            report = tmp / "report.yaml"
-            result = subprocess.run(
-                [
-                    RUNNER, "--tool", "cursor", "--model", "test-model",
-                    "--prompt", prompt, "--raw-log", raw, "--report", report,
-                    "--resume", "chat-1",
-                ],
-                text=True,
-                capture_output=True,
-                env=env,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            args = json.loads(args_file.read_text())
-            self.assertEqual(args[args.index("--model") + 1], "test-model")
-            self.assertIn("prompt", args)
-            self.assertIn("-s", args)
-            self.assertEqual(args[args.index("-s") + 1], "chat-1")
-            self.assertIn("DETAILS: cursor complete", report.read_text())
 
     def test_acpx_failure_unknown_lines_and_unexpected_exit_are_explicit(self):
         cases = (
@@ -694,18 +628,19 @@ while True:
             self.assertIn(f"raw_log={raw}", debug_text)
             self.assertIn("[ajax-router]", result.stderr)
 
-    def test_adapter_contract_defines_initial_resume_and_cross_tool_payloads(self):
+    def test_adapter_contract_defines_stateless_exec_payloads(self):
         cursor = (ROOT / "skills" / "cursor-delegate" / "SKILL.md").read_text()
+        pi = (ROOT / "skills" / "pi-delegate" / "SKILL.md").read_text()
+        codex = (ROOT / "skills" / "codex-delegate" / "SKILL.md").read_text()
         router = (ROOT / "skills" / "model-router" / "SKILL.md").read_text()
-        for phrase in (
-            "Initial dispatch",
-            "outcome-based Dispatch prompt",
-            "Same-session Cursor resume",
-            "immutable constraints",
-            "Cross-tool revision",
-        ):
-            self.assertIn(phrase, cursor + router)
-        self.assertIn("Do not resend the\n  full prompt", cursor)
+        for text in (cursor, pi, codex, router):
+            self.assertIn("stateless", text.lower())
+            self.assertIn("one-shot", text)
+        self.assertIn("outcome-based Dispatch", cursor)
+        self.assertIn("Dispatch prompt assembled", router)
+        self.assertNotIn("--resume", cursor + pi + codex)
+        self.assertNotIn("--follow-up", cursor + pi + codex)
+        self.assertNotIn("sessions ensure", cursor + pi + codex)
         self.assertIn("Do not spawn native Task, best-of-n, or other Cursor subagents.", cursor)
         self.assertIn("Never spawn native Cursor Task, best-of-n, or any other subagent.", router)
 

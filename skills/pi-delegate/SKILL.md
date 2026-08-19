@@ -27,10 +27,11 @@ tool inside this adapter.
 
 ## Invocation
 
-Headless only. The shared runner dispatches through acpx ACP (`pi` profile).
-One-shot delegations use `exec`; follow-up turns use `sessions ensure` then
-chained `prompt` invocations in the same cwd scope. The router-selected model
-is passed as `--model "$MODEL"`.
+Headless only. Every dispatch is stateless. The shared runner dispatches through
+acpx ACP (`pi` profile) with one-shot `exec` only — no saved sessions. Every
+dispatch sends a full prompt assembled by the parent. The router-selected model
+is passed as
+`--model "$MODEL"`.
 
 ```bash
 scripts/run-delegate --tool pi --model "$MODEL" \

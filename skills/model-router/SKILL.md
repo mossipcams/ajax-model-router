@@ -143,6 +143,9 @@ work. Do not apply high-risk ceremony to routine changes.
 Replace detailed implementation packets with this outcome-based prompt. The
 parent owns planning and routing only — no pre-dispatch repo exploration. The
 delegate owns investigation, edit selection, test selection, and verification.
+Every dispatch is stateless: the parent assembles the full prompt for initial
+work and for every revision; delegates run one-shot `acpx exec` with no saved
+sessions.
 
 ```text
 You are a bounded implementation worker for a parent agent.
@@ -211,7 +214,7 @@ scripts/run-transaction --context context.json --until-stage after_execute
 # parent review (risk-proportional) over delta.json / delta.patch
 # on DISCARD:
 scripts/delegate-delta restore "$SNAP"
-# optional resume for outcome log:
+# optional re-run for outcome log:
 scripts/run-transaction --context context.json \
   --from-stage log_outcome --until-stage log_outcome \
   --gate-result ACCEPT
@@ -255,8 +258,9 @@ Parent-local. No delegate review lane.
 Accept when scope held, acceptance is demonstrated, and verification is
 meaningful. Use `REVISE` once for incomplete work inside scope. A failed
 `MINIMAX` round revises on `GLM` with findings; never pay for a second
-`MINIMAX` attempt. Same-tool resume (when supported) sends findings and
-constraints only. Use `DISCARD` for a rejected delta. After two failed
+`MINIMAX` attempt. Every revision — same tool or cross-tool — sends a full
+Dispatch prompt assembled by the parent (outcome, scope, acceptance,
+findings, and constraints). Use `DISCARD` for a rejected delta. After two failed
 rounds, `STOP`.
 
 DISCARD is a verdict, not permission to reset the worktree. Run

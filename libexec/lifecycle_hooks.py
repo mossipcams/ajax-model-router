@@ -210,10 +210,6 @@ def execute(ctx):
         "--timeout-seconds",
         str(ctx["timeout_seconds"]),
     ]
-    if ctx.get("resume"):
-        command.extend(["--resume", ctx["resume"]])
-    for item in ctx.get("follow_up") or []:
-        command.extend(["--follow-up", item])
     if tool == "codex":
         command.extend(["--sandbox", ctx.get("sandbox") or "workspace-write"])
         if ctx.get("reasoning_effort"):

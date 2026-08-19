@@ -164,7 +164,6 @@ def validate_context(data):
         "gate_result",
         "failure_classification",
         "duration_seconds",
-        "resume",
         "sandbox",
         "reasoning_effort",
         "outcome_log",
@@ -172,12 +171,10 @@ def validate_context(data):
         if key in data and data[key] is not None:
             ctx[key] = _require_str(data[key], key)
 
-    for key in ("verify", "follow_up"):
-        if key in data and data[key] is not None:
-            ctx[key] = _require_str_list(data[key], key)
+    if "verify" in data and data["verify"] is not None:
+        ctx["verify"] = _require_str_list(data["verify"], "verify")
 
     ctx.setdefault("verify", [])
-    ctx.setdefault("follow_up", [])
     ctx.setdefault("user_request", "")
     ctx.setdefault("fallback", "STOP")
     ctx.setdefault("tool", ctx["agent"] if ctx["agent"] != "parent" else "")

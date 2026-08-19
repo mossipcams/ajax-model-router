@@ -14,7 +14,6 @@ Required inputs:
 - model: the exact `MODEL` from the execution decision
 - allowed scope: the decision's `SCOPE`
 - the prepared prompt file and persistent run directory
-- `CHAT_ID` only when continuing an existing Cursor conversation
 
 ## Preflight
 
@@ -31,18 +30,15 @@ Implement in-process. Missing `acpx` is `STOP`, not a license to Task.
 
 ## Payloads
 
-- **Initial dispatch**: the router's outcome-based Dispatch prompt.
-- **Same-session Cursor resume**: Review findings and immutable constraints
-  (task ID, scope, acceptance, verification expectation). Do not resend the
-  full prompt when `CHAT_ID` retains context.
-- **Cross-tool revision**: full Dispatch prompt plus findings.
+Every dispatch is stateless. The parent assembles a full outcome-based Dispatch
+prompt for initial work and for every revision.
 
 ## Invocation
 
-The shared runner dispatches through acpx ACP (`cursor` profile). One-shot
-delegations use `exec`; same-session resume uses `prompt -s "$CHAT_ID"`.
-The router-selected model is passed as `--model "$MODEL"`. Full ACP NDJSON is
-preserved in the raw log; only the validated structured report is printed.
+The shared runner dispatches through acpx ACP (`cursor` profile) using one-shot `exec`
+only — no saved sessions. The router-selected model is passed as
+`--model "$MODEL"`. Full ACP NDJSON is preserved in the raw log; only the
+validated structured report is printed.
 
 ```bash
 scripts/run-delegate --tool cursor --model "$MODEL" \
@@ -51,7 +47,6 @@ scripts/run-delegate --tool cursor --model "$MODEL" \
   --report "$AJAX_ROUTER_RUN_DIR/report.yaml"
 ```
 
-For resume, append `--resume "$CHAT_ID"`. Timeout, malformed/unknown events,
-missing terminal events, missing report, or invalid report returns an explicit
-failed `DELEGATE_REPORT`. Return the extracted report unchanged for parent
-acceptance.
+Timeout, malformed/unknown events, missing terminal events, missing report, or
+invalid report returns an explicit failed `DELEGATE_REPORT`. Return the
+extracted report unchanged for parent acceptance.

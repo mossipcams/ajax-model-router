@@ -33,9 +33,10 @@ tool inside this adapter.
 ## Invocation
 
 Codex runs through acpx ACP (`codex` profile), driven by the shared runner.
-One `exec` (or `prompt` when resuming) per delegation. Implementation
-delegations pass `--sandbox workspace-write` to the runner for contract
-continuity; sandbox and reasoning effort are not yet forwarded over ACP.
+Every dispatch is stateless and uses one-shot `exec` only — no saved sessions.
+The parent assembles a full prompt for initial work and for every revision.
+Implementation delegations pass `--sandbox workspace-write` to the runner for
+contract continuity; sandbox and reasoning effort are not yet forwarded over ACP.
 
 ```bash
 scripts/run-delegate --tool codex --model "$MODEL" \
@@ -48,7 +49,5 @@ scripts/run-delegate --tool codex --model "$MODEL" \
 
 Reasoning effort stays `xhigh` in the router contract. Authentication uses
 the existing Codex/ChatGPT login via the acpx codex adapter; never force an
-API key. For a follow-up turn that reuses Codex's retained thread, append
-`--resume "$THREAD_ID"`. Timeout, missing tool, missing report, or invalid
-report returns an explicit failed `DELEGATE_REPORT`. Return to parent acceptance
-after a write.
+API key. Timeout, missing tool, missing report, or invalid report returns an
+explicit failed `DELEGATE_REPORT`. Return to parent acceptance after a write.

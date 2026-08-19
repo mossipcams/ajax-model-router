@@ -130,34 +130,9 @@ def build_acpx_base(args, cwd, executable):
     ]
 
 
-def build_acpx_command(base, tool, subcommand, prompt_path, session=None):
+def build_acpx_command(base, tool, prompt_path):
     profile = PROFILE_BY_TOOL[tool]
-    command = base + [profile, subcommand]
-    if session:
-        command.extend(["-s", session])
-    command.extend(["--file", str(prompt_path)])
-    return command
-
-
-def planned_invocations(args):
-    profile = PROFILE_BY_TOOL[args.tool]
-    follow_ups = list(args.follow_up)
-    if follow_ups and args.tool != "pi":
-        raise ValueError("--follow-up is only supported for Pi")
-    if args.tool == "pi" and args.resume:
-        raise ValueError("Pi resume is not a router mode")
-
-    prompt_dir = args.prompt.parent
-    turns = [(args.prompt, "prompt" if args.resume or follow_ups else "exec", args.resume)]
-    for index, text in enumerate(follow_ups):
-        path = prompt_dir / f"follow-up-{index}.txt"
-        path.write_text(text)
-        turns.append((path, "prompt", args.resume))
-
-    preflight = []
-    if follow_ups and not args.resume:
-        preflight.append(("sessions", "ensure", None))
-    return profile, preflight, turns
+    return base + [profile, "exec", "--file", str(prompt_path)]
 
 
 def run_acpx_process(command, args, raw, deadline):
@@ -361,46 +336,25 @@ def run_acpx(args):
         )
         return 127
 
-    try:
-        profile, preflight, turns = planned_invocations(args)
-    except ValueError as error:
-        raise error
-
     cwd = Path.cwd()
     base = build_acpx_base(args, cwd, executable)
     args.raw_log.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + args.timeout_seconds
-    last_report = ""
+    command = build_acpx_command(base, args.tool, args.prompt)
 
     with args.raw_log.open("w") as raw:
-        for kind, subcommand, _session in preflight:
-            command = base + [profile, "sessions", subcommand]
-            emit_debug(
-                debug,
-                "start "
-                f"tool={args.tool} model={args.model} cwd={cwd} "
-                f"timeout_seconds={args.timeout_seconds:g} "
-                f"argv={' '.join(map(str, command))}",
-            )
-            outcome = run_acpx_process(command, args, raw, deadline)
-            if outcome.get("failure"):
-                _log_failure(debug, args, outcome)
-                return outcome.get("exit_code", 1)
-
-        for prompt_path, subcommand, session in turns:
-            command = build_acpx_command(base, args.tool, subcommand, prompt_path, session)
-            emit_debug(
-                debug,
-                "start "
-                f"tool={args.tool} model={args.model} cwd={cwd} "
-                f"timeout_seconds={args.timeout_seconds:g} "
-                f"argv={' '.join(map(str, command))}",
-            )
-            outcome = run_acpx_process(command, args, raw, deadline)
-            if outcome.get("failure"):
-                _log_failure(debug, args, outcome)
-                return outcome.get("exit_code", 1)
-            last_report = outcome.get("report_text") or last_report
+        emit_debug(
+            debug,
+            "start "
+            f"tool={args.tool} model={args.model} cwd={cwd} "
+            f"timeout_seconds={args.timeout_seconds:g} "
+            f"argv={' '.join(map(str, command))}",
+        )
+        outcome = run_acpx_process(command, args, raw, deadline)
+        if outcome.get("failure"):
+            _log_failure(debug, args, outcome)
+            return outcome.get("exit_code", 1)
+        last_report = outcome.get("report_text") or ""
 
     code = extract_report_text(last_report, args.raw_log, args.report)
     emit_debug(debug, f"extract-report exit={code}")
@@ -429,18 +383,13 @@ def main():
         default="xhigh",
         help="retained for router contract; not forwarded to acpx ACP in this transport",
     )
-    parser.add_argument("--resume")
-    parser.add_argument("--follow-up", action="append", default=[])
     args = parser.parse_args()
     if not 0 < args.timeout_seconds <= 86400:
         parser.error("--timeout-seconds must be between 0 and 86400")
     if not 0 <= args.term_grace_seconds <= 30:
         parser.error("--term-grace-seconds must be between 0 and 30")
 
-    try:
-        return run_acpx(args)
-    except ValueError as error:
-        parser.error(str(error))
+    return run_acpx(args)
 
 
 if __name__ == "__main__":
