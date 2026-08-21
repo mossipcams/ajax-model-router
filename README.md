@@ -87,3 +87,30 @@ the runner treats that as `ACP_EVENT_FAILED`. If that repeats for one
 `--cwd`, the per-path Cursor worker under `~/.cursor/projects/` is usually
 stuck — remove that project dir and retry. Do not fall back to a native
 harness CLI.
+
+## Subagent status (Ajax Chat)
+
+Each delegate child launched by `scripts/run-delegate` uses
+`acpx --format json --json-strict`. The runner assigns `runId`, `harness`,
+`model`, `task`, and `parentTaskId` (the parent chat/task id from the
+transaction context) and parses ACP NDJSON from the child stdout as it arrives.
+
+Normalized status events are emitted on **stdout** as NDJSON lines with
+`type: subagent_status` — separate from the final `DELEGATE_REPORT` text. Raw
+child ACP stays in `run/raw.log` for debugging; it is not replayed into the
+parent conversation.
+
+Example:
+
+```json
+{"type":"subagent_status","runId":"run_123","parentTaskId":"task_456","harness":"cursor","model":"composer-2.5","state":"tool_call","detail":"Reading src/chat/MessageList.tsx","timestamp":"2026-08-21T21:00:00Z"}
+```
+
+Child states: `queued`, `starting`, `running`, `tool_call`,
+`waiting_for_permission`, `completed`, `failed`, `cancelled`, `stalled`.
+
+**Nested subagents:** agents spawned internally by Cursor, Codex, or Pi are
+visible in Ajax Chat only when that harness emits their activity through ACP.
+Every child process the router launches directly gets live status from its JSON
+stream. Do not poll `acpx status` for this — that only reflects whether the
+local session owner is running.

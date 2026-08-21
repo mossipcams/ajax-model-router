@@ -7,12 +7,14 @@ import json
 import os
 import re
 import subprocess
+import sys
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
 import lifecycle_context as ctxlib
 import router_state
+from subagent_status import is_subagent_status_line
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -183,6 +185,16 @@ def _tool_for(ctx):
     return mapping[tool]
 
 
+def _run_id(ctx):
+    retry = int(ctx.get("retry_count") or 0)
+    base = f"run_{ctx['task_id']}"
+    return f"{base}_{retry}" if retry else base
+
+
+def _task_label(ctx):
+    return ctx["task_id"]
+
+
 def execute(ctx):
     run = _run_dir(ctx)
     prompt_path = Path(ctx["artifacts"]["prompt_path"])
@@ -195,6 +207,8 @@ def execute(ctx):
     ctx["artifacts"]["debug_log"] = str(debug_log)
     ctx["artifacts"]["report_path"] = str(report)
     tool = _tool_for(ctx)
+    run_id = (ctx.get("run_id") or "").strip() or _run_id(ctx)
+    ctx["artifacts"]["run_id"] = run_id
     command = [
         str(ROOT / "scripts" / "run-delegate"),
         "--tool",
@@ -209,6 +223,12 @@ def execute(ctx):
         str(report),
         "--timeout-seconds",
         str(ctx["timeout_seconds"]),
+        "--run-id",
+        run_id,
+        "--parent-task-id",
+        ctx["task_id"],
+        "--task",
+        _task_label(ctx),
     ]
     if tool == "codex":
         command.extend(["--sandbox", ctx.get("sandbox") or "workspace-write"])
@@ -217,12 +237,39 @@ def execute(ctx):
         else:
             command.extend(["--reasoning-effort", "xhigh"])
 
-    result = subprocess.run(
-        command,
-        cwd=ctx["working_directory"],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=None,
+    process = None
+    stdout_tail_parts = []
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=ctx["working_directory"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=None,
+            bufsize=1,
+        )
+        if process.stdout:
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                if is_subagent_status_line(line):
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                else:
+                    stdout_tail_parts.append(line)
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+    returncode = process.returncode if process is not None else 1
+    stdout_tail = "".join(stdout_tail_parts)
+    result = subprocess.CompletedProcess(
+        args=command,
+        returncode=returncode,
+        stdout=stdout_tail,
+        stderr="",
     )
     ctx["artifacts"]["provider_metadata"] = {
         "exit_code": result.returncode,

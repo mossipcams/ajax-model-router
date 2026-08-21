@@ -384,6 +384,7 @@ class DelegateRunnerTests(unittest.TestCase):
                 [
                     RUNNER, "--tool", "cursor", "--model", "test-model",
                     "--prompt", prompt, "--raw-log", raw, "--report", report,
+                    "--run-id", "run_fail", "--parent-task-id", "task_fail",
                 ],
                 text=True,
                 capture_output=True,
@@ -394,6 +395,43 @@ class DelegateRunnerTests(unittest.TestCase):
             self.assertIn("STATUS: FAILED", contents)
             self.assertIn("ACP_EVENT_FAILED", contents)
             self.assertNotIn("MISSING_STRUCTURED_REPORT", contents)
+            status_lines = [
+                json.loads(line)
+                for line in result.stdout.splitlines()
+                if line.strip().startswith("{") and '"subagent_status"' in line
+            ]
+            terminal = [row for row in status_lines if row.get("state") in {"completed", "failed"}]
+            self.assertTrue(terminal)
+            self.assertEqual(terminal[-1]["state"], "failed")
+
+    def test_stop_reason_then_missing_report_emits_failed_not_completed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(tmp, fake_acpx_script(emit_report=False))
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("packet")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                    "--run-id", "run_missing", "--parent-task-id", "task_missing",
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("MISSING_STRUCTURED_REPORT", report.read_text())
+            status_lines = [
+                json.loads(line)
+                for line in result.stdout.splitlines()
+                if line.strip().startswith("{") and '"subagent_status"' in line
+            ]
+            terminal = [row for row in status_lines if row.get("state") in {"completed", "failed"}]
+            self.assertTrue(terminal)
+            self.assertEqual(terminal[-1]["state"], "failed")
 
     def test_cancellation_terminates_acpx_process_group(self):
         fake = """#!/usr/bin/env python3
@@ -627,6 +665,65 @@ while True:
             self.assertIn("boom", debug_text)
             self.assertIn(f"raw_log={raw}", debug_text)
             self.assertIn("[ajax-router]", result.stderr)
+
+    def test_run_delegate_emits_subagent_status_events(self):
+        records = (
+            {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": "s1",
+                    "update": {
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": "call-1",
+                        "status": "in_progress",
+                        "title": "Reading src/chat/MessageList.tsx",
+                    },
+                },
+            },
+        )
+        body = "".join(
+            f"print({json.dumps(json.dumps(record))}, flush=True)\n" for record in records
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(
+                tmp, fake_acpx_script(body=body, detail="status ok")
+            )
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("bounded task")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "composer-2.5",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                    "--run-id", "run_123", "--parent-task-id", "task_456",
+                    "--task", "Implement status streaming",
+                    "--stall-seconds", "999",
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            status_lines = [
+                json.loads(line)
+                for line in result.stdout.splitlines()
+                if line.strip().startswith("{") and '"subagent_status"' in line
+            ]
+            self.assertTrue(status_lines, result.stdout)
+            tool_events = [row for row in status_lines if row.get("state") == "tool_call"]
+            self.assertTrue(tool_events)
+            self.assertEqual(tool_events[0]["runId"], "run_123")
+            self.assertEqual(tool_events[0]["parentTaskId"], "task_456")
+            self.assertEqual(tool_events[0]["harness"], "cursor")
+            self.assertEqual(tool_events[0]["model"], "composer-2.5")
+            self.assertIn("MessageList.tsx", tool_events[0]["detail"])
+            terminal = [row for row in status_lines if row.get("state") == "completed"]
+            self.assertTrue(terminal)
+            self.assertIn("DELEGATE_REPORT:", result.stdout)
+            self.assertIn("DETAILS: status ok", report.read_text())
 
     def test_adapter_contract_defines_stateless_exec_payloads(self):
         cursor = (ROOT / "skills" / "cursor-delegate" / "SKILL.md").read_text()

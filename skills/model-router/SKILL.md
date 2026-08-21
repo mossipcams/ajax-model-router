@@ -195,6 +195,13 @@ Write-mode work uses `scripts/run-transaction` for deterministic safety only:
 before_execute → snapshot → execute → after_execute → log_outcome
 ```
 
+During `execute`, `scripts/run-delegate` streams `subagent_status` NDJSON on
+stdout for Ajax Chat while preserving the normal delegate report stream. Raw
+child ACP remains in `run/raw.log`. Nested agents created inside Cursor/Codex/Pi
+are visible only when that harness emits them through ACP; every router-launched
+child gets live status from its acpx JSON stream (not from polling
+`acpx status`).
+
 Kept because removing them causes concrete failures:
 
 | Control | Failure prevented |

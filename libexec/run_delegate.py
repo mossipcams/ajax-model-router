@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from acpx_events import normalize_record, parse_jsonl_line
+from subagent_status import TERMINAL_STATES, SubagentStatusTracker, emit_ndjson
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -142,15 +143,37 @@ def run_acpx_process(command, args, raw, deadline):
     failure = ""
     failure_reason = "ACP_EVENT_FAILED"
     terminal = False
-    process = subprocess.Popen(
-        command,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-        text=True,
-        bufsize=1,
-    )
+    tracker = None
+    if args.run_id and args.parent_task_id:
+        tracker = SubagentStatusTracker(
+            args.run_id,
+            args.parent_task_id,
+            args.tool,
+            args.model,
+            args.task or args.tool,
+            emit=emit_ndjson,
+            stall_seconds=args.stall_seconds,
+        )
+        tracker.event("queued", "Waiting to start")
+        tracker.event("starting", "Launching delegate")
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            text=True,
+            bufsize=1,
+        )
+    except OSError as error:
+        if tracker:
+            tracker.terminal("failed", f"Launch failed: {error}")
+        return {
+            "exit_code": 1,
+            "failure_reason": "ACP_EVENT_FAILED",
+            "failure": f"failed to launch acpx: {error}",
+        }
 
     def pump(name, stream):
         try:
@@ -167,11 +190,18 @@ def run_acpx_process(command, args, raw, deadline):
         thread.start()
 
     eof = set()
+    if tracker:
+        tracker.event("running", "Delegate active")
     try:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 terminate_group(process, args.term_grace_seconds)
+                if tracker:
+                    tracker.terminal(
+                        "failed",
+                        f"Timed out after {args.timeout_seconds:g} seconds",
+                    )
                 return {
                     "exit_code": 124,
                     "failure_reason": "TIMEOUT",
@@ -182,6 +212,8 @@ def run_acpx_process(command, args, raw, deadline):
             except queue.Empty:
                 stream = None
                 line = None
+                if tracker:
+                    tracker.maybe_stalled()
             if stream is not None:
                 if line is None:
                     eof.add(stream)
@@ -195,6 +227,8 @@ def run_acpx_process(command, args, raw, deadline):
                 else:
                     raw.write(line)
                     raw.flush()
+                    if tracker:
+                        tracker.handle_stdout_line(line)
                     record = parse_jsonl_line(line)
                     if record is None:
                         continue
@@ -220,6 +254,8 @@ def run_acpx_process(command, args, raw, deadline):
                 break
     except KeyboardInterrupt:
         terminate_group(process, args.term_grace_seconds)
+        if tracker:
+            tracker.terminal("cancelled", "Delegation cancelled")
         return {
             "exit_code": 130,
             "failure_reason": "CANCELLED",
@@ -241,53 +277,70 @@ def run_acpx_process(command, args, raw, deadline):
                 pass
 
     exit_code = process.returncode if process.returncode is not None else 1
+
+    def finish(outcome):
+        if tracker:
+            reason = outcome.get("failure_reason", "")
+            if reason == "CANCELLED":
+                tracker.terminal("cancelled", outcome.get("failure", "Cancelled"))
+            elif reason == "TIMEOUT":
+                tracker.terminal("failed", outcome.get("failure", "Timed out"))
+            elif reason in {"ACP_EVENT_FAILED", "MISSING_TERMINAL_EVENT", "MISSING_STRUCTURED_REPORT"}:
+                tracker.terminal("failed", outcome.get("failure", reason))
+            elif outcome.get("report_text"):
+                if tracker.state != "completed":
+                    tracker.terminal("completed", "Delegate finished")
+            else:
+                tracker.terminal("failed", outcome.get("failure", "Delegate failed"))
+        return outcome
+
     if exit_code == 3:
-        return {
+        return finish({
             "exit_code": 124,
             "failure_reason": "TIMEOUT",
             "failure": f"{args.tool} delegation timed out after {args.timeout_seconds:g} seconds",
-        }
+        })
     if exit_code == 130:
-        return {
+        return finish({
             "exit_code": 130,
             "failure_reason": "CANCELLED",
             "failure": f"{args.tool} delegation cancelled",
-        }
+        })
     if failure:
-        return {
+        return finish({
             "exit_code": 1,
             "failure_reason": failure_reason,
             "failure": failure,
-        }
+        })
     if exit_code not in (0,) and not terminal:
-        return {
+        return finish({
             "exit_code": exit_code or 1,
             "failure_reason": "ACP_EVENT_FAILED",
             "failure": f"acpx exited with status {exit_code}",
-        }
+        })
     if not terminal:
-        return {
+        return finish({
             "exit_code": 1,
             "failure_reason": "MISSING_TERMINAL_EVENT",
             "failure": "delegate produced no terminal ACP event",
-        }
+        })
     combined = "".join(assistant_text)
     crash = _cursor_step_crash(combined)
     if crash:
-        return {
+        return finish({
             "exit_code": 1,
             "failure_reason": "ACP_EVENT_FAILED",
             "failure": crash,
-        }
+        })
     if not report_text:
         report_text = combined if _report_text(combined) else ""
     if not report_text:
-        return {
+        return finish({
             "exit_code": 1,
             "failure_reason": "MISSING_STRUCTURED_REPORT",
             "failure": "delegate produced no structured report text",
-        }
-    return {"exit_code": exit_code, "report_text": report_text}
+        })
+    return finish({"exit_code": exit_code, "report_text": report_text})
 
 
 def _cursor_step_crash(text):
@@ -383,11 +436,29 @@ def main():
         default="xhigh",
         help="retained for router contract; not forwarded to acpx ACP in this transport",
     )
+    parser.add_argument("--run-id", help="unique child run id for subagent_status events")
+    parser.add_argument(
+        "--parent-task-id",
+        help="parent chat/task id for subagent_status events",
+    )
+    parser.add_argument(
+        "--task",
+        default="",
+        help="short task label for subagent_status events",
+    )
+    parser.add_argument(
+        "--stall-seconds",
+        type=float,
+        default=60.0,
+        help="seconds without ACP activity before emitting stalled",
+    )
     args = parser.parse_args()
     if not 0 < args.timeout_seconds <= 86400:
         parser.error("--timeout-seconds must be between 0 and 86400")
     if not 0 <= args.term_grace_seconds <= 30:
         parser.error("--term-grace-seconds must be between 0 and 30")
+    if not 0 < args.stall_seconds <= 3600:
+        parser.error("--stall-seconds must be between 0 and 3600")
 
     return run_acpx(args)
 

@@ -303,6 +303,117 @@ class LifecycleTransactionTests(unittest.TestCase):
             self.assertIn(f"debug_log={debug_log.resolve()}", err)
             self.assertIn(f"raw_log={raw_log.resolve()}", err)
 
+    def test_execute_forwards_subagent_status_via_readline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            ctx = ctxlib.validate_context(self.base_context(repo, snap))
+            ctx = hooks.before_execute(ctx)
+            run_dir = Path(ctx["snapshot_directory"]) / "run"
+            status_line = (
+                json.dumps(
+                    {
+                        "type": "subagent_status",
+                        "runId": "run_1",
+                        "state": "running",
+                        "detail": "Active",
+                    }
+                )
+                + "\n"
+            )
+            report_tail = "ROUTER_REPORT_BEGIN\nDELEGATE_REPORT:\n"
+
+            class FakeStdout:
+                def __init__(self, lines):
+                    self._lines = list(lines)
+                    self.readline_calls = 0
+
+                def readline(self):
+                    self.readline_calls += 1
+                    if self._lines:
+                        return self._lines.pop(0)
+                    return ""
+
+                def close(self):
+                    pass
+
+            fake_stdout = FakeStdout([status_line, report_tail])
+            fake_process = mock.Mock()
+            fake_process.stdout = fake_stdout
+            fake_process.poll.return_value = 0
+            fake_process.returncode = 0
+            fake_process.wait.return_value = 0
+
+            captured = StringIO()
+            with mock.patch("lifecycle_hooks.subprocess.Popen", return_value=fake_process) as popen:
+                with mock.patch("sys.stdout", captured):
+                    ctx = hooks.execute(ctx)
+
+            _, popen_kwargs = popen.call_args
+            self.assertEqual(popen_kwargs.get("bufsize"), 1)
+            self.assertGreaterEqual(fake_stdout.readline_calls, 2)
+            self.assertIn("subagent_status", captured.getvalue())
+            self.assertIn(report_tail, ctx["artifacts"]["provider_metadata"]["stdout_tail"])
+            self.assertNotIn("subagent_status", ctx["artifacts"]["provider_metadata"]["stdout_tail"])
+
+    def test_execute_kills_child_when_forwarding_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            ctx = ctxlib.validate_context(self.base_context(repo, snap))
+            ctx = hooks.before_execute(ctx)
+
+            class FakeStdout:
+                def readline(self):
+                    return json.dumps({"type": "subagent_status", "state": "running"}) + "\n"
+
+                def close(self):
+                    pass
+
+            fake_process = mock.Mock()
+            fake_process.stdout = FakeStdout()
+            fake_process.poll.side_effect = [None, 0]
+            fake_process.returncode = 0
+
+            with mock.patch("lifecycle_hooks.subprocess.Popen", return_value=fake_process):
+                with mock.patch("sys.stdout.write", side_effect=OSError("forward failed")):
+                    with self.assertRaises(OSError):
+                        hooks.execute(ctx)
+
+            fake_process.kill.assert_called_once()
+            fake_process.wait.assert_called()
+
+    def test_task_label_uses_task_id_not_user_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            ctx = ctxlib.validate_context(
+                self.base_context(
+                    repo,
+                    snap,
+                    task_id="chip-abc",
+                    user_request="A very long user request " * 50,
+                )
+            )
+            ctx = hooks.before_execute(ctx)
+
+            fake_process = mock.Mock()
+            fake_process.stdout = mock.Mock()
+            fake_process.stdout.readline.return_value = ""
+            fake_process.poll.return_value = 0
+            fake_process.returncode = 0
+
+            with mock.patch("lifecycle_hooks.subprocess.Popen", return_value=fake_process) as popen:
+                hooks.execute(ctx)
+
+            command = popen.call_args[0][0]
+            task_index = command.index("--task")
+            self.assertEqual(command[task_index + 1], "chip-abc")
+            self.assertNotIn("very long user request", command[task_index + 1])
+
 
 if __name__ == "__main__":
     unittest.main()
