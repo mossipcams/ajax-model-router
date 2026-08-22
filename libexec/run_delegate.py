@@ -8,18 +8,20 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from acpx_events import normalize_record, parse_jsonl_line
+from acpx_events import ignorable_cursor_ext_failure, normalize_record, parse_jsonl_line
 from subagent_status import TERMINAL_STATES, SubagentStatusTracker, emit_ndjson
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE_BY_TOOL = {"cursor": "cursor", "codex": "codex", "pi": "pi"}
+CURSOR_FILTER = ROOT / "libexec" / "cursor_acp_filter.py"
 
 
 def debug_log_path(raw_log):
@@ -113,6 +115,55 @@ def acpx_path():
     return shutil.which("acpx")
 
 
+def find_real_cursor_agent(env=None):
+    env = os.environ if env is None else env
+    explicit = (env.get("CURSOR_ACP_FILTER_REAL_AGENT") or "").strip()
+    if explicit:
+        path = Path(explicit)
+        if path.is_file():
+            return str(path.resolve())
+    path_var = env.get("PATH")
+    for name in ("cursor-agent", "agent"):
+        found = shutil.which(name, path=path_var)
+        if not found:
+            continue
+        resolved = Path(found).resolve()
+        if resolved == CURSOR_FILTER.resolve():
+            continue
+        if _is_cursor_agent_shim(resolved):
+            continue
+        return str(resolved)
+    return None
+
+
+def _is_cursor_agent_shim(path):
+    try:
+        text = path.read_text()
+    except OSError:
+        return False
+    return "cursor_acp_filter.py" in text
+
+
+def cursor_agent_path_env(base_env):
+    """Prepend PATH shims so acpx launches the cursor ACP filter, not raw agent."""
+    real_agent = find_real_cursor_agent(base_env)
+    if not real_agent or not CURSOR_FILTER.is_file():
+        return base_env, None
+    shim_dir = Path(tempfile.mkdtemp(prefix="ajax-cursor-shim-"))
+    shim_body = (
+        "#!/usr/bin/env bash\n"
+        f'exec "{sys.executable}" "{CURSOR_FILTER}" "$@"\n'
+    )
+    for name in ("cursor-agent", "agent"):
+        shim = shim_dir / name
+        shim.write_text(shim_body)
+        shim.chmod(0o755)
+    env = base_env.copy()
+    env["CURSOR_ACP_FILTER_REAL_AGENT"] = real_agent
+    env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
+    return env, shim_dir
+
+
 def build_acpx_base(args, cwd, executable):
     return [
         executable,
@@ -156,6 +207,10 @@ def run_acpx_process(command, args, raw, deadline):
         )
         tracker.event("queued", "Waiting to start")
         tracker.event("starting", "Launching delegate")
+    env = os.environ.copy()
+    shim_dir = None
+    if args.tool == "cursor":
+        env, shim_dir = cursor_agent_path_env(env)
     try:
         process = subprocess.Popen(
             command,
@@ -165,6 +220,7 @@ def run_acpx_process(command, args, raw, deadline):
             start_new_session=True,
             text=True,
             bufsize=1,
+            env=env,
         )
     except OSError as error:
         if tracker:
@@ -240,6 +296,8 @@ def run_acpx_process(command, args, raw, deadline):
                     if event.report_text:
                         report_text = event.report_text
                     if event.kind == "failed":
+                        if args.tool == "cursor" and ignorable_cursor_ext_failure(record):
+                            continue
                         failure = event.error or "acpx ACP event reported failure"
                         failure_reason = "ACP_EVENT_FAILED"
                         terminal = True
@@ -275,6 +333,8 @@ def run_acpx_process(command, args, raw, deadline):
                     stream.close()
             except (AttributeError, OSError):
                 pass
+        if shim_dir is not None:
+            shutil.rmtree(shim_dir, ignore_errors=True)
 
     exit_code = process.returncode if process.returncode is not None else 1
 

@@ -200,7 +200,9 @@ stdout for Ajax Chat while preserving the normal delegate report stream. Raw
 child ACP remains in `run/raw.log`. Nested agents created inside Cursor/Codex/Pi
 are visible only when that harness emits them through ACP; every router-launched
 child gets live status from its acpx JSON stream (not from polling
-`acpx status`).
+`acpx status`). Cursor delegates also wrap `cursor-agent` with
+`libexec/cursor_acp_filter.py` so unsupported `cursor/*` extension RPCs are
+answered locally instead of killing the acpx turn.
 
 Kept because removing them causes concrete failures:
 

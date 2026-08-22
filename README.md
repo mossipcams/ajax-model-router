@@ -86,7 +86,9 @@ after printing `RetriableError: Failed to run step, exceeded max retries`;
 the runner treats that as `ACP_EVENT_FAILED`. If that repeats for one
 `--cwd`, the per-path Cursor worker under `~/.cursor/projects/` is usually
 stuck — remove that project dir and retry. Do not fall back to a native
-harness CLI.
+harness CLI. For `tool=cursor`, `run-delegate` interposes a stdio JSON-RPC
+filter (`libexec/cursor_acp_filter.py`) on `cursor-agent`/`agent` so unsupported
+`cursor/*` extension requests never reach acpx.
 
 ## Subagent status (Ajax Chat)
 

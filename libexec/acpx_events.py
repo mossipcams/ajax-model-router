@@ -65,6 +65,23 @@ def _tool_status(body):
     return ""
 
 
+def ignorable_cursor_ext_failure(record):
+    """True when acpx reports methodNotFound/unsupported for cursor/* extensions."""
+    if not isinstance(record, dict) or "error" not in record:
+        return False
+    error = record.get("error") or {}
+    if not isinstance(error, dict):
+        return False
+    message = str(error.get("message") or "").lower()
+    code = error.get("code")
+    mentions_cursor = "cursor/" in message or "cursor\\" in message
+    if not mentions_cursor and "cursor" not in message:
+        return False
+    if code == -32601 or "method not found" in message or "methodnotfound" in message:
+        return True
+    return "unsupported" in message
+
+
 def normalize_record(record):
     if not isinstance(record, dict):
         return None

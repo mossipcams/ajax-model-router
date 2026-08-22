@@ -38,7 +38,9 @@ prompt for initial work and for every revision.
 The shared runner dispatches through acpx ACP (`cursor` profile) using one-shot `exec`
 only — no saved sessions. The router-selected model is passed as
 `--model "$MODEL"`. Full ACP NDJSON is preserved in the raw log; only the
-validated structured report is printed.
+validated structured report is printed. A stdio JSON-RPC filter on
+`cursor-agent`/`agent` rejects unsupported `cursor/*` extension RPCs before
+acpx sees them.
 
 ```bash
 scripts/run-delegate --tool cursor --model "$MODEL" \

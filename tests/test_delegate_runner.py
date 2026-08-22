@@ -16,6 +16,7 @@ EXTRACT = ROOT / "scripts" / "extract-report"
 RUNNER = ROOT / "scripts" / "run-delegate"
 
 from libexec.acpx_events import normalize_record, parse_jsonl_line
+from libexec.run_delegate import cursor_agent_path_env, find_real_cursor_agent
 
 
 REPORT_COMPLETE = (
@@ -740,6 +741,90 @@ while True:
         self.assertNotIn("sessions ensure", cursor + pi + codex)
         self.assertIn("Do not spawn native Task, best-of-n, or other Cursor subagents.", cursor)
         self.assertIn("Never spawn native Cursor Task, best-of-n, or any other subagent.", router)
+
+    def test_cursor_delegate_wires_acp_filter_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, shim_dir = cursor_agent_path_env(os.environ.copy())
+            if find_real_cursor_agent() is None:
+                self.skipTest("cursor-agent not installed")
+            self.assertIsNotNone(shim_dir)
+            self.assertIn("CURSOR_ACP_FILTER_REAL_AGENT", env)
+            self.assertTrue(env["PATH"].startswith(str(shim_dir)))
+            script = fake_acpx_script(
+                body=(
+                    "from pathlib import Path\n"
+                    "import json, os\n"
+                    'Path(os.environ["ENV_FILE"]).write_text(json.dumps({'
+                    'k: os.environ.get(k, "") for k in ("CURSOR_ACP_FILTER_REAL_AGENT",)}))\n'
+                ),
+                detail="filter env ok",
+            )
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            command = bin_dir / "acpx"
+            command.write_text(script)
+            command.chmod(0o755)
+            env_file = tmp / "child-env.json"
+            env = os.environ.copy()
+            env, shim_dir = cursor_agent_path_env(env)
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+            env["ENV_FILE"] = str(env_file)
+            env["ARGS_FILE"] = str(tmp / "args.json")
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("bounded task")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            captured = json.loads(env_file.read_text())
+            self.assertTrue(captured["CURSOR_ACP_FILTER_REAL_AGENT"])
+
+    def test_cursor_ignores_methodnotfound_for_cursor_task_when_turn_completes(self):
+        report = REPORT_COMPLETE.format(detail="ignored ext error")
+        ext_error = json.dumps({
+            "jsonrpc": "2.0",
+            "id": "ext",
+            "error": {"code": -32601, "message": "Method not found: cursor/task"},
+        })
+        report_event = json.dumps({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": report},
+            },
+        })
+        body = (
+            f"print({json.dumps(ext_error)}, flush=True)\n"
+            f"print({json.dumps(report_event)}, flush=True)\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(tmp, fake_acpx_script(body=body, emit_report=False))
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("bounded task")
+            raw = tmp / "raw.log"
+            report_path = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report_path,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("DETAILS: ignored ext error", report_path.read_text())
 
 
 if __name__ == "__main__":
