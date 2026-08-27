@@ -1,0 +1,14 @@
+# Local SLM semantic analysis — disabled by default (no Ollama dependency in CI).
+
+[slm]
+enabled = false
+endpoint = "http://127.0.0.1:11434/v1/chat/completions"
+model = "local-model"
+timeout_ms = 5000
+max_retries = 1
+confidence_threshold = 0.6
+
+[prompts]
+task_system = "You classify coding tasks. Reply with JSON only matching the schema. No explanation."
+failure_system = "You classify execution failures. Reply with JSON only matching the schema. No explanation."
+max_tokens = 256

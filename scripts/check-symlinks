@@ -146,6 +146,7 @@ for script in \
   "delegate-delta" \
   "check-report" \
   "extract-report" \
+  "analyze-task" \
   "router-log" \
   "router-log-summary"
 do

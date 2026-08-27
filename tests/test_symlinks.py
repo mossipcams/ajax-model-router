@@ -48,6 +48,7 @@ class SymlinkTests(unittest.TestCase):
                 "delegate-snapshot",
                 "delegate-delta",
                 "check-report",
+                "analyze-task",
                 "router-log",
             ):
                 script = target / "scripts" / name
