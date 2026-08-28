@@ -12,16 +12,19 @@ from semantic.config import load_slm_config  # noqa: E402
 
 
 class SemanticConfigTests(unittest.TestCase):
-    def test_default_disabled(self):
+    def test_default_enabled(self):
         cfg = load_slm_config()
-        self.assertFalse(cfg.enabled)
+        self.assertTrue(cfg.enabled)
         self.assertGreater(cfg.timeout_ms, 0)
         self.assertGreaterEqual(cfg.confidence_threshold, 0.0)
 
     def test_endpoint_and_model_present(self):
         cfg = load_slm_config()
         self.assertIn("chat/completions", cfg.endpoint)
-        self.assertTrue(cfg.model)
+        self.assertEqual(cfg.model, "qwen3:4b-instruct")
+        self.assertNotEqual(cfg.model, "local-model")
+        self.assertNotEqual(cfg.model, "qwen3:4b")
+        self.assertNotEqual(cfg.model, "qwen2.5:3b")
 
 
 if __name__ == "__main__":

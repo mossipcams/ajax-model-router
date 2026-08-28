@@ -28,9 +28,9 @@ class SemanticAnalyzerTests(unittest.TestCase):
         with self.assertRaises(SemanticDisabledError):
             analyzer.analyze_task(inp)
 
-    def test_create_analyzer_disabled_by_default(self):
+    def test_create_analyzer_enabled_by_default(self):
         analyzer = create_analyzer()
-        self.assertIsInstance(analyzer, DisabledSemanticAnalyzer)
+        self.assertIsInstance(analyzer, LocalSlmSemanticAnalyzer)
 
     def test_analyze_with_fallback_on_disabled(self):
         features, reason, source = analyze_with_fallback(

@@ -1,4 +1,4 @@
-"""SemanticAnalyzer implementations — SLM is optional and disabled by default."""
+"""SemanticAnalyzer implementations — SLM is a sensor; enabled by default, degrades when unreachable."""
 
 from __future__ import annotations
 

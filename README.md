@@ -14,8 +14,9 @@ Optional semantic analysis (`scripts/analyze-task`, `libexec/semantic/`) collect
 deterministic facts first, may ask a local OpenAI-compatible SLM for typed
 `TaskFeatures`, validates that output strictly, and feeds features into
 deterministic policy. The SLM is a sensor only — it never chooses the final
-model, never validates correctness, and never blocks routing when disabled or
-unavailable. Configuration: `config/semantic_analysis.toml` (disabled by default),
+model, never validates correctness, and never blocks routing when the local SLM
+is unreachable. Configuration: `config/semantic_analysis.toml` (enabled by default;
+degrades gracefully without Ollama),
 `config/model_capabilities.toml`.
 
 ## Layout

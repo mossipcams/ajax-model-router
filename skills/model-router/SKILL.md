@@ -19,7 +19,7 @@ If a delegate skill conflicts with this file, this file wins.
 route → execute → verify
 ```
 
-Semantic analysis (optional, disabled by default) informs routing but never
+Semantic analysis (optional, enabled by default) informs routing but never
 chooses the final model:
 
 ```text
@@ -312,7 +312,8 @@ evidence. Do not persist chain-of-thought.
 ## Semantic analysis (optional)
 
 Local SLM classification is a **sensor only**. Configuration lives in
-`config/semantic_analysis.toml` (`enabled = false` by default). Model
+`config/semantic_analysis.toml` (`enabled = true` by default; degrades when the
+local SLM is unreachable). Model
 capabilities are static in `config/model_capabilities.toml`.
 
 - **Facts first** — explicit model override, changed files, diff size, retry

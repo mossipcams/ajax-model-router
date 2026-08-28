@@ -1,9 +1,9 @@
-# Local SLM semantic analysis — disabled by default (no Ollama dependency in CI).
+# Local SLM semantic analysis — enabled by default; degrades when Ollama is unreachable (no CI dependency).
 
 [slm]
-enabled = false
+enabled = true
 endpoint = "http://127.0.0.1:11434/v1/chat/completions"
-model = "local-model"
+model = "qwen3:4b-instruct" # Instruct 2507 (not thinking qwen3:4b)
 timeout_ms = 5000
 max_retries = 1
 confidence_threshold = 0.6
