@@ -15,7 +15,8 @@ class SemanticConfigTests(unittest.TestCase):
     def test_default_enabled(self):
         cfg = load_slm_config()
         self.assertTrue(cfg.enabled)
-        self.assertGreater(cfg.timeout_ms, 0)
+        self.assertEqual(cfg.timeout_ms, 60000)
+        self.assertEqual(cfg.max_tokens, 2048)
         self.assertGreaterEqual(cfg.confidence_threshold, 0.0)
 
     def test_endpoint_and_model_present(self):

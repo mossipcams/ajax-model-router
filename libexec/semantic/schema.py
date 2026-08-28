@@ -34,6 +34,11 @@ class TaskDomain(str, Enum):
     UNKNOWN = "unknown"
 
 
+TASK_DOMAIN_VALUES: tuple[str, ...] = tuple(domain.value for domain in TaskDomain)
+TASK_DOMAIN_UNION_ECHO = "|".join(TASK_DOMAIN_VALUES)
+ALL_TASK_DOMAIN_VALUES = frozenset(TASK_DOMAIN_VALUES)
+
+
 class Complexity(str, Enum):
     TRIVIAL = "trivial"
     LOW = "low"
@@ -103,6 +108,67 @@ def _enum(cls: type[Enum], value: Any, field_name: str) -> Enum:
         raise ValueError(f"unknown {field_name}: {value!r}") from error
 
 
+def _is_task_domain_union_echo(raw: str) -> bool:
+    return raw == TASK_DOMAIN_UNION_ECHO
+
+
+def _split_domain_tokens(raw_domains: list[Any]) -> list[str]:
+    tokens: list[str] = []
+    for item in raw_domains:
+        if not isinstance(item, str):
+            raise ValueError("domain must be a string")
+        if _is_task_domain_union_echo(item):
+            raise ValueError("domains appears to be schema echo, not classification")
+        if "|" in item:
+            tokens.extend(part for part in item.split("|") if part)
+        else:
+            tokens.append(item)
+    return tokens
+
+
+def _parse_task_domains(raw_domains: Any) -> tuple[TaskDomain, ...]:
+    if not isinstance(raw_domains, list) or not raw_domains:
+        raise ValueError("domains must be a non-empty list")
+
+    tokens = _split_domain_tokens(raw_domains)
+    if not tokens:
+        raise ValueError("domains must contain at least one valid domain")
+
+    parsed: list[TaskDomain] = []
+    seen: set[TaskDomain] = set()
+    for token in tokens:
+        try:
+            domain = TaskDomain(token)
+        except ValueError as error:
+            raise ValueError(f"unknown domain: {token!r}") from error
+        if domain in seen:
+            continue
+        seen.add(domain)
+        parsed.append(domain)
+
+    if not parsed:
+        raise ValueError("domains must contain at least one valid domain")
+    if set(parsed) == ALL_TASK_DOMAIN_VALUES:
+        raise ValueError("domains lists entire enum set, not a classification")
+    return tuple(parsed)
+
+
+def _parse_failure_domain(raw_domain: Any) -> TaskDomain:
+    if not isinstance(raw_domain, str):
+        raise ValueError("domain must be a string")
+    if _is_task_domain_union_echo(raw_domain):
+        raise ValueError("domain appears to be schema echo, not classification")
+    if "|" in raw_domain:
+        tokens = [part for part in raw_domain.split("|") if part]
+        for token in tokens:
+            try:
+                return TaskDomain(token)
+            except ValueError:
+                continue
+        raise ValueError(f"unknown domain: {raw_domain!r}")
+    return TaskDomain(raw_domain)
+
+
 def _bool(value: Any, field_name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{field_name} must be a boolean")
@@ -163,10 +229,7 @@ class TaskFeatures:
             raise ValueError(f"missing required fields: {sorted(missing)}")
         _reject_extra(data, required)
 
-        domains_raw = data["domains"]
-        if not isinstance(domains_raw, list) or not domains_raw:
-            raise ValueError("domains must be a non-empty list")
-        domains = tuple(_enum(TaskDomain, d, "domain") for d in domains_raw)
+        domains = _parse_task_domains(data["domains"])
 
         return cls(
             task_type=_enum(TaskType, data["task_type"], "task_type"),
@@ -242,7 +305,7 @@ class FailureFeatures:
             failure_class=_enum(
                 FailureClass, data["failure_class"], "failure_class"
             ),
-            domain=_enum(TaskDomain, data["domain"], "domain"),
+            domain=_parse_failure_domain(data["domain"]),
             component=component,
             likely_task_related=_bool(
                 data["likely_task_related"], "likely_task_related"

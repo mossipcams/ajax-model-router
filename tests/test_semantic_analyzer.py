@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "libexec"))
 from semantic.analyzer import (  # noqa: E402
     DisabledSemanticAnalyzer,
     LocalSlmSemanticAnalyzer,
+    TASK_SCHEMA_HINT,
     TaskAnalysisInput,
     analyze_with_fallback,
     create_analyzer,
@@ -19,6 +20,7 @@ from semantic.analyzer import (  # noqa: E402
 from semantic.config import SlmConfig  # noqa: E402
 from semantic.errors import SemanticDisabledError  # noqa: E402
 from semantic.facts import RoutingFacts  # noqa: E402
+from semantic.schema import TaskDomain, parse_task_features_json  # noqa: E402
 
 
 class SemanticAnalyzerTests(unittest.TestCase):
@@ -103,6 +105,75 @@ class SemanticAnalyzerTests(unittest.TestCase):
         self.assertIsNone(features)
         self.assertIn("confidence", reason)
         self.assertEqual(source, "slm_rejected")
+
+    def test_schema_echo_domains_rejected(self):
+        schema_echo = """{
+          "task_type": "bug_fix",
+          "domains": ["frontend|rust_backend|mobile_web|git|github|testing|ci|architecture|tooling|unknown"],
+          "complexity": "low",
+          "scope": "localized",
+          "reasoning_depth": "shallow",
+          "uncertainty": "low",
+          "requires_repo_discovery": false,
+          "requires_visual_validation": false,
+          "requires_large_context": false,
+          "likely_context_size": "small",
+          "risk": "low",
+          "confidence": 0.9
+        }"""
+        with self.assertRaises(ValueError) as ctx:
+            parse_task_features_json(schema_echo)
+        self.assertIn("schema echo", str(ctx.exception))
+
+        cfg = SlmConfig(
+            enabled=True,
+            endpoint="http://127.0.0.1:9/v1/chat/completions",
+            model="test",
+            timeout_ms=1000,
+            max_retries=0,
+            confidence_threshold=0.5,
+            task_system="sys",
+            failure_system="sys",
+            max_tokens=64,
+        )
+        analyzer = LocalSlmSemanticAnalyzer(cfg)
+        with mock.patch("semantic.analyzer.chat_completion", return_value=schema_echo):
+            features, reason, source = analyze_with_fallback(
+                analyzer,
+                TaskAnalysisInput(user_request="task", facts=RoutingFacts()),
+            )
+        self.assertIsNone(features)
+        self.assertIn("schema echo", reason)
+        self.assertEqual(source, "slm_failed")
+
+    def test_pipe_joined_domain_subset_parses(self):
+        payload = """{
+          "task_type": "test",
+          "domains": ["frontend|testing"],
+          "complexity": "low",
+          "scope": "localized",
+          "reasoning_depth": "shallow",
+          "uncertainty": "low",
+          "requires_repo_discovery": false,
+          "requires_visual_validation": false,
+          "requires_large_context": false,
+          "likely_context_size": "small",
+          "risk": "low",
+          "confidence": 0.9
+        }"""
+        features = parse_task_features_json(payload)
+        self.assertEqual(
+            features.domains,
+            (TaskDomain.FRONTEND, TaskDomain.TESTING),
+        )
+
+    def test_task_schema_hint_lists_discrete_domains(self):
+        self.assertNotIn(
+            "frontend|rust_backend|mobile_web|git|github|testing|ci|architecture|tooling|unknown",
+            TASK_SCHEMA_HINT,
+        )
+        self.assertIn('"domains": [', TASK_SCHEMA_HINT)
+        self.assertIn('"allowed_values"', TASK_SCHEMA_HINT)
 
 
 if __name__ == "__main__":

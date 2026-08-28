@@ -17,35 +17,80 @@ from semantic.errors import (
 )
 from semantic.facts import RoutingFacts
 from semantic.schema import (
+    ChangeScope,
+    Complexity,
+    ContextSize,
+    FailureClass,
     FailureFeatures,
+    ReasoningDepth,
+    TaskDomain,
     TaskFeatures,
+    TaskRisk,
+    TaskType,
+    Uncertainty,
     parse_failure_features_json,
     parse_task_features_json,
 )
 
-TASK_SCHEMA_HINT = """{
-  "task_type": "bug_fix|feature|refactor|architecture|test|documentation|investigation|code_review|ci_failure|unknown",
-  "domains": ["frontend|rust_backend|mobile_web|git|github|testing|ci|architecture|tooling|unknown"],
-  "complexity": "trivial|low|medium|high",
-  "scope": "localized|feature|cross_module|repo_wide|unknown",
-  "reasoning_depth": "shallow|medium|deep|unknown",
-  "uncertainty": "low|medium|high|unknown",
-  "requires_repo_discovery": false,
-  "requires_visual_validation": false,
-  "requires_large_context": false,
-  "likely_context_size": "small|medium|large|unknown",
-  "risk": "low|medium|high",
-  "confidence": 0.0
-}"""
+TASK_SCHEMA_HINT = json.dumps(
+    {
+        "example": {
+            "task_type": "bug_fix",
+            "domains": ["rust_backend"],
+            "complexity": "medium",
+            "scope": "localized",
+            "reasoning_depth": "medium",
+            "uncertainty": "low",
+            "requires_repo_discovery": False,
+            "requires_visual_validation": False,
+            "requires_large_context": False,
+            "likely_context_size": "small",
+            "risk": "medium",
+            "confidence": 0.85,
+        },
+        "allowed_values": {
+            "task_type": [member.value for member in TaskType],
+            "domains": [member.value for member in TaskDomain],
+            "complexity": [member.value for member in Complexity],
+            "scope": [member.value for member in ChangeScope],
+            "reasoning_depth": [member.value for member in ReasoningDepth],
+            "uncertainty": [member.value for member in Uncertainty],
+            "likely_context_size": [member.value for member in ContextSize],
+            "risk": [member.value for member in TaskRisk],
+        },
+        "notes": {
+            "domains": (
+                "JSON array of one or more discrete values from allowed_values.domains; "
+                "never pipe-join or copy the full enum list"
+            )
+        },
+    },
+    indent=2,
+)
 
-FAILURE_SCHEMA_HINT = """{
-  "failure_class": "test_regression|compile_error|ci_failure|timeout|acp_error|git_conflict|review_rejection|unknown",
-  "domain": "frontend|rust_backend|mobile_web|git|github|testing|ci|architecture|tooling|unknown",
-  "component": "",
-  "likely_task_related": true,
-  "retry_same_model": false,
-  "confidence": 0.0
-}"""
+FAILURE_SCHEMA_HINT = json.dumps(
+    {
+        "example": {
+            "failure_class": "test_regression",
+            "domain": "testing",
+            "component": "tests/test_foo.py",
+            "likely_task_related": True,
+            "retry_same_model": True,
+            "confidence": 0.7,
+        },
+        "allowed_values": {
+            "failure_class": [member.value for member in FailureClass],
+            "domain": [member.value for member in TaskDomain],
+        },
+        "notes": {
+            "domain": (
+                "One discrete value from allowed_values.domain; "
+                "never pipe-join or copy the full enum list"
+            )
+        },
+    },
+    indent=2,
+)
 
 
 @dataclass
