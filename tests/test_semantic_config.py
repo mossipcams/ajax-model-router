@@ -28,6 +28,10 @@ class SemanticConfigTests(unittest.TestCase):
         self.assertNotEqual(cfg.model, "qwen3:4b")
         self.assertNotEqual(cfg.model, "qwen2.5:3b")
 
+    def test_keep_alive_default(self):
+        cfg = load_slm_config()
+        self.assertEqual(cfg.keep_alive, "30m")
+
 
 if __name__ == "__main__":
     unittest.main()

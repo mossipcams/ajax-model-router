@@ -7,6 +7,7 @@ model = "qwen3.5:4b" # Non-thinking classifier (not qwen3:4b-instruct, not qwen3
 timeout_ms = 60000
 max_retries = 1
 confidence_threshold = 0.6
+keep_alive = "30m" # Ollama: keep qwen3.5:4b loaded (server default idle unload ~5m)
 
 [prompts]
 task_system = "You classify coding tasks. Reply with JSON only matching the schema. domains must be a JSON array of discrete enum strings from allowed_values.domains, never pipe-joined. No explanation."

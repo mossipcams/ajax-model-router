@@ -41,6 +41,7 @@ class LocalSlmClientTests(unittest.TestCase):
                 user="task",
                 max_tokens=256,
                 timeout_ms=1000,
+                keep_alive="30m",
                 response_format=response_format,
             )
 
@@ -51,6 +52,7 @@ class LocalSlmClientTests(unittest.TestCase):
         self.assertFalse(sent["stream"])
         self.assertEqual(sent["reasoning_effort"], "none")
         self.assertFalse(sent["think"])
+        self.assertEqual(sent["keep_alive"], "30m")
         self.assertNotIn("tools", sent)
         self.assertNotIn("tool_choice", sent)
         self.assertEqual(sent["response_format"], response_format)
@@ -59,6 +61,36 @@ class LocalSlmClientTests(unittest.TestCase):
         self.assertIn("frontend", domain_items)
         for value in domain_items:
             self.assertNotIn("|", value)
+
+        self.assertEqual(sent["keep_alive"], "30m")
+
+    def test_keep_alive_configurable(self):
+        body = {
+            "choices": [{"message": {"content": '{"task_type":"unknown"}'}}]
+        }
+        response = BytesIO(json.dumps(body).encode())
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout=0):
+            captured["body"] = json.loads(request.data.decode())
+            return mock.Mock(
+                read=lambda: response.read(),
+                __enter__=lambda s: s,
+                __exit__=lambda *a: None,
+            )
+
+        with mock.patch("urllib.request.urlopen", fake_urlopen):
+            chat_completion(
+                endpoint="http://example/v1/chat/completions",
+                model="qwen3.5:4b",
+                system="sys",
+                user="task",
+                max_tokens=256,
+                timeout_ms=1000,
+                keep_alive="1h",
+            )
+
+        self.assertEqual(captured["body"]["keep_alive"], "1h")
 
     def test_chat_completion_extracts_content(self):
         body = {

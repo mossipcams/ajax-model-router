@@ -22,6 +22,7 @@ class SlmConfig:
     task_system: str
     failure_system: str
     max_tokens: int
+    keep_alive: str = "30m"
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ def load_slm_config(path: Path | None = None) -> SlmConfig:
             )
         ),
         max_tokens=int(prompts.get("max_tokens", 256)),
+        keep_alive=str(slm.get("keep_alive", "30m")),
     )
 
 

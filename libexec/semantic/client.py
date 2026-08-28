@@ -18,6 +18,7 @@ def chat_completion(
     user: str,
     max_tokens: int,
     timeout_ms: int,
+    keep_alive: str = "30m",
     response_format: dict[str, Any] | None = None,
 ) -> str:
     """POST /v1/chat/completions and return assistant message content."""
@@ -33,6 +34,7 @@ def chat_completion(
         # Disable Qwen 3.5 thinking / agentic loop on Ollama OpenAI-compatible API.
         "reasoning_effort": "none",
         "think": False,
+        "keep_alive": keep_alive,
     }
     if response_format is not None:
         body["response_format"] = response_format

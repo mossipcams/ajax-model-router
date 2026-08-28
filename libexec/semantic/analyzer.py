@@ -182,6 +182,7 @@ class LocalSlmSemanticAnalyzer:
                     user=user,
                     max_tokens=self.config.max_tokens,
                     timeout_ms=self.config.timeout_ms,
+                    keep_alive=self.config.keep_alive,
                     response_format=response_format,
                 )
             except SemanticError as error:
