@@ -13,9 +13,53 @@ sys.path.insert(0, str(ROOT / "libexec"))
 
 from semantic.client import chat_completion  # noqa: E402
 from semantic.errors import SemanticTimeoutError, SemanticUnavailableError  # noqa: E402
+from semantic.schema import task_features_response_format  # noqa: E402
 
 
 class LocalSlmClientTests(unittest.TestCase):
+    def test_chat_completion_request_is_constrained_classifier(self):
+        body = {
+            "choices": [{"message": {"content": '{"task_type":"unknown"}'}}]
+        }
+        response = BytesIO(json.dumps(body).encode())
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout=0):
+            captured["body"] = json.loads(request.data.decode())
+            return mock.Mock(
+                read=lambda: response.read(),
+                __enter__=lambda s: s,
+                __exit__=lambda *a: None,
+            )
+
+        response_format = task_features_response_format()
+        with mock.patch("urllib.request.urlopen", fake_urlopen):
+            chat_completion(
+                endpoint="http://example/v1/chat/completions",
+                model="qwen3.5:4b",
+                system="sys",
+                user="task",
+                max_tokens=256,
+                timeout_ms=1000,
+                response_format=response_format,
+            )
+
+        sent = captured["body"]
+        self.assertEqual(sent["model"], "qwen3.5:4b")
+        self.assertEqual(sent["temperature"], 0.0)
+        self.assertLessEqual(sent["max_tokens"], 256)
+        self.assertFalse(sent["stream"])
+        self.assertEqual(sent["reasoning_effort"], "none")
+        self.assertFalse(sent["think"])
+        self.assertNotIn("tools", sent)
+        self.assertNotIn("tool_choice", sent)
+        self.assertEqual(sent["response_format"], response_format)
+        schema = response_format["json_schema"]["schema"]
+        domain_items = schema["properties"]["domains"]["items"]["enum"]
+        self.assertIn("frontend", domain_items)
+        for value in domain_items:
+            self.assertNotIn("|", value)
+
     def test_chat_completion_extracts_content(self):
         body = {
             "choices": [{"message": {"content": '{"task_type":"unknown"}'}}]

@@ -46,7 +46,7 @@ def load_slm_config(path: Path | None = None) -> SlmConfig:
     return SlmConfig(
         enabled=bool(slm.get("enabled", False)),
         endpoint=str(slm.get("endpoint", "http://127.0.0.1:11434/v1/chat/completions")),
-        model=str(slm.get("model", "qwen3:4b-instruct")),
+        model=str(slm.get("model", "qwen3.5:4b")),
         timeout_ms=int(slm.get("timeout_ms", 60000)),
         max_retries=int(slm.get("max_retries", 1)),
         confidence_threshold=float(slm.get("confidence_threshold", 0.6)),
@@ -62,7 +62,7 @@ def load_slm_config(path: Path | None = None) -> SlmConfig:
                 "You classify execution failures. Reply with JSON only. No explanation.",
             )
         ),
-        max_tokens=int(prompts.get("max_tokens", 2048)),
+        max_tokens=int(prompts.get("max_tokens", 256)),
     )
 
 

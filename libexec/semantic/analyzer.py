@@ -28,8 +28,10 @@ from semantic.schema import (
     TaskRisk,
     TaskType,
     Uncertainty,
+    failure_features_response_format,
     parse_failure_features_json,
     parse_task_features_json,
+    task_features_response_format,
 )
 
 TASK_SCHEMA_HINT = json.dumps(
@@ -139,7 +141,9 @@ class LocalSlmSemanticAnalyzer:
         if not self.config.enabled:
             raise SemanticDisabledError("semantic analysis disabled")
         user = self._task_prompt(input_data)
-        content = self._request(self.config.task_system, user)
+        content = self._request(
+            self.config.task_system, user, task_features_response_format()
+        )
         features = self._parse_task(content)
         if features.confidence < self.config.confidence_threshold:
             raise SemanticLowConfidenceError(
@@ -151,7 +155,9 @@ class LocalSlmSemanticAnalyzer:
         if not self.config.enabled:
             raise SemanticDisabledError("semantic analysis disabled")
         user = self._failure_prompt(input_data)
-        content = self._request(self.config.failure_system, user)
+        content = self._request(
+            self.config.failure_system, user, failure_features_response_format()
+        )
         features = self._parse_failure(content)
         if features.confidence < self.config.confidence_threshold:
             raise SemanticLowConfidenceError(
@@ -159,7 +165,12 @@ class LocalSlmSemanticAnalyzer:
             )
         return features
 
-    def _request(self, system: str, user: str) -> str:
+    def _request(
+        self,
+        system: str,
+        user: str,
+        response_format: dict[str, object],
+    ) -> str:
         last_error: Exception | None = None
         attempts = max(self.config.max_retries, 0) + 1
         for _ in range(attempts):
@@ -171,6 +182,7 @@ class LocalSlmSemanticAnalyzer:
                     user=user,
                     max_tokens=self.config.max_tokens,
                     timeout_ms=self.config.timeout_ms,
+                    response_format=response_format,
                 )
             except SemanticError as error:
                 last_error = error

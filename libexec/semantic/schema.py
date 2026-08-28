@@ -359,3 +359,93 @@ def parse_failure_features_json(text: str) -> FailureFeatures:
     except json.JSONDecodeError as error:
         raise ValueError(f"malformed JSON: {error}") from error
     return FailureFeatures.from_dict(data)
+
+
+def _enum_schema(enum_cls: type[Enum]) -> dict[str, Any]:
+    return {"type": "string", "enum": [member.value for member in enum_cls]}
+
+
+def task_features_json_schema() -> dict[str, Any]:
+    """OpenAI strict JSON schema for TaskFeatures (discrete enums, no pipe unions)."""
+    return {
+        "type": "object",
+        "properties": {
+            "task_type": _enum_schema(TaskType),
+            "domains": {
+                "type": "array",
+                "items": _enum_schema(TaskDomain),
+                "minItems": 1,
+            },
+            "complexity": _enum_schema(Complexity),
+            "scope": _enum_schema(ChangeScope),
+            "reasoning_depth": _enum_schema(ReasoningDepth),
+            "uncertainty": _enum_schema(Uncertainty),
+            "requires_repo_discovery": {"type": "boolean"},
+            "requires_visual_validation": {"type": "boolean"},
+            "requires_large_context": {"type": "boolean"},
+            "likely_context_size": _enum_schema(ContextSize),
+            "risk": _enum_schema(TaskRisk),
+            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        },
+        "required": [
+            "task_type",
+            "domains",
+            "complexity",
+            "scope",
+            "reasoning_depth",
+            "uncertainty",
+            "requires_repo_discovery",
+            "requires_visual_validation",
+            "requires_large_context",
+            "likely_context_size",
+            "risk",
+            "confidence",
+        ],
+        "additionalProperties": False,
+    }
+
+
+def failure_features_json_schema() -> dict[str, Any]:
+    """OpenAI strict JSON schema for FailureFeatures (discrete enums, no pipe unions)."""
+    return {
+        "type": "object",
+        "properties": {
+            "failure_class": _enum_schema(FailureClass),
+            "domain": _enum_schema(TaskDomain),
+            "component": {"type": "string"},
+            "likely_task_related": {"type": "boolean"},
+            "retry_same_model": {"type": "boolean"},
+            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        },
+        "required": [
+            "failure_class",
+            "domain",
+            "component",
+            "likely_task_related",
+            "retry_same_model",
+            "confidence",
+        ],
+        "additionalProperties": False,
+    }
+
+
+def task_features_response_format() -> dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "TaskFeatures",
+            "strict": True,
+            "schema": task_features_json_schema(),
+        },
+    }
+
+
+def failure_features_response_format() -> dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "FailureFeatures",
+            "strict": True,
+            "schema": failure_features_json_schema(),
+        },
+    }

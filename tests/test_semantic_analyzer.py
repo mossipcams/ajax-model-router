@@ -20,7 +20,7 @@ from semantic.analyzer import (  # noqa: E402
 from semantic.config import SlmConfig  # noqa: E402
 from semantic.errors import SemanticDisabledError  # noqa: E402
 from semantic.facts import RoutingFacts  # noqa: E402
-from semantic.schema import TaskDomain, parse_task_features_json  # noqa: E402
+from semantic.schema import TaskDomain, parse_task_features_json, task_features_response_format  # noqa: E402
 
 
 class SemanticAnalyzerTests(unittest.TestCase):
@@ -166,6 +166,42 @@ class SemanticAnalyzerTests(unittest.TestCase):
             features.domains,
             (TaskDomain.FRONTEND, TaskDomain.TESTING),
         )
+
+    def test_analyzer_passes_strict_json_schema_to_client(self):
+        cfg = SlmConfig(
+            enabled=True,
+            endpoint="http://127.0.0.1:9/v1/chat/completions",
+            model="qwen3.5:4b",
+            timeout_ms=1000,
+            max_retries=0,
+            confidence_threshold=0.5,
+            task_system="sys",
+            failure_system="sys",
+            max_tokens=256,
+        )
+        good = """{
+          "task_type": "bug_fix",
+          "domains": ["tooling"],
+          "complexity": "low",
+          "scope": "localized",
+          "reasoning_depth": "shallow",
+          "uncertainty": "low",
+          "requires_repo_discovery": false,
+          "requires_visual_validation": false,
+          "requires_large_context": false,
+          "likely_context_size": "small",
+          "risk": "low",
+          "confidence": 0.9
+        }"""
+        analyzer = LocalSlmSemanticAnalyzer(cfg)
+        with mock.patch("semantic.analyzer.chat_completion", return_value=good) as mocked:
+            analyzer.analyze_task(
+                TaskAnalysisInput(user_request="task", facts=RoutingFacts())
+            )
+        _, kwargs = mocked.call_args
+        self.assertEqual(kwargs["model"], "qwen3.5:4b")
+        self.assertLessEqual(kwargs["max_tokens"], 256)
+        self.assertEqual(kwargs["response_format"], task_features_response_format())
 
     def test_task_schema_hint_lists_discrete_domains(self):
         self.assertNotIn(

@@ -18,9 +18,10 @@ def chat_completion(
     user: str,
     max_tokens: int,
     timeout_ms: int,
+    response_format: dict[str, Any] | None = None,
 ) -> str:
     """POST /v1/chat/completions and return assistant message content."""
-    body = {
+    body: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": system},
@@ -29,7 +30,12 @@ def chat_completion(
         "max_tokens": max_tokens,
         "temperature": 0.0,
         "stream": False,
+        # Disable Qwen 3.5 thinking / agentic loop on Ollama OpenAI-compatible API.
+        "reasoning_effort": "none",
+        "think": False,
     }
+    if response_format is not None:
+        body["response_format"] = response_format
     payload = json.dumps(body).encode("utf-8")
     request = urllib.request.Request(
         endpoint,

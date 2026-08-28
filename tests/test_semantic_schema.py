@@ -14,8 +14,10 @@ from semantic.schema import (  # noqa: E402
     TaskDomain,
     TaskFeatures,
     TaskType,
+    failure_features_json_schema,
     parse_failure_features_json,
     parse_task_features_json,
+    task_features_json_schema,
 )
 
 
@@ -84,6 +86,21 @@ class SemanticSchemaTests(unittest.TestCase):
         }"""
         features = parse_failure_features_json(raw)
         self.assertEqual(features.component, "tests/test_foo.py")
+
+    def test_task_json_schema_uses_discrete_domain_enums(self):
+        schema = task_features_json_schema()
+        domain_items = schema["properties"]["domains"]["items"]["enum"]
+        self.assertIsInstance(domain_items, list)
+        self.assertGreater(len(domain_items), 1)
+        for value in domain_items:
+            self.assertNotIn("|", value)
+
+    def test_failure_json_schema_uses_discrete_domain_enum(self):
+        schema = failure_features_json_schema()
+        domain_enum = schema["properties"]["domain"]["enum"]
+        self.assertIsInstance(domain_enum, list)
+        for value in domain_enum:
+            self.assertNotIn("|", value)
 
 
 if __name__ == "__main__":
