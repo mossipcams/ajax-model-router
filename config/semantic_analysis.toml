@@ -1,0 +1,15 @@
+# Local SLM semantic analysis — enabled by default; degrades when Ollama is unreachable (no CI dependency).
+
+[slm]
+enabled = true
+endpoint = "http://127.0.0.1:11434/v1/chat/completions"
+model = "qwen3.5:4b" # Non-thinking classifier (not qwen3:4b-instruct, not qwen3:4b)
+timeout_ms = 60000
+max_retries = 1
+confidence_threshold = 0.6
+keep_alive = "30m" # Ollama: keep qwen3.5:4b loaded (server default idle unload ~5m)
+
+[prompts]
+task_system = "You classify coding tasks. Reply with JSON only matching the schema. domains must be a JSON array of discrete enum strings from allowed_values.domains, never pipe-joined. No explanation."
+failure_system = "You classify execution failures. Reply with JSON only matching the schema. domain must be one discrete enum string from allowed_values.domain, never pipe-joined. No explanation."
+max_tokens = 256

@@ -430,6 +430,12 @@ def log_outcome(ctx):
     if ctx.get("outcome_log"):
         command[1:1] = ["--log", ctx["outcome_log"]]
 
+    routing = ctx.get("routing_explanation") or ctx.get("routing_event")
+    if routing:
+        if isinstance(routing, dict):
+            routing = json.dumps(routing, sort_keys=True)
+        command.extend(["--routing-event", routing])
+
     result = subprocess.run(command, text=True, capture_output=True)
     if result.returncode != 0:
         # Logging must not block execution.

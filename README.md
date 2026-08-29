@@ -10,10 +10,24 @@ pull requests.
 
 Pipeline: **route → execute → verify**.
 
+Optional semantic analysis (`scripts/analyze-task`, `libexec/semantic/`) collects
+deterministic facts first, may ask a local OpenAI-compatible SLM for typed
+`TaskFeatures`, validates that output strictly, and feeds features into
+deterministic policy. The SLM is a sensor only — it never chooses the final
+model, never validates correctness, and never blocks routing when the local SLM
+is unreachable. Configuration: `config/semantic_analysis.toml` (enabled by default;
+degrades gracefully without Ollama),
+`config/model_capabilities.toml`.
+
 ## Layout
 
 - `skills/model-router/` — control plane: execution decision, model registry,
-  route table, outcome dispatch, risk-based review, outcome logging.
+  route table, outcome dispatch, risk-based review, outcome logging, semantic
+  policy integration.
+- `libexec/semantic/` — replaceable semantic analysis package (`Disabled` and
+  `LocalSlm` analyzers).
+- `config/semantic_analysis.toml`, `config/model_capabilities.toml` — SLM and
+  capability registry (stdlib TOML).
 - `skills/cursor-delegate`, `pi-delegate`, `codex-delegate` — thin tool
   adapters. Shared rules live only in the router.
 - `.claude/skills/`, `.codex/skills/` — symlink views over the canonical
@@ -32,7 +46,8 @@ scripts/check-contracts
 
 Install wires skill symlinks under `.cursor` / `.codex` / `.claude` and also
 links the execute helpers (`scripts/run-delegate`, `run-transaction`,
-`delegate-snapshot`, `delegate-delta`, `check-report`, `router-log`, …) into
+`delegate-snapshot`, `delegate-delta`, `check-report`, `analyze-task`,
+`router-log`, …) into
 the target's `scripts/` so a task worktree can run them as written. Re-run
 install for each worktree that needs dispatch.
 
@@ -58,7 +73,9 @@ scripts/install-symlinks --target ../ajax-cli --force
 before_execute → snapshot → execute → after_execute → log_outcome
 ```
 
-Outcome logging (`scripts/router-log`) is lightweight and non-blocking.
+Outcome logging (`scripts/router-log`) is lightweight and non-blocking. Optional
+semantic routing events append to `routing-events.jsonl` beside the TSV via
+`--routing-event`.
 
 ## Expected routing
 

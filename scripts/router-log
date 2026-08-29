@@ -4,7 +4,7 @@ set -euo pipefail
 
 log="${HOME}/.ajax-router/outcome.tsv"
 requested_agent="" actual_agent="" success="" revision_needed=""
-escaped_defect="" cost="" duration=""
+escaped_defect="" cost="" duration="" routing_event=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,6 +16,7 @@ while [[ $# -gt 0 ]]; do
     --escaped-defect) escaped_defect="${2:?}" ; shift 2 ;;
     --cost) cost="${2:?}" ; shift 2 ;;
     --duration) duration="${2:?}" ; shift 2 ;;
+    --routing-event) routing_event="${2:?}" ; shift 2 ;;
     *) echo "error: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -66,3 +67,27 @@ printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
   v1 "$timestamp" "$requested_agent" "$actual_agent" \
   "${success:-}" "${revision_needed:-}" "${escaped_defect:-}" \
   "${cost:-}" "${duration:-}" >> "$log"
+
+if [[ -n "$routing_event" ]]; then
+  events_log="$(dirname "$log")/routing-events.jsonl"
+  python3 - "$events_log" "$timestamp" "$requested_agent" "$actual_agent" "$routing_event" <<'PY'
+import json, sys
+path, ts, requested, actual, raw = sys.argv[1:6]
+try:
+    payload = json.loads(raw)
+except json.JSONDecodeError as exc:
+    print(f"error: invalid --routing-event JSON: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+record = {
+    "timestamp": ts,
+    "requested_agent": requested,
+    "actual_agent": actual,
+}
+if isinstance(payload, dict):
+    record.update(payload)
+else:
+    record["payload"] = payload
+with open(path, "a", encoding="utf-8") as handle:
+    handle.write(json.dumps(record, sort_keys=True) + "\n")
+PY
+fi

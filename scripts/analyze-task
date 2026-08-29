@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
+export PYTHONPATH="$ROOT/libexec${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -c "import sys; from semantic import analyze_task_main; raise SystemExit(analyze_task_main(sys.argv[1:]))" "$@"

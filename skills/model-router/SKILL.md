@@ -19,7 +19,17 @@ If a delegate skill conflicts with this file, this file wins.
 route → execute → verify
 ```
 
-1. **Route** — emit one `EXECUTION` decision.
+Semantic analysis (optional, enabled by default) informs routing but never
+chooses the final model:
+
+```text
+facts → optional SLM → validated features → deterministic policy → delegate
+```
+
+1. **Route** — collect deterministic facts; optionally classify via a local
+   OpenAI-compatible SLM (`scripts/analyze-task`); validate typed
+   `TaskFeatures`; apply deterministic policy and registry keys; emit one
+   `EXECUTION` decision. SLM failure never blocks routing.
 2. **Execute** — run under the selected delegate, model, and scope. `R-PARENT` is
    Q&A and planning only — never parent-local implementation writes.
 3. **Verify** — accept, revise, discard, or escalate using risk-proportional review.
@@ -106,6 +116,17 @@ acceptance — not for writing the change when a delegate can do it.
 ## Route
 
 Follow the first matching rule. Copy a selected registry value into `MODEL`.
+
+**Required for bounded implementation routes:** before emitting `EXECUTION`, run
+`scripts/analyze-task` with the task payload (stdin JSON or `--input`). Copy
+`AGENT`, `MODEL`, `RISK`, `REASON`, and `FALLBACK` from `output.execution` —
+deterministic policy selects the executor and registry model; never copy model
+choices from raw SLM fields. When present, also copy `SCOPE` and `VERIFY` from
+the same block. SLM failure still emits `execution` via the existing fallback;
+parents copy that block unchanged. Do **not** call `analyze-task` from
+`run-transaction`, `run-delegate`, or execute — routing must finish before
+dispatch. Skip `analyze-task` for `R-PARENT` (pure Q&A or architecture
+planning with no implementation write).
 
 | Rule | Condition | `AGENT` | Model key | Notes |
 |---|---|---|---|---|
@@ -295,3 +316,28 @@ duration:
 
 Use `scripts/router-log`. Logging must not block execution; a log write
 failure is a warning, not a hard stop.
+
+Optional semantic routing metadata may be recorded via
+`--routing-event` (JSON) into a `routing-events.jsonl` sidecar beside the TSV.
+The SLM has no final routing authority; derived scores stay separate from raw
+evidence. Do not persist chain-of-thought.
+
+## Semantic analysis (optional)
+
+Local SLM classification is a **sensor only**. Configuration lives in
+`config/semantic_analysis.toml` (`enabled = true` by default; degrades when the
+local SLM is unreachable). Model
+capabilities are static in `config/model_capabilities.toml`.
+
+- **Facts first** — explicit model override, changed files, diff size, retry
+  state, and other objective inputs are collected before any SLM call.
+- **Validated features** — `TaskFeatures`, `FailureFeatures`, and
+  `ContextRequirements` use typed enums; invalid SLM output is rejected.
+- **Deterministic policy** — registry keys (`CODEX`, `CURSOR`, `MINIMAX`, `GLM`)
+  select the executor; hard rules (explicit override, architecture + high
+  complexity, retry escalation, SKILL route-table exceptions) cannot be
+  overridden by SLM output.
+- **Graceful degradation** — disabled, timeout, invalid JSON, low confidence, or
+  unreachable SLM → continue with deterministic default routing.
+- **Explanation** — `scripts/analyze-task` emits structured fields (facts,
+  features, matched rule, model, context strategy); no chain-of-thought.
