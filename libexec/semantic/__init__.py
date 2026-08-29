@@ -18,8 +18,12 @@ from semantic.analyzer import (
 )
 from semantic.capabilities import CapabilityRegistry
 from semantic.config import SlmConfig, load_capabilities, load_slm_config
-from semantic.context import derive_context_requirements
-from semantic.explain import build_explanation
+from semantic.context import (
+    derive_context_requirements,
+    derive_execution_scope,
+    derive_execution_verify,
+)
+from semantic.explain import build_execution_block, build_explanation
 from semantic.facts import RoutingFacts, collect_facts
 from semantic.failure import failure_input_from_dict, normalize_failure
 from semantic.policy import RoutingDecision, select_route
@@ -39,14 +43,18 @@ __all__ = [
     "TaskFeatures",
     "analyze_task_main",
     "analyze_with_fallback",
+    "build_execution_block",
     "build_explanation",
     "collect_facts",
     "create_analyzer",
     "derive_context_requirements",
+    "derive_execution_scope",
+    "derive_execution_verify",
     "failure_input_from_dict",
     "load_capabilities",
     "load_slm_config",
     "normalize_failure",
+    "run_analyze_task",
     "select_route",
 ]
 
@@ -68,12 +76,16 @@ def _load_cli_payload(args) -> dict:
     return {}
 
 
-def analyze_task_main(argv=None) -> int:
-    """CLI entry: facts → optional SLM → policy → JSON decision + explanation."""
-    args = _parse_cli_args(argv)
-    payload = _load_cli_payload(args)
+def run_analyze_task(
+    payload: dict | None = None,
+    *,
+    analyzer: SemanticAnalyzer | None = None,
+) -> dict:
+    """Facts → optional SLM → policy → decision, explanation, and execution block."""
+    payload = payload or {}
     facts = collect_facts(payload)
-    analyzer = create_analyzer()
+    if analyzer is None:
+        analyzer = create_analyzer()
     task_input = TaskAnalysisInput(
         user_request=facts.user_request or str(payload.get("task") or ""),
         facts=facts,
@@ -97,17 +109,23 @@ def analyze_task_main(argv=None) -> int:
         fallback_reason=fallback_reason,
         analysis_source=analysis_source,
     )
-    output = {
+    return {
         "decision": decision.to_dict(),
         "explanation": explanation,
-        "execution": {
-            "AGENT": decision.agent,
-            "MODEL": decision.model_id,
-            "RISK": decision.risk,
-            "REASON": decision.reason,
-            "FALLBACK": decision.fallback,
-        },
+        "execution": build_execution_block(
+            decision=decision,
+            context=context,
+            facts=facts,
+            features=features,
+        ),
     }
+
+
+def analyze_task_main(argv=None) -> int:
+    """CLI entry: facts → optional SLM → policy → JSON decision + explanation."""
+    args = _parse_cli_args(argv)
+    payload = _load_cli_payload(args)
+    output = run_analyze_task(payload)
     indent = 2 if args.pretty else None
     print(json.dumps(output, indent=indent, sort_keys=True))
     return 0

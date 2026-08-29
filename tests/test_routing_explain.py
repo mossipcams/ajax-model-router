@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "libexec"))
 
 from semantic.context import derive_context_requirements  # noqa: E402
-from semantic.explain import build_explanation  # noqa: E402
+from semantic.explain import build_execution_block, build_explanation  # noqa: E402
 from semantic.facts import RoutingFacts  # noqa: E402
 from semantic.policy import select_route  # noqa: E402
 
@@ -80,6 +80,23 @@ class RoutingExplainTests(unittest.TestCase):
         )
         self.assertEqual(explanation["slm_confidence"], 0.92)
         self.assertEqual(explanation["task_features"]["task_type"], "bug_fix")
+
+    def test_execution_block_omits_empty_scope_verify(self):
+        facts = RoutingFacts(user_request="fix login bug")
+        decision = select_route(None, facts)
+        context = derive_context_requirements(None, facts)
+        block = build_execution_block(
+            decision=decision,
+            context=context,
+            facts=facts,
+            features=None,
+        )
+        for key in ("AGENT", "MODEL", "RISK", "REASON", "FALLBACK"):
+            self.assertIn(key, block)
+        if "SCOPE" in block:
+            self.assertTrue(block["SCOPE"])
+        if "VERIFY" in block:
+            self.assertTrue(block["VERIFY"])
 
 
 if __name__ == "__main__":

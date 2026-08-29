@@ -117,6 +117,17 @@ acceptance — not for writing the change when a delegate can do it.
 
 Follow the first matching rule. Copy a selected registry value into `MODEL`.
 
+**Required for bounded implementation routes:** before emitting `EXECUTION`, run
+`scripts/analyze-task` with the task payload (stdin JSON or `--input`). Copy
+`AGENT`, `MODEL`, `RISK`, `REASON`, and `FALLBACK` from `output.execution` —
+deterministic policy selects the executor and registry model; never copy model
+choices from raw SLM fields. When present, also copy `SCOPE` and `VERIFY` from
+the same block. SLM failure still emits `execution` via the existing fallback;
+parents copy that block unchanged. Do **not** call `analyze-task` from
+`run-transaction`, `run-delegate`, or execute — routing must finish before
+dispatch. Skip `analyze-task` for `R-PARENT` (pure Q&A or architecture
+planning with no implementation write).
+
 | Rule | Condition | `AGENT` | Model key | Notes |
 |---|---|---|---|---|
 | `R-PARENT` | Pure Q&A or architecture planning (no implementation write) | `parent` | none | Local only |
