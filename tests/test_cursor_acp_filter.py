@@ -1,9 +1,12 @@
 import json
 import os
 import select
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -14,7 +17,10 @@ sys.path.insert(0, str(ROOT / "libexec"))
 from cursor_acp_filter import (  # noqa: E402
     build_result,
     is_cursor_ext_request,
+    is_unknown_cursor_ext_request,
     iter_fd_lines,
+    write_fd,
+    PipeFailure,
 )
 from run_delegate import cursor_agent_path_env  # noqa: E402
 
@@ -45,6 +51,50 @@ elif mode == "forward":
     client_line = sys.stdin.readline()
     Path = __import__("pathlib").Path
     Path(__import__("os").environ["CLIENT_LINE_FILE"]).write_text(client_line)
+elif mode == "unknown_cursor":
+    print(json.dumps({
+        "jsonrpc": "2.0",
+        "id": 42,
+        "method": "cursor/unknown_method",
+        "params": {},
+    }), flush=True)
+    reply = json.loads(sys.stdin.readline())
+    Path = __import__("pathlib").Path
+    Path(__import__("os").environ["REPLY_FILE"]).write_text(json.dumps(reply))
+elif mode == "notify_cursor":
+    print(json.dumps({
+        "jsonrpc": "2.0",
+        "method": "cursor/unknown_method",
+        "params": {"note": True},
+    }), flush=True)
+    print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"stopReason": "end_turn"}}), flush=True)
+elif mode == "nonzero":
+    print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"stopReason": "end_turn"}}), flush=True)
+    sys.exit(17)
+elif mode == "slow_drain":
+    import time
+    for line in sys.stdin:
+        pass
+    for i in range(80):
+        print(json.dumps({"jsonrpc": "2.0", "method": "session/update", "params": {"i": i}}), flush=True)
+        time.sleep(0.03)
+elif mode == "sigterm_agent":
+    import signal
+    import time
+    Path = __import__("pathlib").Path
+    Path(__import__("os").environ["AGENT_PID_FILE"]).write_text(str(__import__("os").getpid()))
+    signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+    while True:
+        time.sleep(0.05)
+elif mode == "ignore_eof":
+    import time
+    Path = __import__("pathlib").Path
+    Path(__import__("os").environ["AGENT_PID_FILE"]).write_text(str(__import__("os").getpid()))
+    i = 0
+    while True:
+        print(json.dumps({"jsonrpc": "2.0", "method": "session/update", "params": {"i": i}}), flush=True)
+        i += 1
+        time.sleep(0.02)
 """
 
 
@@ -106,6 +156,194 @@ class CursorAcpFilterTests(unittest.TestCase):
         todos = build_result("cursor/update_todos", {"todos": [{"id": "1", "content": "x"}]})
         self.assertEqual(todos["outcome"]["outcome"], "accepted")
         self.assertEqual(len(todos["outcome"]["todos"]), 1)
+
+    def test_is_unknown_cursor_ext_request(self):
+        self.assertTrue(
+            is_unknown_cursor_ext_request(
+                {"jsonrpc": "2.0", "id": 1, "method": "cursor/unknown"}
+            )
+        )
+        self.assertFalse(
+            is_unknown_cursor_ext_request(
+                {"jsonrpc": "2.0", "method": "cursor/unknown"}
+            )
+        )
+        self.assertFalse(
+            is_unknown_cursor_ext_request(
+                {"jsonrpc": "2.0", "id": 1, "method": "cursor/task"}
+            )
+        )
+
+    def test_iter_fd_lines_raises_on_oserror(self):
+        read_fd, write_fd = os.pipe()
+        os.close(read_fd)
+        os.close(write_fd)
+        with self.assertRaises(PipeFailure):
+            next(iter(iter_fd_lines(read_fd)), None)
+
+    def test_write_fd_raises_on_broken_pipe(self):
+        read_fd, writer_fd = os.pipe()
+        os.close(read_fd)
+        lock = threading.Lock()
+        with self.assertRaises(PipeFailure):
+            write_fd(writer_fd, "x", lock)
+        os.close(writer_fd)
+
+    def test_filter_unknown_cursor_method_returns_method_not_supported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            agent = tmp / "fake-agent"
+            agent.write_text(FAKE_AGENT)
+            agent.chmod(0o755)
+            reply_file = tmp / "reply.json"
+            filter_proc = self._spawn_filter(agent, "unknown_cursor", {"REPLY_FILE": str(reply_file)})
+            try:
+                self._wait(filter_proc)
+                stderr = filter_proc.stderr.read()
+            finally:
+                try:
+                    filter_proc.stdin.close()
+                except OSError:
+                    pass
+            self.assertEqual(filter_proc.returncode, 0, stderr)
+            reply = json.loads(reply_file.read_text())
+            self.assertEqual(reply["error"]["code"], -32601)
+            self.assertIn("cursor/unknown_method", reply["error"]["message"])
+            self.assertIn("[cursor-acp-filter]", stderr)
+            self.assertNotIn("[cursor-acp-filter]", filter_proc.stdout.read())
+
+    def test_filter_forwards_cursor_notification_without_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            agent = tmp / "fake-agent"
+            agent.write_text(FAKE_AGENT)
+            agent.chmod(0o755)
+            filter_proc = self._spawn_filter(agent, "notify_cursor", {})
+            stdout_lines = []
+            try:
+                while True:
+                    line = self._readline(filter_proc, timeout=10)
+                    if not line:
+                        break
+                    stdout_lines.append(line)
+            finally:
+                filter_proc.stdin.close()
+                self._wait(filter_proc)
+            forwarded = [json.loads(line) for line in stdout_lines if line.strip()]
+            methods = [row.get("method") for row in forwarded]
+            self.assertIn("cursor/unknown_method", methods)
+            self.assertIn("end_turn", json.dumps(forwarded))
+
+    def test_filter_propagates_nonzero_child_exit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            agent = tmp / "fake-agent"
+            agent.write_text(FAKE_AGENT)
+            agent.chmod(0o755)
+            filter_proc = self._spawn_filter(agent, "nonzero", {})
+            try:
+                self._wait(filter_proc)
+                stderr = filter_proc.stderr.read()
+            finally:
+                try:
+                    filter_proc.stdin.close()
+                except OSError:
+                    pass
+            self.assertEqual(filter_proc.returncode, 17, stderr)
+            self.assertIn("[cursor-acp-filter]", stderr)
+            self.assertIn("exit_code=17", stderr)
+
+    def test_filter_drains_slow_agent_output_before_exit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            agent = tmp / "fake-agent"
+            agent.write_text(FAKE_AGENT)
+            agent.chmod(0o755)
+            env = os.environ.copy()
+            env["CURSOR_ACP_FILTER_REAL_AGENT"] = str(agent)
+            env["CURSOR_ACP_FILTER_DRAIN_TIMEOUT"] = "30"
+            env["PYTHONUNBUFFERED"] = "1"
+            filter_proc = subprocess.Popen(
+                [sys.executable, str(ROOT / "libexec" / "cursor_acp_filter.py"), "slow_drain"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+            try:
+                filter_proc.stdin.close()
+                stdout, stderr = filter_proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                filter_proc.kill()
+                stdout, stderr = filter_proc.communicate()
+                self.fail(f"filter hung: stdout={stdout!r} stderr={stderr!r}")
+            stdout_lines = [line for line in stdout.splitlines(keepends=True) if line.strip()]
+            self.assertEqual(filter_proc.returncode, 0, stderr)
+            self.assertEqual(len(stdout_lines), 80, stderr)
+
+    def test_filter_terminates_child_after_client_pipe_break(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            agent = tmp / "fake-agent"
+            agent.write_text(FAKE_AGENT)
+            agent.chmod(0o755)
+            agent_pid_file = tmp / "agent.pid"
+            filter_proc = self._spawn_filter(
+                agent, "ignore_eof", {"AGENT_PID_FILE": str(agent_pid_file)}
+            )
+            for _ in range(50):
+                if agent_pid_file.exists():
+                    break
+                time.sleep(0.02)
+            self.assertTrue(agent_pid_file.exists())
+            try:
+                filter_proc.stdout.close()
+                filter_proc.stdin.close()
+                self._wait(filter_proc, timeout=10)
+            finally:
+                pass
+            stderr = filter_proc.stderr.read()
+            self.assertEqual(filter_proc.returncode, 1, stderr)
+            self.assertIn("[cursor-acp-filter]", stderr)
+            agent_pid = int(agent_pid_file.read_text())
+            alive = subprocess.run(
+                ["ps", "-p", str(agent_pid), "-o", "stat="],
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(alive.returncode, 0, alive.stdout)
+
+    def test_filter_sigterm_does_not_orphan_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            agent = tmp / "fake-agent"
+            agent.write_text(FAKE_AGENT)
+            agent.chmod(0o755)
+            agent_pid_file = tmp / "agent.pid"
+            filter_proc = self._spawn_filter(
+                agent, "sigterm_agent", {"AGENT_PID_FILE": str(agent_pid_file)}
+            )
+            for _ in range(50):
+                if agent_pid_file.exists():
+                    break
+                time.sleep(0.02)
+            self.assertTrue(agent_pid_file.exists())
+            filter_proc.send_signal(signal.SIGTERM)
+            try:
+                self._wait(filter_proc, timeout=10)
+            finally:
+                try:
+                    filter_proc.stdin.close()
+                except OSError:
+                    pass
+            agent_pid = int(agent_pid_file.read_text())
+            alive = subprocess.run(
+                ["ps", "-p", str(agent_pid), "-o", "stat="],
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(alive.returncode, 0, alive.stdout)
 
     def test_filter_replies_to_cursor_task_request(self):
         with tempfile.TemporaryDirectory() as tmp:

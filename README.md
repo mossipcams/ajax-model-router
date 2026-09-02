@@ -98,14 +98,23 @@ invokes `acpx <profile> exec|prompt --cwd <worktree> --format json --model
 Unknown or malformed ACP lines are retained in the raw log; terminal ACP
 events and acpx exit codes are authoritative. Operator-facing dispatch
 diagnostics also land in `run/debug.log` beside `run/raw.log` (timestamped
-`[ajax-router]` lines on stderr during execute). Cursor may still `end_turn`
+`[ajax-router]` lines on stderr during execute, including `acpx pid=…` after
+launch). Failure reports distinguish ACP event errors, connection closed
+during init (`ACP_CONNECTION_CLOSED_INIT`) vs an active turn
+(`ACP_CONNECTION_CLOSED_ACTIVE`), filter pipe failures
+(`FILTER_NONZERO_EXIT`), missing terminal events, missing structured reports,
+agent nonzero exit (`AGENT_NONZERO_EXIT`), timeout, and cancellation. Filter
+and acpx stderr captured in the raw log is echoed into debug/failure detail
+when present. Cursor may still `end_turn`
 after printing `RetriableError: Failed to run step, exceeded max retries`;
 the runner treats that as `ACP_EVENT_FAILED`. If that repeats for one
 `--cwd`, the per-path Cursor worker under `~/.cursor/projects/` is usually
 stuck — remove that project dir and retry. Do not fall back to a native
 harness CLI. For `tool=cursor`, `run-delegate` interposes a stdio JSON-RPC
 filter (`libexec/cursor_acp_filter.py`) on `cursor-agent`/`agent` so unsupported
-`cursor/*` extension requests never reach acpx.
+`cursor/*` extension requests never reach acpx; unknown request-style
+`cursor/*` methods receive JSON-RPC `-32601` locally with `[cursor-acp-filter]`
+stderr diagnostics (stdout stays valid ACP NDJSON).
 
 ## Subagent status (Ajax Chat)
 

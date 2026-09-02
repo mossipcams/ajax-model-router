@@ -15,7 +15,12 @@ CHECK = ROOT / "scripts" / "check-report"
 EXTRACT = ROOT / "scripts" / "extract-report"
 RUNNER = ROOT / "scripts" / "run-delegate"
 
-from libexec.acpx_events import normalize_record, parse_jsonl_line
+from libexec.acpx_events import (
+    classify_connection_closed,
+    is_connection_closed_message,
+    normalize_record,
+    parse_jsonl_line,
+)
 from libexec.run_delegate import cursor_agent_path_env, find_real_cursor_agent
 
 
@@ -84,6 +89,186 @@ def install_fake_acpx(tmp, script_body):
 
 
 class DelegateRunnerTests(unittest.TestCase):
+    def test_connection_closed_helpers(self):
+        self.assertTrue(is_connection_closed_message("[acpx] error: ACP connection closed"))
+        self.assertFalse(is_connection_closed_message("normal log"))
+        self.assertEqual(classify_connection_closed(saw_activity=False), "ACP_CONNECTION_CLOSED_INIT")
+        self.assertEqual(classify_connection_closed(saw_activity=True), "ACP_CONNECTION_CLOSED_ACTIVE")
+
+    def test_records_acpx_pid_in_debug_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(tmp, fake_acpx_script(detail="pid ok"))
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("bounded task")
+            raw = tmp / "raw.log"
+            debug = tmp / "debug.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            debug_text = debug.read_text()
+            self.assertIn("acpx pid=", debug_text)
+
+    def test_connection_closed_during_init_is_classified(self):
+        body = 'import sys\nprint("[acpx] error: ACP connection closed", file=sys.stderr, flush=True)\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            script = fake_acpx_script(body=body, emit_report=False)
+            script = script.replace(
+                'print(json.dumps({"jsonrpc": "2.0", "id": "1", "result": {"stopReason": "end_turn"}}), flush=True)',
+                "",
+            )
+            env, _ = install_fake_acpx(tmp, script)
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("packet")
+            raw = tmp / "raw.log"
+            debug = tmp / "debug.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            contents = report.read_text()
+            self.assertIn("ACP_CONNECTION_CLOSED_INIT", contents)
+            self.assertIn("acpx pid=", debug.read_text())
+
+    def test_connection_closed_during_active_turn_is_classified(self):
+        progress = json.dumps({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "partial"},
+            },
+        })
+        body = (
+            f"print({json.dumps(progress)}, flush=True)\n"
+            "import time; time.sleep(0.3)\n"
+            'import sys\nprint("[acpx] error: ACP connection closed", file=sys.stderr, flush=True)\n'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(tmp, fake_acpx_script(body=body, emit_report=False))
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("packet")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("ACP_CONNECTION_CLOSED_ACTIVE", report.read_text())
+
+    def test_json_stdout_connection_closed_init_is_classified(self):
+        body = (
+            'print(json.dumps({"jsonrpc":"2.0","id":"1","error":{"message":"ACP connection closed"}}), flush=True)\n'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            script = fake_acpx_script(body=body, emit_report=False)
+            script = script.replace(
+                'print(json.dumps({"jsonrpc": "2.0", "id": "1", "result": {"stopReason": "end_turn"}}), flush=True)',
+                "",
+            )
+            env, _ = install_fake_acpx(tmp, script)
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("packet")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("ACP_CONNECTION_CLOSED_INIT", report.read_text())
+
+    def test_json_stdout_connection_closed_active_is_classified(self):
+        progress = json.dumps({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "partial"},
+            },
+        })
+        err = json.dumps({
+            "jsonrpc": "2.0",
+            "id": "1",
+            "error": {"message": "ACP connection closed"},
+        })
+        body = (
+            f"print({json.dumps(progress)}, flush=True)\n"
+            f"print({json.dumps(err)}, flush=True)\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(tmp, fake_acpx_script(body=body, emit_report=False))
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("packet")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("ACP_CONNECTION_CLOSED_ACTIVE", report.read_text())
+
+    def test_nonzero_acpx_exit_without_terminal_event_is_agent_nonzero_exit(self):
+        script = fake_acpx_script(emit_report=False).replace(
+            'print(json.dumps({"jsonrpc": "2.0", "id": "1", "result": {"stopReason": "end_turn"}}), flush=True)',
+            "import sys\nsys.exit(9)\n",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(tmp, script)
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("packet")
+            raw = tmp / "raw.log"
+            report = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report,
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("AGENT_NONZERO_EXIT", report.read_text())
+            self.assertIn("status 9", report.read_text())
+
     def test_acpx_event_lines_parse_and_normalize(self):
         report = REPORT_COMPLETE.format(detail="parsed")
         line = json.dumps({

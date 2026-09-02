@@ -15,7 +15,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from acpx_events import ignorable_cursor_ext_failure, normalize_record, parse_jsonl_line
+from acpx_events import (
+    classify_connection_closed,
+    ignorable_cursor_ext_failure,
+    is_active_turn_activity,
+    is_connection_closed_message,
+    normalize_record,
+    parse_jsonl_line,
+)
 from subagent_status import TERMINAL_STATES, SubagentStatusTracker, emit_ndjson
 
 
@@ -187,13 +194,30 @@ def build_acpx_command(base, tool, prompt_path):
     return base + [profile, "exec", "--file", str(prompt_path)]
 
 
-def run_acpx_process(command, args, raw, deadline):
+def _stderr_transport_detail(stderr_lines):
+    transport = [
+        line.strip()
+        for line in stderr_lines
+        if line.startswith("[stderr] ")
+        and (
+            "[cursor-acp-filter]" in line
+            or line.startswith("[stderr] [acpx]")
+            or "connection closed" in line.lower()
+        )
+    ]
+    return transport
+
+
+def run_acpx_process(command, args, raw, deadline, debug=None):
     events = queue.Queue()
     report_text = ""
     assistant_text = []
     failure = ""
     failure_reason = "ACP_EVENT_FAILED"
     terminal = False
+    saw_activity = False
+    stderr_lines = []
+    acpx_pid = None
     tracker = None
     if args.run_id and args.parent_task_id:
         tracker = SubagentStatusTracker(
@@ -222,6 +246,9 @@ def run_acpx_process(command, args, raw, deadline):
             bufsize=1,
             env=env,
         )
+        acpx_pid = process.pid
+        if debug is not None:
+            emit_debug(debug, f"acpx pid={acpx_pid}")
     except OSError as error:
         if tracker:
             tracker.terminal("failed", f"Launch failed: {error}")
@@ -274,11 +301,30 @@ def run_acpx_process(command, args, raw, deadline):
                 if line is None:
                     eof.add(stream)
                 elif stream == "stderr":
+                    stderr_lines.append(line)
                     raw.write("[stderr] " + line)
                     raw.flush()
-                    if line.startswith("[acpx] error:"):
+                    if "[cursor-acp-filter]" in line and any(
+                        marker in line
+                        for marker in (
+                            "write failed",
+                            "read failed",
+                            "drain timeout",
+                            "child exited nonzero",
+                            "signal forward failed",
+                        )
+                    ):
                         failure = line.strip()
-                        failure_reason = "ACP_EVENT_FAILED"
+                        failure_reason = "FILTER_NONZERO_EXIT"
+                        terminal = True
+                    elif line.startswith("[acpx] error:"):
+                        failure = line.strip()
+                        if is_connection_closed_message(line):
+                            failure_reason = classify_connection_closed(
+                                saw_activity=saw_activity
+                            )
+                        else:
+                            failure_reason = "ACP_EVENT_FAILED"
                         terminal = True
                 else:
                     raw.write(line)
@@ -288,6 +334,8 @@ def run_acpx_process(command, args, raw, deadline):
                     record = parse_jsonl_line(line)
                     if record is None:
                         continue
+                    if is_active_turn_activity(record):
+                        saw_activity = True
                     event = normalize_record(record)
                     if event is None:
                         continue
@@ -299,16 +347,26 @@ def run_acpx_process(command, args, raw, deadline):
                         if args.tool == "cursor" and ignorable_cursor_ext_failure(record):
                             continue
                         failure = event.error or "acpx ACP event reported failure"
-                        failure_reason = "ACP_EVENT_FAILED"
+                        if is_connection_closed_message(failure):
+                            failure_reason = classify_connection_closed(
+                                saw_activity=saw_activity
+                            )
+                        else:
+                            failure_reason = "ACP_EVENT_FAILED"
                         terminal = True
                     elif event.kind == "completed":
                         terminal = True
             if process.poll() is not None and "stdout" in eof and "stderr" in eof:
                 if not terminal and not failure:
-                    failure = "delegate exited without a terminal ACP event"
-                    failure_reason = "MISSING_TERMINAL_EVENT"
+                    code = process.returncode if process.returncode is not None else 1
+                    if code not in (0,):
+                        failure = f"acpx exited with status {code}"
+                        failure_reason = "AGENT_NONZERO_EXIT"
+                    else:
+                        failure = "delegate exited without a terminal ACP event"
+                        failure_reason = "MISSING_TERMINAL_EVENT"
                 break
-            if (terminal or failure) and "stderr" in eof:
+            if (terminal or failure) and "stdout" in eof and "stderr" in eof:
                 break
     except KeyboardInterrupt:
         terminate_group(process, args.term_grace_seconds)
@@ -337,15 +395,28 @@ def run_acpx_process(command, args, raw, deadline):
             shutil.rmtree(shim_dir, ignore_errors=True)
 
     exit_code = process.returncode if process.returncode is not None else 1
+    transport_detail = _stderr_transport_detail(stderr_lines)
 
     def finish(outcome):
+        if acpx_pid is not None:
+            outcome["acpx_pid"] = acpx_pid
+        if transport_detail:
+            outcome["transport_detail"] = transport_detail
         if tracker:
             reason = outcome.get("failure_reason", "")
             if reason == "CANCELLED":
                 tracker.terminal("cancelled", outcome.get("failure", "Cancelled"))
             elif reason == "TIMEOUT":
                 tracker.terminal("failed", outcome.get("failure", "Timed out"))
-            elif reason in {"ACP_EVENT_FAILED", "MISSING_TERMINAL_EVENT", "MISSING_STRUCTURED_REPORT"}:
+            elif reason in {
+                "ACP_EVENT_FAILED",
+                "ACP_CONNECTION_CLOSED_INIT",
+                "ACP_CONNECTION_CLOSED_ACTIVE",
+                "FILTER_NONZERO_EXIT",
+                "AGENT_NONZERO_EXIT",
+                "MISSING_TERMINAL_EVENT",
+                "MISSING_STRUCTURED_REPORT",
+            }:
                 tracker.terminal("failed", outcome.get("failure", reason))
             elif outcome.get("report_text"):
                 if tracker.state != "completed":
@@ -367,16 +438,24 @@ def run_acpx_process(command, args, raw, deadline):
             "failure": f"{args.tool} delegation cancelled",
         })
     if failure:
+        detail = failure
+        if transport_detail:
+            detail = f"{failure}; transport={' | '.join(transport_detail)}"
         return finish({
             "exit_code": 1,
             "failure_reason": failure_reason,
-            "failure": failure,
+            "failure": detail,
         })
     if exit_code not in (0,) and not terminal:
+        detail = f"acpx exited with status {exit_code}"
+        if acpx_pid is not None:
+            detail = f"{detail} (acpx pid={acpx_pid})"
+        if transport_detail:
+            detail = f"{detail}; transport={' | '.join(transport_detail)}"
         return finish({
             "exit_code": exit_code or 1,
-            "failure_reason": "ACP_EVENT_FAILED",
-            "failure": f"acpx exited with status {exit_code}",
+            "failure_reason": "AGENT_NONZERO_EXIT",
+            "failure": detail,
         })
     if not terminal:
         return finish({
@@ -416,14 +495,19 @@ def _report_text(text):
 
 
 def _log_failure(debug, args, outcome):
-    emit_debug(
-        debug,
-        "failure "
-        f"reason={outcome['failure_reason']} "
-        f"message={outcome['failure']} "
-        f"exit={outcome.get('exit_code', 1)} "
+    parts = [
+        "failure",
+        f"reason={outcome['failure_reason']}",
+        f"message={outcome['failure']}",
+        f"exit={outcome.get('exit_code', 1)}",
         f"raw_log={args.raw_log}",
-    )
+    ]
+    if outcome.get("acpx_pid") is not None:
+        parts.append(f"acpx_pid={outcome['acpx_pid']}")
+    transport = outcome.get("transport_detail") or []
+    if transport:
+        parts.append(f"transport={' | '.join(transport)}")
+    emit_debug(debug, " ".join(parts))
     failed_report(
         args.report,
         outcome["failure_reason"],
@@ -463,7 +547,7 @@ def run_acpx(args):
             f"timeout_seconds={args.timeout_seconds:g} "
             f"argv={' '.join(map(str, command))}",
         )
-        outcome = run_acpx_process(command, args, raw, deadline)
+        outcome = run_acpx_process(command, args, raw, deadline, debug=debug)
         if outcome.get("failure"):
             _log_failure(debug, args, outcome)
             return outcome.get("exit_code", 1)

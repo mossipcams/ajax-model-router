@@ -65,6 +65,41 @@ def _tool_status(body):
     return ""
 
 
+def is_connection_closed_message(text):
+    """True when stderr or ACP text indicates the transport closed unexpectedly."""
+    lower = str(text or "").lower()
+    markers = (
+        "connection closed",
+        "connection reset",
+        "broken pipe",
+        "unexpected eof",
+        "socket hang up",
+        "econnreset",
+    )
+    return any(marker in lower for marker in markers)
+
+
+def classify_connection_closed(*, saw_activity):
+    """Return runner failure reason for an unexpected ACP transport close."""
+    if saw_activity:
+        return "ACP_CONNECTION_CLOSED_ACTIVE"
+    return "ACP_CONNECTION_CLOSED_INIT"
+
+
+def is_active_turn_activity(record):
+    """True when an ACP record indicates an active delegate turn, not init handshake."""
+    if not isinstance(record, dict):
+        return False
+    method = record.get("method")
+    if method == "session/prompt":
+        return True
+    if method != "session/update":
+        return False
+    body = _update_body(record.get("params") or {})
+    update = str(body.get("sessionUpdate", ""))
+    return update in {"agent_message_chunk", "tool_call", "tool_call_update"}
+
+
 def ignorable_cursor_ext_failure(record):
     """True when acpx reports methodNotFound/unsupported for cursor/* extensions."""
     if not isinstance(record, dict) or "error" not in record:
