@@ -90,7 +90,7 @@ semantic routing events append to `routing-events.jsonl` beside the TSV via
 ## Delegate transport
 
 All three delegates (`cursor`, `codex`, `pi`) dispatch through
-[acpx](https://github.com/openclaw/acpx) ACP (`npm install -g acpx@0.13.0`, Node
+[acpx](https://github.com/openclaw/acpx) ACP (`npm install -g acpx@0.13.2`, Node
 22.13+). Pin that release and ensure `acpx` is on `PATH`; missing
 `acpx` is a hard stop with no fallback to harness-native CLIs. The runner
 invokes `acpx <profile> exec|prompt --cwd <worktree> --format json --model
