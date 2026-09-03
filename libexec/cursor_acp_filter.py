@@ -32,6 +32,66 @@ TASK_REJECT_REASON = (
     "Nested subagents are unsupported in router delegates; continue in-process."
 )
 
+# cursor-agent only exposes per-model config options (like the "fast" toggle) once the
+# client declares this capability during initialize; the model id itself must stay bare
+# ("composer-2.5") — cursor-agent rejects any bracket-parameterized value over ACP.
+MODEL_FAST_DEFAULTS = {"composer-2.5": "false"}
+FAST_FOLLOWUP_ID_PREFIX = "__cursor_acp_filter_fast__"
+
+
+def inject_parameterized_model_picker(record):
+    params = record.get("params")
+    if not isinstance(params, dict):
+        return None
+    capabilities = params.setdefault("clientCapabilities", {})
+    if not isinstance(capabilities, dict):
+        return None
+    meta = capabilities.setdefault("_meta", {})
+    if not isinstance(meta, dict):
+        return None
+    meta["parameterizedModelPicker"] = True
+    return json.dumps(record) + "\n"
+
+
+def model_set_target(record):
+    """If `record` is a client request that sets the session model, return
+    (sessionId, modelId); else None. Covers both the modern config-option path
+    and the legacy extMethod."""
+    params = record.get("params")
+    if not isinstance(params, dict):
+        return None
+    method = record.get("method")
+    if method == "session/set_config_option" and params.get("configId") == "model":
+        model_id = params.get("value")
+    elif method == "session/set_model":
+        model_id = params.get("modelId")
+    else:
+        return None
+    session_id = params.get("sessionId")
+    if not isinstance(session_id, str) or not isinstance(model_id, str):
+        return None
+    return session_id, model_id
+
+
+def rewrite_client_to_agent_line(line, state=None):
+    """Rewrite one client->agent line and, via `state`, register any follow-up
+    the agent's response should trigger (see handle_agent_line)."""
+    record = parse_json_line(line)
+    if not isinstance(record, dict):
+        return line
+    if record.get("method") == "initialize":
+        return inject_parameterized_model_picker(record) or line
+    if state is not None:
+        target = model_set_target(record)
+        request_id = record.get("id")
+        if target is not None and request_id is not None:
+            session_id, model_id = target
+            fast_value = MODEL_FAST_DEFAULTS.get(model_id)
+            if fast_value is not None:
+                with state.lock:
+                    state.model_set_followups[request_id] = (session_id, fast_value)
+    return line
+
 
 class PipeFailure(Exception):
     def __init__(self, operation, direction, error, *, child_pid=None):
@@ -255,6 +315,9 @@ class FilterState:
         self.stop = threading.Event()
         self.failure = None
         self.lock = threading.Lock()
+        # response id -> (sessionId, fast value) queued by rewrite_client_to_agent_line,
+        # consumed by handle_agent_line once the matching model-set response arrives.
+        self.model_set_followups = {}
 
     def note_failure(self, failure):
         with self.lock:
@@ -344,7 +407,8 @@ def run_filter(agent_command, agent_args):
         direction = "client_to_agent"
         try:
             for line in iter_fd_lines_until_stop(sys.stdin.fileno(), state.stop):
-                write_agent(line if line.endswith("\n") else line + "\n", direction)
+                outgoing = rewrite_client_to_agent_line(line, state)
+                write_agent(outgoing if outgoing.endswith("\n") else outgoing + "\n", direction)
         except PipeFailure as failure:
             failure.direction = direction
             failure.child_pid = state.child_pid()
@@ -387,7 +451,7 @@ def run_filter(agent_command, agent_args):
             except OSError:
                 pass
 
-    def handle_agent_line(line):
+    def handle_agent_line(line, agent_lines):
         record = parse_json_line(line)
         if is_cursor_ext_request(record):
             write_agent(json.dumps(response_for_request(record)) + "\n", "agent_to_agent")
@@ -403,15 +467,40 @@ def run_filter(agent_command, agent_args):
             )
             write_agent(json.dumps(error_response_for_unknown(record)) + "\n", "agent_to_agent")
             return
+        response_id = record.get("id") if isinstance(record, dict) else None
+        followup = None
+        if response_id is not None:
+            with state.lock:
+                followup = state.model_set_followups.pop(response_id, None)
+        if followup is not None:
+            # Apply "fast" and wait for its response before releasing the model-set
+            # response to the client, so a client that immediately proceeds to
+            # session/prompt can never race ahead of the fast-config update.
+            session_id, fast_value = followup
+            synthetic_id = f"{FAST_FOLLOWUP_ID_PREFIX}{response_id}"
+            write_agent(json.dumps({
+                "jsonrpc": "2.0",
+                "id": synthetic_id,
+                "method": "session/set_config_option",
+                "params": {"sessionId": session_id, "configId": "fast", "value": fast_value},
+            }) + "\n", "agent_to_agent")
+            for next_line in agent_lines:
+                if state.stop.is_set():
+                    break
+                next_record = parse_json_line(next_line)
+                if isinstance(next_record, dict) and next_record.get("id") == synthetic_id:
+                    break
+                handle_agent_line(next_line, agent_lines)
         write_client(line if line.endswith("\n") else line + "\n", "agent_to_client")
 
     def pump_agent_to_client():
         direction = "agent_to_client"
         try:
-            for line in iter_fd_lines(agent.stdout.fileno()):
+            agent_lines = iter_fd_lines(agent.stdout.fileno())
+            for line in agent_lines:
                 if state.stop.is_set():
                     break
-                handle_agent_line(line)
+                handle_agent_line(line, agent_lines)
         except PipeFailure as failure:
             failure.direction = direction
             failure.child_pid = state.child_pid()

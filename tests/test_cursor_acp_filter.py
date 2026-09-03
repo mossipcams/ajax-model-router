@@ -19,7 +19,9 @@ from cursor_acp_filter import (  # noqa: E402
     is_cursor_ext_request,
     is_unknown_cursor_ext_request,
     iter_fd_lines,
+    rewrite_client_to_agent_line,
     write_fd,
+    FilterState,
     PipeFailure,
 )
 from run_delegate import cursor_agent_path_env  # noqa: E402
@@ -86,6 +88,24 @@ elif mode == "sigterm_agent":
     signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
     while True:
         time.sleep(0.05)
+elif mode == "respond_and_capture":
+    # Replies to every request with an empty result, and records each raw line it
+    # receives (in order) so the test can inspect what the filter actually forwarded.
+    Path = __import__("pathlib").Path
+    lines_file = __import__("os").environ["CLIENT_LINES_FILE"]
+    received = []
+    while True:
+        raw = sys.stdin.readline()
+        if not raw:
+            break
+        received.append(raw)
+        Path(lines_file).write_text("".join(received))
+        try:
+            record = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(record, dict) and "id" in record and "method" in record:
+            print(json.dumps({"jsonrpc": "2.0", "id": record["id"], "result": {}}), flush=True)
 elif mode == "ignore_eof":
     import time
     Path = __import__("pathlib").Path
@@ -394,6 +414,59 @@ class CursorAcpFilterTests(unittest.TestCase):
             self.assertTrue(client_line_file.is_file())
             self.assertIn("initialize", client_line_file.read_text())
 
+    def test_end_to_end_through_real_filter_subprocess(self):
+        """Proves both the rewrite and its ordering guarantee on the actual wire (not
+        just the pure function in isolation): spawns the real filter subprocess with a
+        fake agent that replies to every request, and checks (a) what the agent actually
+        received and (b) that the client's model-set response is withheld until the
+        synthetic "fast" round-trip with the agent has completed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            agent = tmp / "fake-agent"
+            agent.write_text(FAKE_AGENT)
+            agent.chmod(0o755)
+            client_lines_file = tmp / "client-lines.txt"
+            filter_proc = self._spawn_filter(
+                agent, "respond_and_capture", {"CLIENT_LINES_FILE": str(client_lines_file)}
+            )
+            try:
+                filter_proc.stdin.write(json.dumps({
+                    "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {"clientCapabilities": {"fs": True}},
+                }) + "\n")
+                filter_proc.stdin.flush()
+                self._readline(filter_proc)  # initialize response
+
+                filter_proc.stdin.write(json.dumps({
+                    "jsonrpc": "2.0", "id": 2, "method": "session/set_config_option",
+                    "params": {"sessionId": "s1", "configId": "model", "value": "composer-2.5"},
+                }) + "\n")
+                filter_proc.stdin.flush()
+                model_set_response_line = self._readline(filter_proc)
+            finally:
+                filter_proc.stdin.close()
+                self._wait(filter_proc)
+            model_set_response = json.loads(model_set_response_line)
+            self.assertEqual(model_set_response["id"], 2)
+
+            received = [
+                json.loads(line)
+                for line in client_lines_file.read_text().splitlines()
+                if line.strip()
+            ]
+            # Ordering proves the guarantee: the agent saw the synthetic "fast" request
+            # (and this test only got its id=2 response after that request was sent),
+            # which only happens once the id=2 response actually arrived from the agent.
+            init_received, set_model_received, set_fast_received = received
+            self.assertTrue(
+                init_received["params"]["clientCapabilities"]["_meta"]["parameterizedModelPicker"]
+            )
+            self.assertEqual(set_model_received["params"]["value"], "composer-2.5")
+            self.assertEqual(
+                set_fast_received["params"],
+                {"sessionId": "s1", "configId": "fast", "value": "false"},
+            )
+
     def test_filter_replies_to_ask_question(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
@@ -418,6 +491,49 @@ class CursorAcpFilterTests(unittest.TestCase):
                     pass
             self.assertEqual(filter_proc.returncode, 0, stderr)
             self.assertNotIn("cursor/ask_question", stdout)
+
+
+class CursorAcpFilterModelPickerTests(unittest.TestCase):
+    def test_initialize_gains_parameterized_model_picker_meta(self):
+        line = json.dumps({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"clientCapabilities": {"fs": True}},
+        }) + "\n"
+        record = json.loads(rewrite_client_to_agent_line(line))
+        self.assertTrue(record["params"]["clientCapabilities"]["_meta"]["parameterizedModelPicker"])
+        self.assertTrue(record["params"]["clientCapabilities"]["fs"])
+
+    def test_set_config_option_composer_forwarded_unmodified_and_queues_followup(self):
+        # cursor-agent rejects bracket-parameterized model values over ACP (verified
+        # live against the real binary); the bare model id must pass through untouched
+        # and "fast" gets set via a separate queued follow-up request instead.
+        line = json.dumps({
+            "jsonrpc": "2.0", "id": 2, "method": "session/set_config_option",
+            "params": {"sessionId": "s1", "configId": "model", "value": "composer-2.5"},
+        }) + "\n"
+        state = FilterState(None)
+        outgoing = rewrite_client_to_agent_line(line, state)
+        self.assertEqual(outgoing, line)
+        self.assertEqual(state.model_set_followups[2], ("s1", "false"))
+
+    def test_set_config_option_leaves_other_models_untouched(self):
+        line = json.dumps({
+            "jsonrpc": "2.0", "id": 3, "method": "session/set_config_option",
+            "params": {"sessionId": "s1", "configId": "model", "value": "test-model"},
+        }) + "\n"
+        state = FilterState(None)
+        self.assertEqual(rewrite_client_to_agent_line(line, state), line)
+        self.assertEqual(state.model_set_followups, {})
+
+    def test_legacy_set_model_composer_queues_followup(self):
+        line = json.dumps({
+            "jsonrpc": "2.0", "id": 4, "method": "session/set_model",
+            "params": {"sessionId": "s1", "modelId": "composer-2.5"},
+        }) + "\n"
+        state = FilterState(None)
+        outgoing = rewrite_client_to_agent_line(line, state)
+        self.assertEqual(outgoing, line)
+        self.assertEqual(state.model_set_followups[4], ("s1", "false"))
 
 
 class CursorRunnerWiringTests(unittest.TestCase):
