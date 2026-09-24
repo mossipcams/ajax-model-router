@@ -6,16 +6,17 @@ from semantic.facts import RoutingFacts
 from semantic.schema import (
     ContextBudget,
     ContextRequirements,
-    TaskFeatures,
-    TaskType,
+    RouteDecision,
 )
+
+_FRONTEND_EXTENSIONS = {"html", "css", "js", "jsx", "ts", "tsx", "vue", "svelte"}
 
 
 def derive_context_requirements(
-    features: TaskFeatures | None,
+    decision: RouteDecision | None,
     facts: RoutingFacts,
 ) -> ContextRequirements:
-    """Deterministic context categories from validated features + facts."""
+    """Deterministic context categories from the route decision + facts."""
     budget = ContextBudget.UNKNOWN
     architecture_docs = False
     recent_diff = bool(facts.changed_files or facts.diff_line_count)
@@ -23,24 +24,27 @@ def derive_context_requirements(
     git_history = False
     subsystems: list[str] = []
 
-    if features:
-        budget = features.likely_context_size
-        if features.task_type in {TaskType.ARCHITECTURE, TaskType.INVESTIGATION}:
+    if decision is not None:
+        if decision.route == "GLM":
             architecture_docs = True
             git_history = True
-        if features.task_type in {TaskType.BUG_FIX, TaskType.TEST, TaskType.CI_FAILURE}:
-            related_tests = True
-        if features.requires_repo_discovery:
+        if decision.complexity >= 4 or decision.ambiguity >= 4:
             git_history = True
-        if features.scope.value in {"cross_module", "repo_wide"}:
-            git_history = True
-        for domain in features.domains:
-            subsystems.append(domain.value)
+        if decision.ambiguity >= 4:
+            architecture_docs = True
 
     if facts.known_subsystem:
         subsystems.append(facts.known_subsystem)
     if facts.test_command:
         related_tests = True
+    if facts.is_retry:
+        git_history = True
+    if facts.diff_line_count > 200 or facts.changed_file_count > 5:
+        budget = ContextBudget.LARGE
+    elif recent_diff:
+        budget = ContextBudget.MEDIUM
+    else:
+        budget = ContextBudget.SMALL
 
     return ContextRequirements(
         architecture_docs=architecture_docs,
@@ -71,7 +75,6 @@ def derive_execution_scope(
 def derive_execution_verify(
     context: ContextRequirements,
     facts: RoutingFacts,
-    features: TaskFeatures | None,
 ) -> list[str]:
     """Copy-ready VERIFY expectations from context_strategy + facts."""
     verify: list[str] = []
@@ -79,6 +82,6 @@ def derive_execution_verify(
         verify.append(facts.test_command)
     elif context.related_tests:
         verify.append("Run related unit or integration tests")
-    if features and features.requires_visual_validation:
+    if facts.file_extensions and set(facts.file_extensions) & _FRONTEND_EXTENSIONS:
         verify.append("Browser or visual validation of UI changes")
     return verify

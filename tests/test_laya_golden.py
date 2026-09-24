@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live SLM golden eval — skipped when Ollama is unreachable (no CI dependency)."""
+"""Live Laya golden eval — skipped when Laya is unreachable (no CI dependency)."""
 
 from __future__ import annotations
 
@@ -14,13 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "libexec"))
 
 from semantic.analyzer import (  # noqa: E402
-    LocalSlmSemanticAnalyzer,
+    LayaAnalyzer,
     TaskAnalysisInput,
     analyze_with_fallback,
 )
-from semantic.config import load_slm_config  # noqa: E402
+from semantic.config import load_laya_config  # noqa: E402
 from semantic.facts import RoutingFacts  # noqa: E402
-from semantic.schema import ChangeScope  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -102,8 +101,8 @@ GOLDEN_TASKS: tuple[GoldenTask, ...] = (
 )
 
 
-def _ollama_reachable(endpoint: str, timeout_sec: float = 2.0) -> bool:
-    """Probe Ollama base URL derived from the chat/completions endpoint."""
+def _laya_reachable(endpoint: str, timeout_sec: float = 2.0) -> bool:
+    """Probe the Laya endpoint base URL derived from the /v1/systemone URL."""
     base = endpoint.split("/v1/")[0].rstrip("/")
     probe = f"{base}/"
     request = urllib.request.Request(probe, method="GET")
@@ -114,7 +113,7 @@ def _ollama_reachable(endpoint: str, timeout_sec: float = 2.0) -> bool:
         return False
 
 
-class SlmGoldenTests(unittest.TestCase):
+class LayaGoldenTests(unittest.TestCase):
     def test_golden_task_count(self):
         self.assertEqual(len(GOLDEN_TASKS), 10)
         categories = {task.category for task in GOLDEN_TASKS}
@@ -123,41 +122,47 @@ class SlmGoldenTests(unittest.TestCase):
         self.assertIn("architecture", categories)
         self.assertIn("ui_visual", categories)
 
-    def test_classify_diversity_not_collapsed(self):
-        config = load_slm_config()
-        if not _ollama_reachable(config.endpoint):
-            self.skipTest("Ollama endpoint unreachable — skipping live golden eval")
+    def test_route_diversity_not_collapsed(self):
+        config = load_laya_config()
+        if not _laya_reachable(config.endpoint):
+            self.skipTest("Laya endpoint unreachable — skipping live golden eval")
 
-        analyzer = LocalSlmSemanticAnalyzer(config)
-        results: list[tuple[str, ChangeScope, float]] = []
+        analyzer = LayaAnalyzer(config)
+        results: list[tuple[str, str, float]] = []
         failures: list[str] = []
 
         for task in GOLDEN_TASKS:
-            features, reason, source = analyze_with_fallback(
+            decision, reason, source = analyze_with_fallback(
                 analyzer,
-                TaskAnalysisInput(user_request=task.prompt, facts=RoutingFacts()),
+                TaskAnalysisInput(
+                    user_request=task.prompt,
+                    facts=RoutingFacts(user_request=task.prompt),
+                    eligible_routes=("MINIMAX", "CURSOR", "GLM", "CODEX"),
+                ),
             )
-            if features is None:
+            if decision is None:
                 failures.append(f"{task.name}: {source} — {reason}")
                 continue
-            results.append((task.name, features.scope, features.confidence))
+            results.append((task.name, decision.route, decision.confidence))
 
         self.assertGreater(
             len(results),
             0,
-            f"no successful classifications; failures: {failures}",
+            f"no successful route decisions; failures: {failures}",
         )
 
-        scopes = [scope for _, scope, _ in results]
+        routes = [route for _, route, _ in results]
         confidences = [confidence for _, _, confidence in results]
 
-        if all(scope == ChangeScope.LOCALIZED for scope in scopes):
-            detail = ", ".join(f"{name}={scope.value}" for name, scope, _ in results)
-            self.fail(f"collapse: every successful classify has scope=localized ({detail})")
+        if len(set(routes)) == 1:
+            detail = ", ".join(f"{name}={route}" for name, route, _ in results)
+            self.fail(f"collapse: every successful decision picked {routes[0]} ({detail})")
 
-        if all(confidence == 0.95 for confidence in confidences):
-            detail = ", ".join(f"{name}={confidence:.2f}" for name, _, confidence in results)
-            self.fail(f"collapse: every confidence is 0.95 ({detail})")
+        if all(confidence == confidences[0] for confidence in confidences):
+            detail = ", ".join(
+                f"{name}={confidence:.2f}" for name, _, confidence in results
+            )
+            self.fail(f"collapse: every confidence is identical ({detail})")
 
 
 if __name__ == "__main__":

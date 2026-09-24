@@ -1,4 +1,4 @@
-"""Typed errors for semantic analysis — SLM failures never block routing."""
+"""Typed errors for semantic analysis — Laya failures never block routing."""
 
 from __future__ import annotations
 
@@ -8,20 +8,20 @@ class SemanticError(Exception):
 
 
 class SemanticDisabledError(SemanticError):
-    """SLM analysis is disabled in configuration."""
+    """Laya analysis is disabled in configuration."""
 
 
 class SemanticUnavailableError(SemanticError):
-    """SLM endpoint unreachable or unsupported."""
+    """Laya endpoint unreachable or unsupported."""
 
 
 class SemanticTimeoutError(SemanticError):
-    """SLM request timed out."""
+    """Laya request timed out."""
 
 
 class SemanticValidationError(SemanticError):
-    """SLM output failed schema validation."""
+    """Laya output failed schema validation."""
 
 
 class SemanticLowConfidenceError(SemanticError):
-    """SLM confidence below configured threshold."""
+    """Laya confidence below configured threshold."""

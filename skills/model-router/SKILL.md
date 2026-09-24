@@ -23,13 +23,14 @@ Semantic analysis (optional, enabled by default) informs routing but never
 chooses the final model:
 
 ```text
-facts → optional SLM → validated features → deterministic policy → delegate
+facts → eligible routes → optional Laya decision → deterministic policy → delegate
 ```
 
-1. **Route** — collect deterministic facts; optionally classify via a local
-   OpenAI-compatible SLM (`scripts/analyze-task`); validate typed
-   `TaskFeatures`; apply deterministic policy and registry keys; emit one
-   `EXECUTION` decision. SLM failure never blocks routing.
+1. **Route** — collect deterministic facts; apply hard constraints to compute
+   eligible routes; optionally let Laya (local System-1 sensor, `scripts/analyze-task`)
+   evaluate the eligible routes; validate its decision; apply deterministic
+   policy and registry keys; emit one `EXECUTION` decision. Laya failure never
+   blocks routing.
 2. **Execute** — run under the selected delegate, model, and scope. `R-PARENT` is
    Q&A and planning only — never parent-local implementation writes.
 3. **Verify** — accept, revise, discard, or escalate using risk-proportional review.
@@ -70,8 +71,8 @@ the decision copies the corresponding exact ID into `MODEL`.
 |---|---|
 | `CODEX` | `gpt-5.6-sol` |
 | `CURSOR` | `composer-2.5` |
-| `MINIMAX` | `opencode-go/minimax-m3` |
-| `GLM` | `opencode-go/glm-5.2` |
+| `MINIMAX` | `minimax-m3` |
+| `GLM` | `glm-5.2` |
 
 ## Execution Decision
 
@@ -121,8 +122,8 @@ Follow the first matching rule. Copy a selected registry value into `MODEL`.
 `scripts/analyze-task` with the task payload (stdin JSON or `--input`). Copy
 `AGENT`, `MODEL`, `RISK`, `REASON`, and `FALLBACK` from `output.execution` —
 deterministic policy selects the executor and registry model; never copy model
-choices from raw SLM fields. When present, also copy `SCOPE` and `VERIFY` from
-the same block. SLM failure still emits `execution` via the existing fallback;
+choices from raw Laya fields. When present, also copy `SCOPE` and `VERIFY` from
+the same block. Laya failure still emits `execution` via the existing fallback;
 parents copy that block unchanged. Do **not** call `analyze-task` from
 `run-transaction`, `run-delegate`, or execute — routing must finish before
 dispatch. Skip `analyze-task` for `R-PARENT` (pure Q&A or architecture
@@ -131,10 +132,13 @@ planning with no implementation write).
 | Rule | Condition | `AGENT` | Model key | Notes |
 |---|---|---|---|---|
 | `R-PARENT` | Pure Q&A or architecture planning (no implementation write) | `parent` | none | Local only |
-| `R-CODEX` | User explicitly asked Codex to implement | `codex` | `CODEX` | |
-| `R-GLM` | Recorded unresolved specification or architecture uncertainty | `pi` | `GLM` | |
-| `R-MINIMAX` | Routine docs, generated cleanup, exact replacements, or named boilerplate; at most 2 files and roughly 60 changed lines; no auth/security/data-loss concerns | `pi` | `MINIMAX` | |
-| `R-CURSOR` | No exception matched | `cursor` | `CURSOR` | Default implementation |
+| `R-EXPLICIT-MODEL` | Explicit user/model override | requested | requested | Always wins over Laya |
+| `R-CODEX` | User explicitly asked Codex to implement | `codex` | `CODEX` | Always wins over Laya |
+| `R-GLM` | Recorded unresolved specification or architecture uncertainty | `pi` | `GLM` | Always wins over Laya |
+| `R-RETRY-ESCALATE` | Retry after failed cheap-model attempt | `pi`/`codex` | `GLM`/`CODEX` | Always wins over Laya |
+| `R-LAYA` | No exception matched; Laya names an eligible route at/above the confidence threshold | registry | Laya route key | Fuzzy lane among eligible routes |
+| `R-MINIMAX` | Routine docs, generated cleanup, exact replacements, or named boilerplate; at most 2 files and roughly 60 changed lines; no auth/security/data-loss concerns | `pi` | `MINIMAX` | Deterministic default |
+| `R-CURSOR` | No exception matched; Laya unavailable, invalid, or low confidence | `cursor` | `CURSOR` | Default implementation |
 | `R-STOP` | Selected tool unavailable and every fallback exhausted; or task exceeds one bounded behavior | — | — | `FALLBACK: STOP` |
 
 Default implementation agent is `cursor` / `CURSOR`. Divert only when an
@@ -319,25 +323,37 @@ failure is a warning, not a hard stop.
 
 Optional semantic routing metadata may be recorded via
 `--routing-event` (JSON) into a `routing-events.jsonl` sidecar beside the TSV.
-The SLM has no final routing authority; derived scores stay separate from raw
-evidence. Do not persist chain-of-thought.
+Laya has no final routing authority; its route probabilities stay separate
+from raw evidence. Do not persist chain-of-thought or raw task contents.
 
 ## Semantic analysis (optional)
 
-Local SLM classification is a **sensor only**. Configuration lives in
-`config/semantic_analysis.toml` (`enabled = true` by default; degrades when the
-local SLM is unreachable). Model
-capabilities are static in `config/model_capabilities.toml`.
+Laya is a local, self-hosted System-1 routing sensor: a persistent service at
+`http://127.0.0.1:8000/v1/systemone` (Jev-compatible API). It evaluates the
+eligible execution routes directly — it does not generate task features. Ajax
+deterministic policy retains final authority. Configuration lives in
+`config/semantic_analysis.toml` (`enabled = true` by default; degrades when
+Laya is unreachable). Model capabilities are static in
+`config/model_capabilities.toml`.
 
 - **Facts first** — explicit model override, changed files, diff size, retry
-  state, and other objective inputs are collected before any SLM call.
-- **Validated features** — `TaskFeatures`, `FailureFeatures`, and
-  `ContextRequirements` use typed enums; invalid SLM output is rejected.
-- **Deterministic policy** — registry keys (`CODEX`, `CURSOR`, `MINIMAX`, `GLM`)
-  select the executor; hard rules (explicit override, architecture + high
-  complexity, retry escalation, SKILL route-table exceptions) cannot be
-  overridden by SLM output.
+  state, and other objective inputs are collected before any Laya call. Hard
+  constraints remove ineligible routes (availability, high-risk lanes) before
+  inference; Laya sees only compact decision-relevant task information, never
+  source files or large repository context.
+- **Validated decision** — Laya returns a registry route key
+  (`MINIMAX`/`CURSOR`/`GLM`/`CODEX`), route probabilities, and complexity and
+  ambiguity scores (1–5). `RouteDecision`, `FailureFeatures`, and
+  `ContextRequirements` use typed validation; invalid Laya output is rejected.
+- **Deterministic policy** — registry keys select the executor; hard rules
+  (explicit override, auth/security/session/PTY/data-loss risk, model/harness
+  availability, retry escalation, capability requirements, SKILL route-table
+  exceptions) cannot be overridden by Laya output. Laya's route is used only
+  when it names an eligible route at or above the confidence threshold;
+  otherwise the existing deterministic default applies.
 - **Graceful degradation** — disabled, timeout, invalid JSON, low confidence, or
-  unreachable SLM → continue with deterministic default routing.
+  unreachable Laya → continue with deterministic default routing.
 - **Explanation** — `scripts/analyze-task` emits structured fields (facts,
-  features, matched rule, model, context strategy); no chain-of-thought.
+  eligible routes, selected route, route probabilities/confidence, complexity,
+  ambiguity, fallback usage, matched rule, context strategy); no
+  chain-of-thought.

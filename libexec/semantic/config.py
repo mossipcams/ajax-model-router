@@ -12,17 +12,35 @@ DEFAULT_CAPABILITIES_CONFIG = ROOT / "config" / "model_capabilities.toml"
 
 
 @dataclass(frozen=True)
-class SlmConfig:
+class LayaConfig:
+    """Laya semantic routing settings.
+
+    Laya is a local, persistent System-1 routing sensor. It is a sensor only:
+    Ajax deterministic policy retains final authority over routing.
+    """
+
     enabled: bool
     endpoint: str
-    model: str
     timeout_ms: int
-    max_retries: int
     confidence_threshold: float
-    task_system: str
-    failure_system: str
-    max_tokens: int
-    keep_alive: str = "30m"
+
+
+def load_laya_config(path: str | Path | None = None) -> LayaConfig:
+    """Load Laya settings from TOML; defaults keep analysis enabled."""
+    toml_path = Path(path) if path is not None else DEFAULT_SEMANTIC_CONFIG
+    if toml_path.is_file():
+        raw = tomllib.loads(toml_path.read_text())
+    else:
+        raw = {}
+    section = raw.get("semantic", {})
+    return LayaConfig(
+        enabled=bool(section.get("enabled", True)),
+        endpoint=str(
+            section.get("endpoint", "http://127.0.0.1:8000/v1/systemone")
+        ),
+        timeout_ms=int(section.get("timeout_ms", 5000)),
+        confidence_threshold=float(section.get("confidence_threshold", 0.60)),
+    )
 
 
 @dataclass(frozen=True)
@@ -37,35 +55,6 @@ class ModelCapability:
     test_writing_strength: int
     large_context_strength: int
     review_strength: int
-
-
-def load_slm_config(path: Path | None = None) -> SlmConfig:
-    config_path = path or DEFAULT_SEMANTIC_CONFIG
-    data = tomllib.loads(config_path.read_text())
-    slm = data.get("slm") or {}
-    prompts = data.get("prompts") or {}
-    return SlmConfig(
-        enabled=bool(slm.get("enabled", False)),
-        endpoint=str(slm.get("endpoint", "http://127.0.0.1:11434/v1/chat/completions")),
-        model=str(slm.get("model", "qwen3.5:4b")),
-        timeout_ms=int(slm.get("timeout_ms", 60000)),
-        max_retries=int(slm.get("max_retries", 1)),
-        confidence_threshold=float(slm.get("confidence_threshold", 0.6)),
-        task_system=str(
-            prompts.get(
-                "task_system",
-                "You classify coding tasks. Reply with JSON only. No explanation.",
-            )
-        ),
-        failure_system=str(
-            prompts.get(
-                "failure_system",
-                "You classify execution failures. Reply with JSON only. No explanation.",
-            )
-        ),
-        max_tokens=int(prompts.get("max_tokens", 256)),
-        keep_alive=str(slm.get("keep_alive", "30m")),
-    )
 
 
 def load_capabilities(path: Path | None = None) -> dict[str, ModelCapability]:

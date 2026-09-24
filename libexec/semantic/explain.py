@@ -11,26 +11,47 @@ from semantic.context import (
 )
 from semantic.facts import RoutingFacts
 from semantic.policy import RoutingDecision
-from semantic.schema import TaskFeatures
+from semantic.schema import RouteDecision
 
 
 def build_explanation(
     *,
     facts: RoutingFacts,
-    features: TaskFeatures | None,
     decision: RoutingDecision,
     context: ContextRequirements,
-    slm_confidence: float | None = None,
-    fallback_reason: str | None = None,
+    laya: RouteDecision | None = None,
     analysis_source: str = "none",
+    fallback_reason: str | None = None,
 ) -> dict[str, Any]:
-    """Inspectable fields only — facts, features, rule, model, context."""
+    """Inspectable fields only — facts, Laya sensor output, rule, model, context.
+
+    Records enough to evaluate Laya later: eligible routes, selected route,
+    route probabilities/confidence, complexity, ambiguity, whether fallback
+    routing was used, and the matched hard override. No chain-of-thought, no
+    raw task contents beyond the deterministic facts already logged.
+    """
     return {
         "facts": facts.to_dict(),
-        "task_features": features.to_dict() if features else None,
-        "slm_confidence": slm_confidence,
         "analysis_source": analysis_source,
-        "fallback_reason": fallback_reason,
+        "laya": (
+            {
+                "route": laya.route,
+                "probabilities": dict(laya.probabilities),
+                "complexity": laya.complexity,
+                "ambiguity": laya.ambiguity,
+                "confidence": laya.confidence,
+            }
+            if laya is not None
+            else None
+        ),
+        "eligible_routes": list(decision.eligible_routes),
+        "selected_route": decision.model_key,
+        "route_confidence": decision.laya_confidence,
+        "route_probabilities": decision.route_probabilities,
+        "complexity": decision.complexity,
+        "ambiguity": decision.ambiguity,
+        "fallback_used": decision.fallback_reason is not None,
+        "fallback_reason": decision.fallback_reason,
         "matched_rule": decision.rule_id,
         "selected_agent": decision.agent,
         "selected_model_key": decision.model_key,
@@ -46,7 +67,6 @@ def build_execution_block(
     decision: RoutingDecision,
     context: ContextRequirements,
     facts: RoutingFacts,
-    features: TaskFeatures | None,
 ) -> dict[str, Any]:
     """EXECUTION fields for parents — policy picks agent/model; omit empty SCOPE/VERIFY."""
     block: dict[str, Any] = {
@@ -57,7 +77,7 @@ def build_execution_block(
         "FALLBACK": decision.fallback,
     }
     scope = derive_execution_scope(context, facts)
-    verify = derive_execution_verify(context, facts, features)
+    verify = derive_execution_verify(context, facts)
     if scope:
         block["SCOPE"] = scope
     if verify:

@@ -1,4 +1,9 @@
-"""Local SLM semantic analysis — sensor only, no routing authority."""
+"""Laya semantic routing — sensor only, no routing authority.
+
+Pipeline: facts → hard constraints (eligibility) → optional Laya decision over
+eligible routes → deterministic policy → decision, explanation, execution.
+Laya failure never blocks routing.
+"""
 
 from __future__ import annotations
 
@@ -9,15 +14,14 @@ from pathlib import Path
 
 from semantic.analyzer import (
     DisabledSemanticAnalyzer,
-    FailureAnalysisInput,
-    LocalSlmSemanticAnalyzer,
+    LayaAnalyzer,
     SemanticAnalyzer,
     TaskAnalysisInput,
     analyze_with_fallback,
     create_analyzer,
 )
 from semantic.capabilities import CapabilityRegistry
-from semantic.config import SlmConfig, load_capabilities, load_slm_config
+from semantic.config import LayaConfig, load_capabilities, load_laya_config
 from semantic.context import (
     derive_context_requirements,
     derive_execution_scope,
@@ -25,22 +29,31 @@ from semantic.context import (
 )
 from semantic.explain import build_execution_block, build_explanation
 from semantic.facts import RoutingFacts, collect_facts
-from semantic.failure import failure_input_from_dict, normalize_failure
-from semantic.policy import RoutingDecision, select_route
-from semantic.schema import FailureFeatures, TaskFeatures
+from semantic.failure import (
+    FailureAnalysisInput,
+    failure_input_from_dict,
+    normalize_failure,
+)
+from semantic.policy import (
+    RoutingDecision,
+    eligible_routes,
+    has_hard_override,
+    select_route,
+)
+from semantic.schema import FailureFeatures, RouteDecision
 
 __all__ = [
     "CapabilityRegistry",
     "DisabledSemanticAnalyzer",
     "FailureAnalysisInput",
     "FailureFeatures",
-    "LocalSlmSemanticAnalyzer",
+    "LayaAnalyzer",
+    "LayaConfig",
     "RoutingDecision",
     "RoutingFacts",
+    "RouteDecision",
     "SemanticAnalyzer",
-    "SlmConfig",
     "TaskAnalysisInput",
-    "TaskFeatures",
     "analyze_task_main",
     "analyze_with_fallback",
     "build_execution_block",
@@ -50,9 +63,11 @@ __all__ = [
     "derive_context_requirements",
     "derive_execution_scope",
     "derive_execution_verify",
+    "eligible_routes",
     "failure_input_from_dict",
+    "has_hard_override",
     "load_capabilities",
-    "load_slm_config",
+    "load_laya_config",
     "normalize_failure",
     "run_analyze_task",
     "select_route",
@@ -80,32 +95,49 @@ def run_analyze_task(
     payload: dict | None = None,
     *,
     analyzer: SemanticAnalyzer | None = None,
+    config: LayaConfig | None = None,
 ) -> dict:
-    """Facts → optional SLM → policy → decision, explanation, and execution block."""
+    """Facts → eligibility → optional Laya → policy → decision + explanation.
+
+    Laya is only consulted when no hard override applies and at least two
+    routes remain eligible; otherwise deterministic routing runs directly.
+    """
     payload = payload or {}
     facts = collect_facts(payload)
+    cfg = config or load_laya_config()
     if analyzer is None:
-        analyzer = create_analyzer()
-    task_input = TaskAnalysisInput(
-        user_request=facts.user_request or str(payload.get("task") or ""),
-        facts=facts,
-    )
-    features, fallback_reason, analysis_source = analyze_with_fallback(
-        analyzer, task_input
-    )
+        analyzer = create_analyzer(cfg)
+    eligible = eligible_routes(facts)
+
+    laya: RouteDecision | None = None
+    fallback_reason: str | None = None
+    analysis_source = "deterministic"
+    if has_hard_override(facts):
+        analysis_source = "skipped_hard_override"
+    elif len(eligible) <= 1:
+        analysis_source = "skipped_single_eligible"
+    else:
+        task_input = TaskAnalysisInput(
+            user_request=facts.user_request or str(payload.get("task") or ""),
+            facts=facts,
+            eligible_routes=eligible,
+        )
+        laya, fallback_reason, analysis_source = analyze_with_fallback(
+            analyzer, task_input
+        )
+
     decision = select_route(
-        features,
         facts,
-        slm_used=analysis_source == "slm",
+        laya=laya,
+        laya_fallback_reason=fallback_reason,
+        confidence_threshold=cfg.confidence_threshold,
     )
-    context = derive_context_requirements(features, facts)
-    slm_confidence = features.confidence if features else None
+    context = derive_context_requirements(laya, facts)
     explanation = build_explanation(
         facts=facts,
-        features=features,
         decision=decision,
         context=context,
-        slm_confidence=slm_confidence,
+        laya=laya,
         fallback_reason=fallback_reason,
         analysis_source=analysis_source,
     )
@@ -116,13 +148,12 @@ def run_analyze_task(
             decision=decision,
             context=context,
             facts=facts,
-            features=features,
         ),
     }
 
 
 def analyze_task_main(argv=None) -> int:
-    """CLI entry: facts → optional SLM → policy → JSON decision + explanation."""
+    """CLI entry: facts → eligibility → optional Laya → policy → JSON output."""
     args = _parse_cli_args(argv)
     payload = _load_cli_payload(args)
     output = run_analyze_task(payload)

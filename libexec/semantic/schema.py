@@ -1,24 +1,17 @@
-"""Schema-constrained TaskFeatures / FailureFeatures — typed enums only."""
+"""Schema-constrained RouteDecision / FailureFeatures — typed values only.
+
+Laya evaluates eligible execution routes directly (route + probabilities +
+complexity/ambiguity) instead of generating TaskFeatures. Parsing is strict:
+anything that is not a clean decision is rejected so policy can fall back to
+deterministic routing.
+"""
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
-
-
-class TaskType(str, Enum):
-    BUG_FIX = "bug_fix"
-    FEATURE = "feature"
-    REFACTOR = "refactor"
-    ARCHITECTURE = "architecture"
-    TEST = "test"
-    DOCUMENTATION = "documentation"
-    INVESTIGATION = "investigation"
-    CODE_REVIEW = "code_review"
-    CI_FAILURE = "ci_failure"
-    UNKNOWN = "unknown"
 
 
 class TaskDomain(str, Enum):
@@ -37,48 +30,6 @@ class TaskDomain(str, Enum):
 TASK_DOMAIN_VALUES: tuple[str, ...] = tuple(domain.value for domain in TaskDomain)
 TASK_DOMAIN_UNION_ECHO = "|".join(TASK_DOMAIN_VALUES)
 ALL_TASK_DOMAIN_VALUES = frozenset(TASK_DOMAIN_VALUES)
-
-
-class Complexity(str, Enum):
-    TRIVIAL = "trivial"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
-
-class ChangeScope(str, Enum):
-    LOCALIZED = "localized"
-    FEATURE = "feature"
-    CROSS_MODULE = "cross_module"
-    REPO_WIDE = "repo_wide"
-    UNKNOWN = "unknown"
-
-
-class ReasoningDepth(str, Enum):
-    SHALLOW = "shallow"
-    MEDIUM = "medium"
-    DEEP = "deep"
-    UNKNOWN = "unknown"
-
-
-class Uncertainty(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    UNKNOWN = "unknown"
-
-
-class ContextSize(str, Enum):
-    SMALL = "small"
-    MEDIUM = "medium"
-    LARGE = "large"
-    UNKNOWN = "unknown"
-
-
-class TaskRisk(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
 
 
 class FailureClass(str, Enum):
@@ -176,101 +127,124 @@ def _bool(value: Any, field_name: str) -> bool:
 
 
 def _confidence(value: Any) -> float:
-    if isinstance(value, int):
-        value = float(value)
-    if not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("confidence must be a number")
-    if not 0.0 <= float(value) <= 1.0:
-        raise ValueError("confidence must be in [0.0, 1.0]")
-    return float(value)
+    confidence = float(value)
+    if not 0.0 <= confidence <= 1.0:
+        raise ValueError("confidence must be between 0 and 1")
+    return confidence
 
 
-def _reject_extra(data: dict[str, Any], allowed: set[str]) -> None:
-    extra = set(data) - allowed
+def _score(value: Any, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer")
+    if not 1 <= value <= 5:
+        raise ValueError(f"{field_name} must be between 1 and 5")
+    return value
+
+
+def _reject_extra(data: dict[str, Any], allowed: tuple[str, ...], what: str) -> None:
+    extra = set(data) - set(allowed)
     if extra:
-        raise ValueError(f"unexpected fields: {sorted(extra)}")
+        raise ValueError(f"unexpected fields in {what}: {sorted(extra)}")
 
 
 @dataclass(frozen=True)
-class TaskFeatures:
-    task_type: TaskType
-    domains: tuple[TaskDomain, ...]
-    complexity: Complexity
-    scope: ChangeScope
-    reasoning_depth: ReasoningDepth
-    uncertainty: Uncertainty
-    requires_repo_discovery: bool
-    requires_visual_validation: bool
-    requires_large_context: bool
-    likely_context_size: ContextSize
-    risk: TaskRisk
+class RouteDecision:
+    """One Laya decision: which eligible route, with probabilities and scores.
+
+    `route` is a registry key (MINIMAX/CURSOR/GLM/CODEX), never a provider
+    model id. `confidence` is the probability of the selected route.
+    """
+
+    route: str
+    probabilities: dict[str, float]
+    complexity: int
+    ambiguity: int
     confidence: float
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> TaskFeatures:
+    def from_dict(cls, data: Any, allowed_routes: tuple[str, ...]) -> "RouteDecision":
         if not isinstance(data, dict):
-            raise ValueError("TaskFeatures must be an object")
-        required = {
-            "task_type",
-            "domains",
-            "complexity",
-            "scope",
-            "reasoning_depth",
-            "uncertainty",
-            "requires_repo_discovery",
-            "requires_visual_validation",
-            "requires_large_context",
-            "likely_context_size",
-            "risk",
-            "confidence",
-        }
-        missing = required - set(data)
-        if missing:
-            raise ValueError(f"missing required fields: {sorted(missing)}")
-        _reject_extra(data, required)
+            raise ValueError("route decision must be an object")
+        _reject_extra(
+            data,
+            ("route", "probabilities", "complexity", "ambiguity", "confidence"),
+            "route decision",
+        )
+        allowed = tuple(allowed_routes)
+        if not allowed:
+            raise ValueError("no eligible routes supplied for route decision")
 
-        domains = _parse_task_domains(data["domains"])
+        probabilities: dict[str, float] = {}
+        raw_probs = data.get("probabilities")
+        if not isinstance(raw_probs, dict) or not raw_probs:
+            raise ValueError("probabilities must be a non-empty object")
+        for key, value in raw_probs.items():
+            if not isinstance(key, str) or key not in allowed:
+                raise ValueError(f"unknown route in probabilities: {key!r}")
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"probability for {key!r} must be a number")
+            prob = float(value)
+            if not 0.0 <= prob <= 1.0:
+                raise ValueError(f"probability for {key!r} must be between 0 and 1")
+            probabilities[key] = prob
 
+        route = data.get("route")
+        if not isinstance(route, str) or route not in allowed:
+            raise ValueError(f"route must be one of {list(allowed)}")
+        if route not in probabilities:
+            raise ValueError("probabilities must include the selected route")
+
+        complexity = _score(data.get("complexity"), "complexity")
+        ambiguity = _score(data.get("ambiguity"), "ambiguity")
+        confidence = probabilities[route]
+        if "confidence" in data:
+            declared = _confidence(data["confidence"])
+            if abs(declared - confidence) > 0.01:
+                raise ValueError(
+                    "confidence must match the selected route probability"
+                )
         return cls(
-            task_type=_enum(TaskType, data["task_type"], "task_type"),
-            domains=domains,
-            complexity=_enum(Complexity, data["complexity"], "complexity"),
-            scope=_enum(ChangeScope, data["scope"], "scope"),
-            reasoning_depth=_enum(
-                ReasoningDepth, data["reasoning_depth"], "reasoning_depth"
-            ),
-            uncertainty=_enum(Uncertainty, data["uncertainty"], "uncertainty"),
-            requires_repo_discovery=_bool(
-                data["requires_repo_discovery"], "requires_repo_discovery"
-            ),
-            requires_visual_validation=_bool(
-                data["requires_visual_validation"], "requires_visual_validation"
-            ),
-            requires_large_context=_bool(
-                data["requires_large_context"], "requires_large_context"
-            ),
-            likely_context_size=_enum(
-                ContextSize, data["likely_context_size"], "likely_context_size"
-            ),
-            risk=_enum(TaskRisk, data["risk"], "risk"),
-            confidence=_confidence(data["confidence"]),
+            route=route,
+            probabilities=probabilities,
+            complexity=complexity,
+            ambiguity=ambiguity,
+            confidence=confidence,
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "task_type": self.task_type.value,
-            "domains": [d.value for d in self.domains],
-            "complexity": self.complexity.value,
-            "scope": self.scope.value,
-            "reasoning_depth": self.reasoning_depth.value,
-            "uncertainty": self.uncertainty.value,
-            "requires_repo_discovery": self.requires_repo_discovery,
-            "requires_visual_validation": self.requires_visual_validation,
-            "requires_large_context": self.requires_large_context,
-            "likely_context_size": self.likely_context_size.value,
-            "risk": self.risk.value,
+            "route": self.route,
+            "probabilities": dict(self.probabilities),
+            "complexity": self.complexity,
+            "ambiguity": self.ambiguity,
             "confidence": self.confidence,
         }
+
+
+def route_decision_json_schema(allowed_routes: tuple[str, ...]) -> dict[str, Any]:
+    """Compact expected-output description embedded in the Laya request."""
+    return {
+        "route": "one of the eligible route keys",
+        "probabilities": {
+            key: "number 0..1, probability this route is the right executor"
+            for key in allowed_routes
+        },
+        "complexity": "integer 1-5 (1 trivial, 5 very complex)",
+        "ambiguity": "integer 1-5 (1 none, 5 fundamental)",
+        "allowed_routes": list(allowed_routes),
+    }
+
+
+def parse_route_decision_json(
+    text: str, allowed_routes: tuple[str, ...]
+) -> RouteDecision:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"malformed JSON: {error}") from error
+    return RouteDecision.from_dict(data, allowed_routes)
 
 
 @dataclass(frozen=True)
@@ -283,33 +257,27 @@ class FailureFeatures:
     confidence: float
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> FailureFeatures:
-        if not isinstance(data, dict):
-            raise ValueError("FailureFeatures must be an object")
-        required = {
+    def from_dict(cls, data: dict[str, Any]) -> "FailureFeatures":
+        required = (
             "failure_class",
             "domain",
             "component",
             "likely_task_related",
             "retry_same_model",
             "confidence",
-        }
-        missing = required - set(data)
+        )
+        missing = [key for key in required if key not in data]
         if missing:
             raise ValueError(f"missing required fields: {sorted(missing)}")
-        _reject_extra(data, required)
+        _reject_extra(data, required, "failure features")
         component = data["component"]
         if not isinstance(component, str):
             raise ValueError("component must be a string")
         return cls(
-            failure_class=_enum(
-                FailureClass, data["failure_class"], "failure_class"
-            ),
+            failure_class=_enum(FailureClass, data["failure_class"], "failure_class"),
             domain=_parse_failure_domain(data["domain"]),
             component=component,
-            likely_task_related=_bool(
-                data["likely_task_related"], "likely_task_related"
-            ),
+            likely_task_related=_bool(data["likely_task_related"], "likely_task_related"),
             retry_same_model=_bool(data["retry_same_model"], "retry_same_model"),
             confidence=_confidence(data["confidence"]),
         )
@@ -325,97 +293,16 @@ class FailureFeatures:
         }
 
 
-@dataclass(frozen=True)
-class ContextRequirements:
-    architecture_docs: bool
-    recent_diff: bool
-    related_tests: bool
-    git_history: bool
-    likely_subsystems: tuple[str, ...]
-    context_budget: ContextBudget
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "architecture_docs": self.architecture_docs,
-            "recent_diff": self.recent_diff,
-            "related_tests": self.related_tests,
-            "git_history": self.git_history,
-            "likely_subsystems": list(self.likely_subsystems),
-            "context_budget": self.context_budget.value,
-        }
-
-
-def parse_task_features_json(text: str) -> TaskFeatures:
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"malformed JSON: {error}") from error
-    return TaskFeatures.from_dict(data)
-
-
-def parse_failure_features_json(text: str) -> FailureFeatures:
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"malformed JSON: {error}") from error
-    return FailureFeatures.from_dict(data)
-
-
-def _enum_schema(enum_cls: type[Enum]) -> dict[str, Any]:
-    return {"type": "string", "enum": [member.value for member in enum_cls]}
-
-
-def task_features_json_schema() -> dict[str, Any]:
-    """OpenAI strict JSON schema for TaskFeatures (discrete enums, no pipe unions)."""
-    return {
-        "type": "object",
-        "properties": {
-            "task_type": _enum_schema(TaskType),
-            "domains": {
-                "type": "array",
-                "items": _enum_schema(TaskDomain),
-                "minItems": 1,
-            },
-            "complexity": _enum_schema(Complexity),
-            "scope": _enum_schema(ChangeScope),
-            "reasoning_depth": _enum_schema(ReasoningDepth),
-            "uncertainty": _enum_schema(Uncertainty),
-            "requires_repo_discovery": {"type": "boolean"},
-            "requires_visual_validation": {"type": "boolean"},
-            "requires_large_context": {"type": "boolean"},
-            "likely_context_size": _enum_schema(ContextSize),
-            "risk": _enum_schema(TaskRisk),
-            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-        },
-        "required": [
-            "task_type",
-            "domains",
-            "complexity",
-            "scope",
-            "reasoning_depth",
-            "uncertainty",
-            "requires_repo_discovery",
-            "requires_visual_validation",
-            "requires_large_context",
-            "likely_context_size",
-            "risk",
-            "confidence",
-        ],
-        "additionalProperties": False,
-    }
-
-
 def failure_features_json_schema() -> dict[str, Any]:
-    """OpenAI strict JSON schema for FailureFeatures (discrete enums, no pipe unions)."""
     return {
         "type": "object",
         "properties": {
-            "failure_class": _enum_schema(FailureClass),
-            "domain": _enum_schema(TaskDomain),
+            "failure_class": {"type": "string", "enum": [c.value for c in FailureClass]},
+            "domain": {"type": "string", "enum": list(TASK_DOMAIN_VALUES)},
             "component": {"type": "string"},
             "likely_task_related": {"type": "boolean"},
             "retry_same_model": {"type": "boolean"},
-            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         },
         "required": [
             "failure_class",
@@ -429,23 +316,31 @@ def failure_features_json_schema() -> dict[str, Any]:
     }
 
 
-def task_features_response_format() -> dict[str, Any]:
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "TaskFeatures",
-            "strict": True,
-            "schema": task_features_json_schema(),
-        },
-    }
+def parse_failure_features_json(text: str) -> FailureFeatures:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"malformed JSON: {error}") from error
+    if not isinstance(data, dict):
+        raise ValueError("FailureFeatures must be an object")
+    return FailureFeatures.from_dict(data)
 
 
-def failure_features_response_format() -> dict[str, Any]:
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "FailureFeatures",
-            "strict": True,
-            "schema": failure_features_json_schema(),
-        },
-    }
+@dataclass(frozen=True)
+class ContextRequirements:
+    architecture_docs: bool = False
+    recent_diff: bool = False
+    related_tests: bool = False
+    git_history: bool = False
+    likely_subsystems: tuple[str, ...] = ()
+    context_budget: ContextBudget = ContextBudget.UNKNOWN
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "architecture_docs": self.architecture_docs,
+            "recent_diff": self.recent_diff,
+            "related_tests": self.related_tests,
+            "git_history": self.git_history,
+            "likely_subsystems": list(self.likely_subsystems),
+            "context_budget": self.context_budget.value,
+        }

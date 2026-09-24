@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from semantic.facts import RoutingFacts
 from semantic.schema import FailureClass, FailureFeatures, TaskDomain
 
 
@@ -19,10 +20,11 @@ class FailureAnalysisInput:
     acp_error: str = ""
     git_conflict: bool = False
     review_rejection: bool = False
+    facts: RoutingFacts | None = None
 
 
 def normalize_failure(input_data: FailureAnalysisInput) -> FailureFeatures:
-    """Deterministic failure classification when SLM is unavailable."""
+    """Deterministic failure classification when Laya is unavailable."""
     text = " ".join(
         part
         for part in (
@@ -83,6 +85,9 @@ def normalize_failure(input_data: FailureAnalysisInput) -> FailureFeatures:
 
 
 def failure_input_from_dict(data: dict[str, Any]) -> FailureAnalysisInput:
+    facts = data.get("facts")
+    if not isinstance(facts, RoutingFacts):
+        facts = None
     return FailureAnalysisInput(
         log_excerpt=str(data.get("log_excerpt") or data.get("log") or ""),
         exit_code=data.get("exit_code"),
@@ -92,4 +97,5 @@ def failure_input_from_dict(data: dict[str, Any]) -> FailureAnalysisInput:
         acp_error=str(data.get("acp_error") or ""),
         git_conflict=bool(data.get("git_conflict", False)),
         review_rejection=bool(data.get("review_rejection", False)),
+        facts=facts,
     )

@@ -1,15 +1,9 @@
-# Local SLM semantic analysis — enabled by default; degrades when Ollama is unreachable (no CI dependency).
-
-[slm]
+# Laya semantic routing — local System-1 sensor, enabled by default.
+# Laya is a sensor only: Ajax deterministic policy retains final authority.
+# Degrades gracefully to deterministic routing when Laya is unreachable,
+# times out, returns invalid output, or confidence is below the threshold.
+[semantic]
 enabled = true
-endpoint = "http://127.0.0.1:11434/v1/chat/completions"
-model = "qwen3.5:4b" # Non-thinking classifier (not qwen3:4b-instruct, not qwen3:4b)
-timeout_ms = 60000
-max_retries = 1
-confidence_threshold = 0.6
-keep_alive = "30m" # Ollama: keep qwen3.5:4b loaded (server default idle unload ~5m)
-
-[prompts]
-task_system = "You classify coding tasks. Reply with JSON only matching the schema. domains must be a JSON array of discrete enum strings from allowed_values.domains, never pipe-joined. No explanation."
-failure_system = "You classify execution failures. Reply with JSON only matching the schema. domain must be one discrete enum string from allowed_values.domain, never pipe-joined. No explanation."
-max_tokens = 256
+endpoint = "http://127.0.0.1:8000/v1/systemone"
+timeout_ms = 5000
+confidence_threshold = 0.60

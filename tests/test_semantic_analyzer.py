@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""SemanticAnalyzer disabled / fallback behavior."""
+"""Laya analyzer behavior — sensor with typed failures, never blocks routing."""
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -11,205 +12,189 @@ sys.path.insert(0, str(ROOT / "libexec"))
 
 from semantic.analyzer import (  # noqa: E402
     DisabledSemanticAnalyzer,
-    LocalSlmSemanticAnalyzer,
-    TASK_SCHEMA_HINT,
+    LayaAnalyzer,
     TaskAnalysisInput,
     analyze_with_fallback,
     create_analyzer,
 )
-from semantic.config import SlmConfig  # noqa: E402
-from semantic.errors import SemanticDisabledError  # noqa: E402
+from semantic.config import LayaConfig  # noqa: E402
+from semantic.errors import (  # noqa: E402
+    SemanticDisabledError,
+    SemanticLowConfidenceError,
+    SemanticTimeoutError,
+    SemanticUnavailableError,
+    SemanticValidationError,
+)
 from semantic.facts import RoutingFacts  # noqa: E402
-from semantic.schema import TaskDomain, parse_task_features_json, task_features_response_format  # noqa: E402
+from semantic.failure import FailureAnalysisInput  # noqa: E402
+from semantic.schema import RouteDecision  # noqa: E402
+
+CFG = LayaConfig(
+    enabled=True,
+    endpoint="http://127.0.0.1:8000/v1/systemone",
+    timeout_ms=5000,
+    confidence_threshold=0.60,
+)
+ELIGIBLE = ("MINIMAX", "CURSOR", "GLM", "CODEX")
 
 
-class SemanticAnalyzerTests(unittest.TestCase):
+def _task_input(**overrides) -> TaskAnalysisInput:
+    base = dict(
+        user_request="fix login bug",
+        facts=RoutingFacts(user_request="fix login bug"),
+        eligible_routes=ELIGIBLE,
+    )
+    base.update(overrides)
+    return TaskAnalysisInput(**base)
+
+
+def _decision_body(route: str, confidence: float) -> dict:
+    return {
+        "route": route,
+        "probabilities": {route: confidence, "CURSOR": max(0.0, 1 - confidence)},
+        "complexity": 3,
+        "ambiguity": 2,
+    }
+
+
+class AnalyzerTests(unittest.TestCase):
+    def test_create_analyzer_disabled(self):
+        analyzer = create_analyzer(LayaConfig(
+            enabled=False, endpoint="http://x", timeout_ms=100,
+            confidence_threshold=0.6,
+        ))
+        self.assertIsInstance(analyzer, DisabledSemanticAnalyzer)
+
+    def test_create_analyzer_enabled(self):
+        analyzer = create_analyzer(CFG)
+        self.assertIsInstance(analyzer, LayaAnalyzer)
+
     def test_disabled_analyzer_raises(self):
-        analyzer = DisabledSemanticAnalyzer()
-        inp = TaskAnalysisInput(user_request="fix bug", facts=RoutingFacts())
         with self.assertRaises(SemanticDisabledError):
-            analyzer.analyze_task(inp)
+            DisabledSemanticAnalyzer().analyze_task(_task_input())
 
-    def test_create_analyzer_enabled_by_default(self):
-        analyzer = create_analyzer()
-        self.assertIsInstance(analyzer, LocalSlmSemanticAnalyzer)
-
-    def test_analyze_with_fallback_on_disabled(self):
-        features, reason, source = analyze_with_fallback(
-            DisabledSemanticAnalyzer(),
-            TaskAnalysisInput(user_request="task", facts=RoutingFacts()),
-        )
-        self.assertIsNone(features)
-        self.assertIn("disabled", reason)
-        self.assertEqual(source, "disabled")
-
-    def test_timeout_fallback(self):
-        cfg = SlmConfig(
-            enabled=True,
-            endpoint="http://127.0.0.1:9/v1/chat/completions",
-            model="test",
-            timeout_ms=100,
-            max_retries=0,
-            confidence_threshold=0.5,
-            task_system="sys",
-            failure_system="sys",
-            max_tokens=64,
-        )
-        analyzer = LocalSlmSemanticAnalyzer(cfg)
+    def test_analyze_task_returns_route_decision(self):
         with mock.patch(
-            "semantic.analyzer.chat_completion",
-            side_effect=__import__(
-                "semantic.errors", fromlist=["SemanticTimeoutError"]
-            ).SemanticTimeoutError("timed out"),
+            "semantic.analyzer.laya_request",
+            return_value=_decision_body("GLM", 0.85),
+        ) as request:
+            decision = LayaAnalyzer(CFG).analyze_task(_task_input())
+        self.assertEqual(decision.route, "GLM")
+        self.assertIsInstance(decision, RouteDecision)
+        self.assertEqual(decision.confidence, 0.85)
+        body = request.call_args[0][1]
+        self.assertEqual(body["kind"], "route")
+        self.assertEqual(body["eligible_routes"], list(ELIGIBLE))
+        self.assertIn("response_schema", body)
+        self.assertIn("GLM", body["route_definitions"])
+
+    def test_analyze_task_low_confidence_raises(self):
+        with mock.patch(
+            "semantic.analyzer.laya_request",
+            return_value=_decision_body("GLM", 0.4),
         ):
-            features, reason, source = analyze_with_fallback(
-                analyzer,
-                TaskAnalysisInput(user_request="task", facts=RoutingFacts()),
+            with self.assertRaises(SemanticLowConfidenceError):
+                LayaAnalyzer(CFG).analyze_task(_task_input())
+
+    def test_analyze_task_no_eligible_routes_raises(self):
+        with self.assertRaises(SemanticValidationError):
+            LayaAnalyzer(CFG).analyze_task(_task_input(eligible_routes=()))
+
+    def test_analyze_task_invalid_route_rejected(self):
+        with mock.patch(
+            "semantic.analyzer.laya_request",
+            return_value=_decision_body("NOT_A_ROUTE", 0.9),
+        ):
+            with self.assertRaises(SemanticValidationError):
+                LayaAnalyzer(CFG).analyze_task(_task_input())
+
+    def test_analyze_failure_parses_features(self):
+        body = {
+            "failure_class": "test_regression",
+            "domain": "testing",
+            "component": "tests/test_auth.py",
+            "likely_task_related": True,
+            "retry_same_model": True,
+            "confidence": 0.9,
+        }
+        with mock.patch("semantic.analyzer.laya_request", return_value=body):
+            features = LayaAnalyzer(CFG).analyze_failure(
+                FailureAnalysisInput(log_excerpt="3 tests failed")
             )
-        self.assertIsNone(features)
-        self.assertIn("timed out", reason)
-        self.assertEqual(source, "slm_failed")
+        self.assertEqual(features.failure_class.value, "test_regression")
+        self.assertTrue(features.retry_same_model)
 
-    def test_low_confidence_fallback(self):
-        cfg = SlmConfig(
-            enabled=True,
-            endpoint="http://127.0.0.1:9/v1/chat/completions",
-            model="test",
-            timeout_ms=1000,
-            max_retries=0,
-            confidence_threshold=0.9,
-            task_system="sys",
-            failure_system="sys",
-            max_tokens=64,
+    def test_analyze_failure_low_confidence_raises(self):
+        body = {
+            "failure_class": "unknown",
+            "domain": "unknown",
+            "component": "",
+            "likely_task_related": False,
+            "retry_same_model": False,
+            "confidence": 0.2,
+        }
+        with mock.patch("semantic.analyzer.laya_request", return_value=body):
+            with self.assertRaises(SemanticLowConfidenceError):
+                LayaAnalyzer(CFG).analyze_failure(
+                    FailureAnalysisInput(log_excerpt="???")
+                )
+
+    def test_analyze_failure_invalid_schema_rejected(self):
+        with mock.patch(
+            "semantic.analyzer.laya_request",
+            return_value={"failure_class": "mystery", "domain": "unknown"},
+        ):
+            with self.assertRaises(SemanticValidationError):
+                LayaAnalyzer(CFG).analyze_failure(
+                    FailureAnalysisInput(log_excerpt="???")
+                )
+
+
+class AnalyzeWithFallbackTests(unittest.TestCase):
+    def test_success_returns_decision(self):
+        analyzer = mock.MagicMock()
+        analyzer.analyze_task.return_value = RouteDecision(
+            route="GLM",
+            probabilities={"GLM": 0.85, "CURSOR": 0.15},
+            complexity=3,
+            ambiguity=2,
+            confidence=0.85,
         )
-        low_conf = """{
-          "task_type": "bug_fix",
-          "domains": ["tooling"],
-          "complexity": "low",
-          "scope": "localized",
-          "reasoning_depth": "shallow",
-          "uncertainty": "low",
-          "requires_repo_discovery": false,
-          "requires_visual_validation": false,
-          "requires_large_context": false,
-          "likely_context_size": "small",
-          "risk": "low",
-          "confidence": 0.3
-        }"""
-        analyzer = LocalSlmSemanticAnalyzer(cfg)
-        with mock.patch("semantic.analyzer.chat_completion", return_value=low_conf):
-            features, reason, source = analyze_with_fallback(
-                analyzer,
-                TaskAnalysisInput(user_request="task", facts=RoutingFacts()),
-            )
-        self.assertIsNone(features)
-        self.assertIn("confidence", reason)
-        self.assertEqual(source, "slm_rejected")
+        decision, reason, source = analyze_with_fallback(analyzer, _task_input())
+        self.assertEqual(decision.route, "GLM")
+        self.assertIsNone(reason)
+        self.assertEqual(source, "laya")
 
-    def test_schema_echo_domains_rejected(self):
-        schema_echo = """{
-          "task_type": "bug_fix",
-          "domains": ["frontend|rust_backend|mobile_web|git|github|testing|ci|architecture|tooling|unknown"],
-          "complexity": "low",
-          "scope": "localized",
-          "reasoning_depth": "shallow",
-          "uncertainty": "low",
-          "requires_repo_discovery": false,
-          "requires_visual_validation": false,
-          "requires_large_context": false,
-          "likely_context_size": "small",
-          "risk": "low",
-          "confidence": 0.9
-        }"""
-        with self.assertRaises(ValueError) as ctx:
-            parse_task_features_json(schema_echo)
-        self.assertIn("schema echo", str(ctx.exception))
-
-        cfg = SlmConfig(
-            enabled=True,
-            endpoint="http://127.0.0.1:9/v1/chat/completions",
-            model="test",
-            timeout_ms=1000,
-            max_retries=0,
-            confidence_threshold=0.5,
-            task_system="sys",
-            failure_system="sys",
-            max_tokens=64,
+    def test_disabled_returns_reason(self):
+        decision, reason, source = analyze_with_fallback(
+            DisabledSemanticAnalyzer(), _task_input()
         )
-        analyzer = LocalSlmSemanticAnalyzer(cfg)
-        with mock.patch("semantic.analyzer.chat_completion", return_value=schema_echo):
-            features, reason, source = analyze_with_fallback(
-                analyzer,
-                TaskAnalysisInput(user_request="task", facts=RoutingFacts()),
-            )
-        self.assertIsNone(features)
-        self.assertIn("schema echo", reason)
-        self.assertEqual(source, "slm_failed")
+        self.assertIsNone(decision)
+        self.assertEqual(source, "disabled")
+        self.assertIn("disabled", reason)
 
-    def test_pipe_joined_domain_subset_parses(self):
-        payload = """{
-          "task_type": "test",
-          "domains": ["frontend|testing"],
-          "complexity": "low",
-          "scope": "localized",
-          "reasoning_depth": "shallow",
-          "uncertainty": "low",
-          "requires_repo_discovery": false,
-          "requires_visual_validation": false,
-          "requires_large_context": false,
-          "likely_context_size": "small",
-          "risk": "low",
-          "confidence": 0.9
-        }"""
-        features = parse_task_features_json(payload)
-        self.assertEqual(
-            features.domains,
-            (TaskDomain.FRONTEND, TaskDomain.TESTING),
-        )
+    def test_low_confidence_returns_rejected(self):
+        analyzer = mock.MagicMock()
+        analyzer.analyze_task.side_effect = SemanticLowConfidenceError("low")
+        decision, reason, source = analyze_with_fallback(analyzer, _task_input())
+        self.assertIsNone(decision)
+        self.assertEqual(source, "laya_rejected")
+        self.assertEqual(reason, "low")
 
-    def test_analyzer_passes_strict_json_schema_to_client(self):
-        cfg = SlmConfig(
-            enabled=True,
-            endpoint="http://127.0.0.1:9/v1/chat/completions",
-            model="qwen3.5:4b",
-            timeout_ms=1000,
-            max_retries=0,
-            confidence_threshold=0.5,
-            task_system="sys",
-            failure_system="sys",
-            max_tokens=256,
-        )
-        good = """{
-          "task_type": "bug_fix",
-          "domains": ["tooling"],
-          "complexity": "low",
-          "scope": "localized",
-          "reasoning_depth": "shallow",
-          "uncertainty": "low",
-          "requires_repo_discovery": false,
-          "requires_visual_validation": false,
-          "requires_large_context": false,
-          "likely_context_size": "small",
-          "risk": "low",
-          "confidence": 0.9
-        }"""
-        analyzer = LocalSlmSemanticAnalyzer(cfg)
-        with mock.patch("semantic.analyzer.chat_completion", return_value=good) as mocked:
-            analyzer.analyze_task(
-                TaskAnalysisInput(user_request="task", facts=RoutingFacts())
-            )
-        _, kwargs = mocked.call_args
-        self.assertEqual(kwargs["model"], "qwen3.5:4b")
-        self.assertLessEqual(kwargs["max_tokens"], 256)
-        self.assertEqual(kwargs["response_format"], task_features_response_format())
+    def test_unavailable_returns_failed(self):
+        analyzer = mock.MagicMock()
+        analyzer.analyze_task.side_effect = SemanticUnavailableError("no endpoint")
+        decision, reason, source = analyze_with_fallback(analyzer, _task_input())
+        self.assertIsNone(decision)
+        self.assertEqual(source, "laya_failed")
+        self.assertEqual(reason, "no endpoint")
 
-    def test_task_schema_hint_lists_discrete_domains(self):
-        self.assertNotIn(
-            "frontend|rust_backend|mobile_web|git|github|testing|ci|architecture|tooling|unknown",
-            TASK_SCHEMA_HINT,
-        )
-        self.assertIn('"domains": [', TASK_SCHEMA_HINT)
-        self.assertIn('"allowed_values"', TASK_SCHEMA_HINT)
+    def test_never_raises(self):
+        analyzer = mock.MagicMock()
+        analyzer.analyze_task.side_effect = SemanticTimeoutError("timed out")
+        decision, reason, source = analyze_with_fallback(analyzer, _task_input())
+        self.assertIsNone(decision)
+        self.assertEqual(source, "laya_failed")
 
 
 if __name__ == "__main__":
