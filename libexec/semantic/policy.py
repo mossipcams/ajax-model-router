@@ -20,10 +20,11 @@ REGISTRY: dict[str, tuple[str, str]] = {
     "MINIMAX": ("pi", "minimax-m3"),
     "QWEN": ("pi", "qwen3.8-27b"),
     "GLM": ("pi", "glm-5.2"),
+    "OPUS": ("cursor", "claude-opus-5-5"),
 }
 
 # Canonical route order (cheap → strongest), used for tie-breaking and logs.
-ROUTE_ORDER: tuple[str, ...] = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX")
+ROUTE_ORDER: tuple[str, ...] = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS")
 
 MODEL_KEY_BY_ID: dict[str, str] = {
     model_id: key for key, (_, model_id) in REGISTRY.items()
@@ -51,9 +52,13 @@ ROUTE_DEFINITIONS: dict[str, str] = {
         "implementation."
     ),
     "CODEX": (
-        "Difficult debugging, complex cross-cutting reasoning, or unusually "
-        "demanding implementation where weaker models are materially more "
-        "likely to fail."
+        "Strong reasoning and demanding implementation; the fallback lane "
+        "when the strongest route is unavailable."
+    ),
+    "OPUS": (
+        "The strongest lane: hardest debugging, complex cross-cutting "
+        "reasoning, unusually demanding implementation, or escalation after a "
+        "failed implementation round."
     ),
 }
 
@@ -103,7 +108,7 @@ def has_hard_override(facts: RoutingFacts) -> bool:
         facts.explicit_model
         or facts.user_asked_codex
         or facts.recorded_spec_uncertainty
-        or (facts.is_retry and facts.previous_model_key in {"MINIMAX", "CURSOR"})
+        or (facts.is_retry and facts.previous_model_key in {"MINIMAX", "CURSOR", "QWEN"})
     )
 
 
@@ -240,7 +245,7 @@ def select_route(
             facts,
             eligible=eligible,
         )
-    if facts.is_retry and facts.previous_model_key in {"MINIMAX", "CURSOR"}:
+    if facts.is_retry and facts.previous_model_key in {"MINIMAX", "CURSOR", "QWEN"}:
         if facts.previous_model_key == "MINIMAX":
             return _decision(
                 "GLM",
@@ -249,10 +254,18 @@ def select_route(
                 facts,
                 eligible=eligible,
             )
+        if "OPUS" in eligible:
+            return _decision(
+                "OPUS",
+                "R-RETRY-ESCALATE",
+                "retry after failed implementation attempt escalates to OPUS",
+                facts,
+                eligible=eligible,
+            )
         return _decision(
             "CODEX",
             "R-RETRY-ESCALATE",
-            "retry after failed cheap-model attempt escalates to CODEX",
+            "OPUS unavailable; retry escalates to CODEX",
             facts,
             eligible=eligible,
         )

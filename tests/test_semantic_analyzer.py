@@ -35,7 +35,7 @@ CFG = LayaConfig(
     timeout_ms=5000,
     confidence_threshold=0.60,
 )
-ELIGIBLE = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX")
+ELIGIBLE = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS")
 
 
 def _task_input(**overrides) -> TaskAnalysisInput:

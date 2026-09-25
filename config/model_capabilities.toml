@@ -44,6 +44,19 @@ test_writing_strength = 3
 large_context_strength = 3
 review_strength = 4
 
+[OPUS]
+context_window = 200000
+max_output_tokens = 32768
+cost_tier = 5
+architecture_strength = 5
+localized_implementation_strength = 3
+frontend_strength = 4
+rust_strength = 4
+debugging_strength = 5
+test_writing_strength = 5
+large_context_strength = 4
+review_strength = 5
+
 [QWEN]
 context_window = 65536
 max_output_tokens = 4096

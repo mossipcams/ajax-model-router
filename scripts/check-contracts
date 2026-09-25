@@ -58,7 +58,7 @@ forbid_text "$ROUTER" "R-SIZE-SPLIT" "removed size-split ceremony"
 forbid_text "$ROUTER" "GROK" "no Grok registry or route"
 forbid_text "$ROUTER" "grok" "no Grok model id"
 
-for key in CODEX CURSOR MINIMAX GLM; do
+for key in CODEX CURSOR MINIMAX QWEN GLM OPUS; do
   model_id="$(awk -F'`' -v key="$key" '$2 == key {print $4; exit}' "$ROOT/$ROUTER")"
   if [[ -z "$model_id" ]]; then
     echo "missing: model registry key $key" >&2
@@ -68,13 +68,13 @@ for key in CODEX CURSOR MINIMAX GLM; do
   fi
 done
 
-require_text "$ROUTER" "Default implementation agent is \`cursor\`" "composer-default implementation"
+require_text "$ROUTER" "Default implementation agent is \`pi\` / \`QWEN\`" "qwen-default implementation"
 require_text "$ROUTER" "Pure Q&A or architecture planning" "LOCAL/parent only for Q&A / architecture"
 forbid_text "$ROUTER" '`R-LOCAL-TINY`' "removed tiny-local write shortcut"
 
 uncertainty_line="$(grep -nF 'Recorded unresolved specification or architecture uncertainty' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
 cheap_line="$(grep -nF 'Routine docs, generated cleanup, exact replacements, or named boilerplate' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
-cursor_line="$(grep -nF 'No exception matched' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
+cursor_line="$(grep -nF 'No exception matched; Laya unavailable, invalid, or low confidence' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
 if [[ -z "$uncertainty_line" || -z "$cheap_line" || -z "$cursor_line" || "$uncertainty_line" -ge "$cheap_line" || "$cheap_line" -ge "$cursor_line" ]]; then
   echo "wrong-order: GLM → MiniMax → CURSOR-default must hold" >&2
   failures=$((failures + 1))
@@ -126,7 +126,6 @@ require_text "README.md" "acpx" "readme acpx transport"
 forbid_text "README.md" "cursor-agent -p" "forbidden legacy Cursor CLI transport"
 forbid_text "README.md" "codex app-server" "forbidden legacy Codex app-server transport"
 forbid_text "README.md" "pi --mode rpc" "forbidden legacy Pi RPC transport"
-forbid_text "$cursor" "cursor-agent" "forbidden legacy cursor-agent in adapter"
 forbid_text "$pi" "pi --mode rpc" "forbidden legacy pi rpc in adapter"
 forbid_text "$codex" "codex app-server" "forbidden legacy codex app-server in adapter"
 

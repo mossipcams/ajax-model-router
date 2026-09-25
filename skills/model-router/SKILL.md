@@ -74,6 +74,7 @@ the decision copies the corresponding exact ID into `MODEL`.
 | `MINIMAX` | `minimax-m3` | `pi` | — | — | — | — |
 | `QWEN` | `qwen3.8-27b` | `pi` | `local` | `http://127.0.0.1:18000/v1` | 65536 | 4096 |
 | `GLM` | `glm-5.2` | `pi` | — | — | — | — |
+| `OPUS` | `claude-opus-5-5` | `cursor` | — | — | — | — |
 
 ## Execution Decision
 
@@ -136,7 +137,7 @@ planning with no implementation write).
 | `R-EXPLICIT-MODEL` | Explicit user/model override | requested | requested | Always wins over Laya |
 | `R-CODEX` | User explicitly asked Codex to implement | `codex` | `CODEX` | Always wins over Laya |
 | `R-GLM` | Recorded unresolved specification or architecture uncertainty | `pi` | `GLM` | Always wins over Laya |
-| `R-RETRY-ESCALATE` | Retry after failed cheap-model attempt | `pi`/`codex` | `GLM`/`CODEX` | Always wins over Laya |
+| `R-RETRY-ESCALATE` | Retry after failed cheap-model attempt | `pi`/`cursor`/`codex` | `GLM`/`OPUS`/`CODEX` | Always wins over Laya |
 | `R-LAYA` | No exception matched; Laya names an eligible route at/above the confidence threshold | registry | Laya route key | Fuzzy lane among eligible routes |
 | `R-MINIMAX` | Routine docs, generated cleanup, exact replacements, or named boilerplate; at most 2 files and roughly 60 changed lines; no auth/security/data-loss concerns | `pi` | `MINIMAX` | Deterministic default |
 | `R-QWEN` | No exception matched; Laya unavailable, invalid, or low confidence | `pi` | `QWEN` | Default implementation |
@@ -345,7 +346,7 @@ Laya is unreachable). Model capabilities are static in
   inference; Laya sees only compact decision-relevant task information, never
   source files or large repository context.
 - **Validated decision** — Laya returns a registry route key
-  (`MINIMAX`/`QWEN`/`CURSOR`/`GLM`/`CODEX`), route probabilities, and complexity and
+  (`MINIMAX`/`QWEN`/`CURSOR`/`GLM`/`CODEX`/`OPUS`), route probabilities, and complexity and
   ambiguity scores (1–5). `RouteDecision`, `FailureFeatures`, and
   `ContextRequirements` use typed validation; invalid Laya output is rejected.
 - **Deterministic policy** — registry keys select the executor; hard rules

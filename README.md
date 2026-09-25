@@ -96,7 +96,7 @@ first); hard overrides below always win over Laya.
 | Explicit user/model override | the requested model |
 | Explicit Codex ask | `codex` / `gpt-6-astra` |
 | Recorded spec/architecture uncertainty | `pi` / `glm-5.2` |
-| Retry after failed cheap-model attempt | escalate (`GLM` → `CODEX`) |
+| Retry after failed cheap-model attempt | escalate (`GLM` → `OPUS` → `CODEX`) |
 | Shallow docs/boilerplate ≤2 files/~60 lines | `pi` / `minimax-m3` |
 | High-risk (auth/security/session/PTY/data-loss) | never `minimax-m3` |
 | Laya unavailable/invalid/low confidence | existing deterministic default |

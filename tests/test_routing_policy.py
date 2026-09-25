@@ -17,7 +17,7 @@ from semantic.policy import (  # noqa: E402
 )
 from semantic.schema import RouteDecision  # noqa: E402
 
-ALL_ROUTES = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX")
+ALL_ROUTES = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS")
 
 
 def _laya(route: str, confidence: float, **overrides) -> RouteDecision:
@@ -40,11 +40,11 @@ class RoutingPolicyTests(unittest.TestCase):
 
     def test_high_risk_removes_minimax(self):
         facts = RoutingFacts(user_request="fix auth token rotation")
-        self.assertEqual(eligible_routes(facts), ("QWEN", "CURSOR", "GLM", "CODEX"))
+        self.assertEqual(eligible_routes(facts), ("QWEN", "CURSOR", "GLM", "CODEX", "OPUS"))
 
     def test_unavailable_routes_removed(self):
         facts = RoutingFacts(unavailable_routes=["MINIMAX", "GLM"])
-        self.assertEqual(eligible_routes(facts), ("QWEN", "CURSOR", "CODEX"))
+        self.assertEqual(eligible_routes(facts), ("QWEN", "CURSOR", "CODEX", "OPUS"))
 
     def test_explicit_user_model_override(self):
         facts = RoutingFacts(explicit_model="glm-5.2")
@@ -78,6 +78,20 @@ class RoutingPolicyTests(unittest.TestCase):
 
     def test_retry_escalates_from_cursor(self):
         facts = RoutingFacts(is_retry=True, previous_model_key="CURSOR")
+        decision = select_route(facts)
+        self.assertEqual(decision.model_key, "OPUS")
+        self.assertEqual(decision.rule_id, "R-RETRY-ESCALATE")
+
+    def test_retry_escalates_from_qwen(self):
+        facts = RoutingFacts(is_retry=True, previous_model_key="QWEN")
+        decision = select_route(facts)
+        self.assertEqual(decision.model_key, "OPUS")
+        self.assertEqual(decision.rule_id, "R-RETRY-ESCALATE")
+
+    def test_retry_escalates_to_codex_when_opus_unavailable(self):
+        facts = RoutingFacts(
+            is_retry=True, previous_model_key="CURSOR", unavailable_routes=["OPUS"]
+        )
         decision = select_route(facts)
         self.assertEqual(decision.model_key, "CODEX")
         self.assertEqual(decision.rule_id, "R-RETRY-ESCALATE")
@@ -171,6 +185,7 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertEqual(MODEL_KEY_BY_ID["qwen3.8-27b"], "QWEN")
         self.assertEqual(MODEL_KEY_BY_ID["minimax-m3"], "MINIMAX")
         self.assertEqual(MODEL_KEY_BY_ID["glm-5.2"], "GLM")
+        self.assertEqual(MODEL_KEY_BY_ID["claude-opus-5-5"], "OPUS")
 
 
 if __name__ == "__main__":

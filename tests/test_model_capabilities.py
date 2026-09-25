@@ -15,7 +15,7 @@ from semantic.config import load_capabilities  # noqa: E402
 class ModelCapabilitiesTests(unittest.TestCase):
     def test_registry_loads_all_keys(self):
         caps = load_capabilities()
-        for key in ("CODEX", "CURSOR", "MINIMAX", "QWEN", "GLM"):
+        for key in ("CODEX", "CURSOR", "MINIMAX", "QWEN", "GLM", "OPUS"):
             self.assertIn(key, caps)
         self.assertEqual(caps["QWEN"].context_window, 65536)
         self.assertEqual(caps["QWEN"].max_output_tokens, 4096)
