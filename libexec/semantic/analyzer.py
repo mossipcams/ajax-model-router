@@ -12,12 +12,10 @@ from semantic.errors import (
     SemanticDisabledError,
     SemanticError,
     SemanticLowConfidenceError,
-    SemanticValidationError,
 )
 from semantic.gliner import GlinerAnalyzer
 from semantic.facts import RoutingFacts
-from semantic.failure import FailureAnalysisInput
-from semantic.schema import FailureFeatures, RouteDecision
+from semantic.schema import RouteDecision
 
 
 @dataclass
@@ -30,16 +28,11 @@ class TaskAnalysisInput:
 class SemanticAnalyzer(Protocol):
     def analyze_task(self, input_data: TaskAnalysisInput) -> RouteDecision: ...
 
-    def analyze_failure(self, input_data: FailureAnalysisInput) -> FailureFeatures: ...
-
 
 class DisabledSemanticAnalyzer:
     """Raises SemanticDisabledError — policy uses deterministic fallback."""
 
     def analyze_task(self, input_data: TaskAnalysisInput) -> RouteDecision:
-        raise SemanticDisabledError("semantic analysis disabled")
-
-    def analyze_failure(self, input_data: FailureAnalysisInput) -> FailureFeatures:
         raise SemanticDisabledError("semantic analysis disabled")
 
 

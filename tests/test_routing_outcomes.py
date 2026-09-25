@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "libexec"))
 
 LOGGER = ROOT / "scripts" / "router-log"
-from semantic.outcome import append_routing_event, default_events_path  # noqa: E402
 
 
 class RoutingOutcomesTests(unittest.TestCase):
@@ -59,21 +58,12 @@ class RoutingOutcomesTests(unittest.TestCase):
                 capture_output=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            events = default_events_path(log)
-            self.assertTrue(events.is_file())
-            record = json.loads(events.read_text().strip())
+            # Discover the sidecar on disk instead of re-encoding the
+            # script's path rule; the name is the contract.
+            sidecars = [p for p in Path(tmp).iterdir() if p.suffix == ".jsonl"]
+            self.assertEqual([p.name for p in sidecars], ["routing-events.jsonl"])
+            record = json.loads(sidecars[0].read_text().strip())
             self.assertEqual(record["matched_rule"], "R-CURSOR")
-
-    def test_append_routing_event_helper(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "outcome.tsv"
-            path = append_routing_event(
-                tsv_log=log,
-                requested_agent="pi",
-                actual_agent="pi",
-                decision={"model_key": "GLM"},
-            )
-            self.assertTrue(path.is_file())
 
 
 if __name__ == "__main__":

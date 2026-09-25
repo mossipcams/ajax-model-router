@@ -20,8 +20,7 @@ from semantic.analyzer import (
     analyze_with_fallback,
     create_analyzer,
 )
-from semantic.capabilities import CapabilityRegistry
-from semantic.config import SemanticConfig, load_capabilities, load_semantic_config
+from semantic.config import SemanticConfig, load_semantic_config
 from semantic.context import (
     derive_context_requirements,
     derive_execution_scope,
@@ -29,24 +28,16 @@ from semantic.context import (
 )
 from semantic.explain import build_execution_block, build_explanation
 from semantic.facts import RoutingFacts, collect_facts
-from semantic.failure import (
-    FailureAnalysisInput,
-    failure_input_from_dict,
-    normalize_failure,
-)
 from semantic.policy import (
     RoutingDecision,
     eligible_routes,
     has_hard_override,
     select_route,
 )
-from semantic.schema import FailureFeatures, RouteDecision
+from semantic.schema import RouteDecision
 
 __all__ = [
-    "CapabilityRegistry",
     "DisabledSemanticAnalyzer",
-    "FailureAnalysisInput",
-    "FailureFeatures",
     "GlinerAnalyzer",
     "RoutingDecision",
     "RoutingFacts",
@@ -64,11 +55,8 @@ __all__ = [
     "derive_execution_scope",
     "derive_execution_verify",
     "eligible_routes",
-    "failure_input_from_dict",
     "has_hard_override",
-    "load_capabilities",
     "load_semantic_config",
-    "normalize_failure",
     "run_analyze_task",
     "select_route",
 ]

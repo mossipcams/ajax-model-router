@@ -341,8 +341,7 @@ not generate task features. Ajax deterministic policy retains final authority.
   the router venv, run via `libexec/semantic/gliner_bridge.py` (the only place
   `gliner2` is imported; set up with `scripts/setup-gliner`).
 - **Configuration** — `config/semantic_analysis.toml` (`enabled = true` by
-  default; degrades when the sensor is unavailable). Model capabilities are
-  static in `config/model_capabilities.toml`.
+  default; degrades when the sensor is unavailable).
 
 - **Facts first** — explicit model override, changed files, diff size, retry
   state, and other objective inputs are collected before any sensor call. Hard
@@ -351,11 +350,11 @@ not generate task features. Ajax deterministic policy retains final authority.
   never source files or large repository context.
 - **Validated decision** — the sensor returns a registry route key
   (`MINIMAX`/`QWEN`/`CURSOR`/`GLM`/`CODEX`/`OPUS`), route probabilities, and complexity and
-  ambiguity scores (1–5). `RouteDecision`, `FailureFeatures`, and
-  `ContextRequirements` use typed validation; invalid sensor output is rejected.
+  ambiguity scores (1–5). `RouteDecision` and `ContextRequirements` use typed
+  validation; invalid sensor output is rejected.
 - **Deterministic policy** — registry keys select the executor; hard rules
   (explicit override, auth/security/session/PTY/data-loss risk, model/harness
-  availability, retry escalation, capability requirements, SKILL route-table
+  availability, retry escalation, SKILL route-table
   exceptions) cannot be overridden by sensor output. The sensor's route is used
   only when it names an eligible route at or above the confidence threshold;
   otherwise the existing deterministic default applies.

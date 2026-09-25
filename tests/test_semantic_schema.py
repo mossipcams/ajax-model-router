@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""RouteDecision / FailureFeatures schema validation."""
+"""RouteDecision schema validation."""
 
-import json
 import sys
 import unittest
 from pathlib import Path
@@ -12,9 +11,6 @@ sys.path.insert(0, str(ROOT / "libexec"))
 from semantic.schema import (  # noqa: E402
     ContextBudget,
     ContextRequirements,
-    RouteDecision,
-    failure_features_json_schema,
-    parse_failure_features_json,
     parse_route_decision_json,
     route_decision_json_schema,
 )
@@ -100,105 +96,6 @@ class RouteDecisionSchemaTests(unittest.TestCase):
         schema = route_decision_json_schema(("GLM", "CODEX"))
         self.assertEqual(schema["allowed_routes"], ["GLM", "CODEX"])
         self.assertEqual(set(schema["probabilities"]), {"GLM", "CODEX"})
-
-
-class FailureFeaturesSchemaTests(unittest.TestCase):
-    def test_valid_failure_features_parse(self):
-        text = json.dumps(
-            {
-                "failure_class": "test_regression",
-                "domain": "testing",
-                "component": "tests/test_auth.py",
-                "likely_task_related": True,
-                "retry_same_model": True,
-                "confidence": 0.9,
-            }
-        )
-        features = parse_failure_features_json(text)
-        self.assertEqual(features.failure_class.value, "test_regression")
-        self.assertEqual(features.domain.value, "testing")
-        self.assertTrue(features.retry_same_model)
-
-    def test_unexpected_field_rejected(self):
-        text = json.dumps(
-            {
-                "failure_class": "timeout",
-                "domain": "unknown",
-                "component": "",
-                "likely_task_related": False,
-                "retry_same_model": False,
-                "confidence": 0.5,
-                "extra": 1,
-            }
-        )
-        with self.assertRaises(ValueError) as ctx:
-            parse_failure_features_json(text)
-        self.assertIn("unexpected", str(ctx.exception))
-
-    def test_missing_required_field_rejected(self):
-        text = json.dumps(
-            {
-                "failure_class": "timeout",
-                "domain": "unknown",
-                "component": "",
-                "likely_task_related": False,
-                "confidence": 0.5,
-            }
-        )
-        with self.assertRaises(ValueError) as ctx:
-            parse_failure_features_json(text)
-        self.assertIn("retry_same_model", str(ctx.exception))
-
-    def test_unknown_failure_class_rejected(self):
-        text = json.dumps(
-            {
-                "failure_class": "mystery",
-                "domain": "unknown",
-                "component": "",
-                "likely_task_related": False,
-                "retry_same_model": False,
-                "confidence": 0.5,
-            }
-        )
-        with self.assertRaises(ValueError):
-            parse_failure_features_json(text)
-
-    def test_schema_echo_domain_rejected(self):
-        text = json.dumps(
-            {
-                "failure_class": "unknown",
-                "domain": "|".join(
-                    d
-                    for d in (
-                        "frontend",
-                        "rust_backend",
-                        "mobile_web",
-                        "git",
-                        "github",
-                        "testing",
-                        "ci",
-                        "architecture",
-                        "tooling",
-                        "unknown",
-                    )
-                ),
-                "component": "",
-                "likely_task_related": False,
-                "retry_same_model": False,
-                "confidence": 0.5,
-            }
-        )
-        with self.assertRaises(ValueError) as ctx:
-            parse_failure_features_json(text)
-        self.assertIn("schema echo", str(ctx.exception))
-
-    def test_failure_features_json_schema_shape(self):
-        schema = failure_features_json_schema()
-        self.assertEqual(schema["additionalProperties"], False)
-        self.assertIn("failure_class", schema["required"])
-        self.assertEqual(
-            schema["properties"]["failure_class"]["enum"][0], "test_regression"
-        )
 
 
 class ContextRequirementsTests(unittest.TestCase):

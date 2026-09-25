@@ -26,7 +26,6 @@ from semantic.errors import (  # noqa: E402
     SemanticValidationError,
 )
 from semantic.facts import RoutingFacts  # noqa: E402
-from semantic.failure import FailureAnalysisInput  # noqa: E402
 from semantic.schema import RouteDecision  # noqa: E402
 
 CFG = SemanticConfig(
@@ -135,12 +134,6 @@ class GlinerAnalyzerTests(unittest.TestCase):
         with mock.patch("semantic.gliner.subprocess.run", return_value=proc):
             with self.assertRaises(SemanticUnavailableError):
                 GlinerAnalyzer(CFG_GLINER).analyze_task(_task_input())
-
-    def test_analyze_failure_unavailable(self):
-        with self.assertRaises(SemanticUnavailableError):
-            GlinerAnalyzer(CFG_GLINER).analyze_failure(
-                FailureAnalysisInput(log_excerpt="???")
-            )
 
 
 class AnalyzeWithFallbackTests(unittest.TestCase):

@@ -19,14 +19,12 @@ from pathlib import Path
 from semantic.config import ROOT, SemanticConfig, load_semantic_config
 from semantic.errors import (
     SemanticDisabledError,
-    SemanticError,
     SemanticLowConfidenceError,
     SemanticTimeoutError,
     SemanticUnavailableError,
     SemanticValidationError,
 )
-from semantic.failure import FailureAnalysisInput
-from semantic.schema import FailureFeatures, RouteDecision, parse_route_decision_json
+from semantic.schema import RouteDecision, parse_route_decision_json
 
 BRIDGE = ROOT / "libexec" / "semantic" / "gliner_bridge.py"
 
@@ -105,11 +103,3 @@ class GlinerAnalyzer:
                 f"{self.config.confidence_threshold:.2f}"
             )
         return decision
-
-    def analyze_failure(self, input_data: FailureAnalysisInput) -> FailureFeatures:
-        # GLiNER classifies over fixed labels; it cannot generate the free-form
-        # component strings the failure schema requires. The failure path is not
-        # part of the live routing pipeline — degrade to deterministic handling.
-        raise SemanticUnavailableError(
-            "failure analysis unavailable with the gliner engine"
-        )

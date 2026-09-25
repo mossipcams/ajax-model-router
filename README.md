@@ -24,7 +24,7 @@ scope enforcement, or fallback execution, and never blocks routing: when the
 sensor is unavailable, times out, returns invalid output, or confidence is
 below the threshold, the existing deterministic default routing applies.
 Configuration: `config/semantic_analysis.toml` (enabled by default; degrades
-gracefully without the sensor), `config/model_capabilities.toml`.
+gracefully without the sensor).
 
 ## Layout
 
@@ -33,8 +33,8 @@ gracefully without the sensor), `config/model_capabilities.toml`.
   policy integration.
 - `libexec/semantic/` — replaceable semantic analysis package (`Disabled` and
   `Gliner` analyzers behind one `SemanticAnalyzer` interface).
-- `config/semantic_analysis.toml`, `config/model_capabilities.toml` — sensor
-  engine/model and capability registry (stdlib TOML).
+- `config/semantic_analysis.toml` — sensor engine/model settings (stdlib
+  TOML).
 - `skills/cursor-delegate`, `pi-delegate`, `codex-delegate` — thin tool
   adapters. Shared rules live only in the router.
 - `.claude/skills/`, `.codex/skills/` — symlink views over the canonical
