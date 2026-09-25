@@ -13,8 +13,23 @@ Exit code 0 on success, non-zero on any failure (message on stderr).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
+
+
+@contextlib.contextmanager
+def _quiet_stdout():
+    """Route library chatter (gliner2 prints a model card) to stderr.
+
+    stdout must carry exactly one JSON object — the RouteDecision.
+    """
+    real = sys.stdout
+    sys.stdout = sys.stderr
+    try:
+        yield
+    finally:
+        sys.stdout = real
 
 # Route head: single-label classification over the eligible registry keys.
 # Sharper, discriminative descriptions + a lower temperature (0.6) give the
@@ -99,20 +114,21 @@ def main() -> int:
         return 2
 
     # Fail fast if the model is not already in the local HF cache.
-    from gliner2.classification import Classifier
+    with _quiet_stdout():
+        from gliner2.classification import Classifier
 
-    try:
-        clf = Classifier.from_pretrained(model, local_files_only=True)
-    except Exception as error:  # noqa: BLE001 — surface a clear, actionable message
-        print(
-            f"bridge: model '{model}' not in local cache — run scripts/setup-gliner "
-            f"({type(error).__name__})",
-            file=sys.stderr,
-        )
-        return 3
+        try:
+            clf = Classifier.from_pretrained(model, local_files_only=True)
+        except Exception as error:  # noqa: BLE001 — surface a clear, actionable message
+            print(
+                f"bridge: model '{model}' not in local cache — run scripts/setup-gliner "
+                f"({type(error).__name__})",
+                file=sys.stderr,
+            )
+            return 3
 
-    schema = build_schema(eligible)
-    result = clf.classify(task, schema)
+        schema = build_schema(eligible)
+        result = clf.classify(task, schema)
 
     route = result.value("route")
     if not isinstance(route, str) or not route:
