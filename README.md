@@ -12,18 +12,19 @@ Pipeline: **route → execute → verify**.
 
 Optional semantic analysis (`scripts/analyze-task`, `libexec/semantic/`) collects
 deterministic facts first, applies hard constraints to compute the eligible
-routes, and may ask **Laya** — a self-hosted open-source local System-1 routing
-sensor — to evaluate those eligible routes directly. Laya runs as a persistent
-local service at `http://127.0.0.1:8000/v1/systemone` (Jev-compatible API) and
-returns one compact decision: a registry route key (`MINIMAX`/`QWEN`/`CURSOR`/`GLM`/`CODEX`),
-route probabilities, and complexity/ambiguity scores (1–5). The response is
-validated strictly and fed into deterministic policy. Laya is a sensor only —
-it never chooses the final model, never owns hard policy, safety, execution,
-retries, verification, scope enforcement, or fallback execution, and never
-blocks routing: when Laya is unavailable, times out, returns invalid output, or
-confidence is below the threshold, the existing deterministic default routing
-applies. Configuration: `config/semantic_analysis.toml` (enabled by default;
-degrades gracefully without Laya), `config/model_capabilities.toml`.
+routes, and may ask the **routing sensor** to evaluate those eligible routes
+directly. The sensor is a local **GLiNER** classifier
+(`fastino/GLiNER2.5-Decide` in a router venv, `scripts/setup-gliner`) and
+returns one compact decision: a registry route key
+(`MINIMAX`/`QWEN`/`CURSOR`/`GLM`/`CODEX`/`OPUS`), route probabilities, and
+complexity/ambiguity scores (1–5). The response is validated strictly and fed
+into deterministic policy. The sensor is advisory only — it never chooses the
+final model, never owns hard policy, safety, execution, retries, verification,
+scope enforcement, or fallback execution, and never blocks routing: when the
+sensor is unavailable, times out, returns invalid output, or confidence is
+below the threshold, the existing deterministic default routing applies.
+Configuration: `config/semantic_analysis.toml` (enabled by default; degrades
+gracefully without the sensor), `config/model_capabilities.toml`.
 
 ## Layout
 
@@ -31,9 +32,9 @@ degrades gracefully without Laya), `config/model_capabilities.toml`.
   route table, outcome dispatch, risk-based review, outcome logging, semantic
   policy integration.
 - `libexec/semantic/` — replaceable semantic analysis package (`Disabled` and
-  `Laya` analyzers behind one `SemanticAnalyzer` interface).
-- `config/semantic_analysis.toml`, `config/model_capabilities.toml` — Laya
-  endpoint and capability registry (stdlib TOML).
+  `Gliner` analyzers behind one `SemanticAnalyzer` interface).
+- `config/semantic_analysis.toml`, `config/model_capabilities.toml` — sensor
+  engine/model and capability registry (stdlib TOML).
 - `skills/cursor-delegate`, `pi-delegate`, `codex-delegate` — thin tool
   adapters. Shared rules live only in the router.
 - `.claude/skills/`, `.codex/skills/` — symlink views over the canonical
@@ -85,9 +86,9 @@ semantic routing events append to `routing-events.jsonl` beside the TSV via
 
 ## Expected routing
 
-Deterministic policy retains final authority. Laya's route probabilities are
+Deterministic policy retains final authority. The sensor's route probabilities are
 the primary fuzzy signal among *eligible* routes (hard constraints applied
-first); hard overrides below always win over Laya.
+first); hard overrides below always win over the sensor.
 
 | Scenario | Agent / model |
 |---|---|
@@ -99,7 +100,7 @@ first); hard overrides below always win over Laya.
 | Retry after failed cheap-model attempt | escalate (`GLM` → `OPUS` → `CODEX`) |
 | Shallow docs/boilerplate ≤2 files/~60 lines | `pi` / `minimax-m3` |
 | High-risk (auth/security/session/PTY/data-loss) | never `minimax-m3` |
-| Laya unavailable/invalid/low confidence | existing deterministic default |
+| sensor unavailable/invalid/low confidence | existing deterministic default |
 | Pure Q&A / architecture planning | `parent` (no write) |
 
 Routing events (`routing-events.jsonl`) record eligible routes, selected

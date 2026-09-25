@@ -15,7 +15,7 @@ from semantic.policy import select_route  # noqa: E402
 from semantic.schema import RouteDecision  # noqa: E402
 
 
-def _laya(route: str = "GLM", confidence: float = 0.85) -> RouteDecision:
+def _sensor(route: str = "GLM", confidence: float = 0.85) -> RouteDecision:
     other = "CURSOR" if route != "CURSOR" else "MINIMAX"
     return RouteDecision(
         route=route,
@@ -40,7 +40,7 @@ class RoutingExplainTests(unittest.TestCase):
         for key in (
             "facts",
             "analysis_source",
-            "laya",
+            "sensor",
             "eligible_routes",
             "selected_route",
             "route_confidence",
@@ -58,25 +58,25 @@ class RoutingExplainTests(unittest.TestCase):
             "context_strategy",
         ):
             self.assertIn(key, explanation)
-        self.assertIsNone(explanation["laya"])
+        self.assertIsNone(explanation["sensor"])
         self.assertEqual(explanation["selected_route"], "QWEN")
         self.assertEqual(explanation["matched_rule"], "R-QWEN")
 
-    def test_explanation_includes_laya_confidence_when_present(self):
+    def test_explanation_includes_sensor_confidence_when_present(self):
         facts = RoutingFacts(user_request="design cache layer", diff_line_count=120)
-        laya = _laya("GLM", 0.85)
-        decision = select_route(facts, laya=laya)
-        context = derive_context_requirements(laya, facts)
+        sensor = _sensor("GLM", 0.85)
+        decision = select_route(facts, sensor=sensor)
+        context = derive_context_requirements(sensor, facts)
         explanation = build_explanation(
             facts=facts,
             decision=decision,
             context=context,
-            laya=laya,
-            analysis_source="laya",
+            sensor=sensor,
+            analysis_source="sensor",
         )
-        self.assertEqual(explanation["analysis_source"], "laya")
-        self.assertEqual(explanation["laya"]["route"], "GLM")
-        self.assertEqual(explanation["laya"]["confidence"], 0.85)
+        self.assertEqual(explanation["analysis_source"], "sensor")
+        self.assertEqual(explanation["sensor"]["route"], "GLM")
+        self.assertEqual(explanation["sensor"]["confidence"], 0.85)
         self.assertEqual(explanation["route_confidence"], 0.85)
         self.assertEqual(explanation["route_probabilities"]["GLM"], 0.85)
         self.assertEqual(explanation["complexity"], 3)
@@ -86,11 +86,11 @@ class RoutingExplainTests(unittest.TestCase):
 
     def test_explanation_records_fallback_reason(self):
         facts = RoutingFacts(user_request="design cache layer", diff_line_count=120)
-        laya = _laya("GLM", 0.5)
+        sensor = _sensor("GLM", 0.5)
         decision = select_route(
             facts,
-            laya=laya,
-            laya_fallback_reason="route confidence 0.50 below threshold 0.60",
+            sensor=sensor,
+            sensor_fallback_reason="route confidence 0.50 below threshold 0.60",
         )
         context = derive_context_requirements(None, facts)
         explanation = build_explanation(
@@ -98,7 +98,7 @@ class RoutingExplainTests(unittest.TestCase):
             decision=decision,
             context=context,
             fallback_reason=decision.fallback_reason,
-            analysis_source="laya_rejected",
+            analysis_source="sensor_rejected",
         )
         self.assertTrue(explanation["fallback_used"])
         self.assertIn("below threshold", explanation["fallback_reason"])

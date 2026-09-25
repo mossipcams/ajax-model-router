@@ -19,13 +19,13 @@ def build_explanation(
     facts: RoutingFacts,
     decision: RoutingDecision,
     context: ContextRequirements,
-    laya: RouteDecision | None = None,
+    sensor: RouteDecision | None = None,
     analysis_source: str = "none",
     fallback_reason: str | None = None,
 ) -> dict[str, Any]:
-    """Inspectable fields only — facts, Laya sensor output, rule, model, context.
+    """Inspectable fields only — facts, sensor output, rule, model, context.
 
-    Records enough to evaluate Laya later: eligible routes, selected route,
+    Records enough to evaluate the sensor later: eligible routes, selected route,
     route probabilities/confidence, complexity, ambiguity, whether fallback
     routing was used, and the matched hard override. No chain-of-thought, no
     raw task contents beyond the deterministic facts already logged.
@@ -33,20 +33,20 @@ def build_explanation(
     return {
         "facts": facts.to_dict(),
         "analysis_source": analysis_source,
-        "laya": (
+        "sensor": (
             {
-                "route": laya.route,
-                "probabilities": dict(laya.probabilities),
-                "complexity": laya.complexity,
-                "ambiguity": laya.ambiguity,
-                "confidence": laya.confidence,
+                "route": sensor.route,
+                "probabilities": dict(sensor.probabilities),
+                "complexity": sensor.complexity,
+                "ambiguity": sensor.ambiguity,
+                "confidence": sensor.confidence,
             }
-            if laya is not None
+            if sensor is not None
             else None
         ),
         "eligible_routes": list(decision.eligible_routes),
         "selected_route": decision.model_key,
-        "route_confidence": decision.laya_confidence,
+        "route_confidence": decision.sensor_confidence,
         "route_probabilities": decision.route_probabilities,
         "complexity": decision.complexity,
         "ambiguity": decision.ambiguity,

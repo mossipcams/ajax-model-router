@@ -23,14 +23,14 @@ Semantic analysis (optional, enabled by default) informs routing but never
 chooses the final model:
 
 ```text
-facts → eligible routes → optional Laya decision → deterministic policy → delegate
+facts → eligible routes → optional sensor decision → deterministic policy → delegate
 ```
 
 1. **Route** — collect deterministic facts; apply hard constraints to compute
-   eligible routes; optionally let Laya (local System-1 sensor, `scripts/analyze-task`)
-   evaluate the eligible routes; validate its decision; apply deterministic
-   policy and registry keys; emit one `EXECUTION` decision. Laya failure never
-   blocks routing.
+   eligible routes; optionally let the routing sensor (local GLiNER by default,
+   `scripts/analyze-task`) evaluate the eligible routes; validate its decision;
+   apply deterministic policy and registry keys; emit one `EXECUTION` decision.
+   Sensor failure never blocks routing.
 2. **Execute** — run under the selected delegate, model, and scope. `R-PARENT` is
    Q&A and planning only — never parent-local implementation writes.
 3. **Verify** — accept, revise, discard, or escalate using risk-proportional review.
@@ -124,8 +124,9 @@ Follow the first matching rule. Copy a selected registry value into `MODEL`.
 `scripts/analyze-task` with the task payload (stdin JSON or `--input`). Copy
 `AGENT`, `MODEL`, `RISK`, `REASON`, and `FALLBACK` from `output.execution` —
 deterministic policy selects the executor and registry model; never copy model
-choices from raw Laya fields. When present, also copy `SCOPE` and `VERIFY` from
-the same block. Laya failure still emits `execution` via the existing fallback;
+choices from raw sensor fields. When present, also copy `SCOPE` and `VERIFY`
+from the same block. Sensor failure still emits `execution` via the existing
+fallback;
 parents copy that block unchanged. Do **not** call `analyze-task` from
 `run-transaction`, `run-delegate`, or execute — routing must finish before
 dispatch. Skip `analyze-task` for `R-PARENT` (pure Q&A or architecture
@@ -134,13 +135,13 @@ planning with no implementation write).
 | Rule | Condition | `AGENT` | Model key | Notes |
 |---|---|---|---|---|
 | `R-PARENT` | Pure Q&A or architecture planning (no implementation write) | `parent` | none | Local only |
-| `R-EXPLICIT-MODEL` | Explicit user/model override | requested | requested | Always wins over Laya |
-| `R-CODEX` | User explicitly asked Codex to implement | `codex` | `CODEX` | Always wins over Laya |
-| `R-GLM` | Recorded unresolved specification or architecture uncertainty | `pi` | `GLM` | Always wins over Laya |
-| `R-RETRY-ESCALATE` | Retry after failed cheap-model attempt | `pi`/`cursor`/`codex` | `GLM`/`OPUS`/`CODEX` | Always wins over Laya |
-| `R-LAYA` | No exception matched; Laya names an eligible route at/above the confidence threshold | registry | Laya route key | Fuzzy lane among eligible routes |
+| `R-EXPLICIT-MODEL` | Explicit user/model override | requested | requested | Always wins over the sensor |
+| `R-CODEX` | User explicitly asked Codex to implement | `codex` | `CODEX` | Always wins over the sensor |
+| `R-GLM` | Recorded unresolved specification or architecture uncertainty | `pi` | `GLM` | Always wins over the sensor |
+| `R-RETRY-ESCALATE` | Retry after failed cheap-model attempt | `pi`/`cursor`/`codex` | `GLM`/`OPUS`/`CODEX` | Always wins over the sensor |
+| `R-SENSOR` | No exception matched; the sensor names an eligible route at/above the confidence threshold | registry | sensor route key | Fuzzy lane among eligible routes |
 | `R-MINIMAX` | Routine docs, generated cleanup, exact replacements, or named boilerplate; at most 2 files and roughly 60 changed lines; no auth/security/data-loss concerns | `pi` | `MINIMAX` | Deterministic default |
-| `R-QWEN` | No exception matched; Laya unavailable, invalid, or low confidence | `pi` | `QWEN` | Default implementation |
+| `R-QWEN` | No exception matched; sensor unavailable, invalid, or low confidence | `pi` | `QWEN` | Default implementation |
 | `R-CURSOR` | QWEN unavailable | `cursor` | `CURSOR` | Fallback implementation |
 | `R-STOP` | Selected tool unavailable and every fallback exhausted; or task exceeds one bounded behavior | — | — | `FALLBACK: STOP` |
 
@@ -327,36 +328,40 @@ failure is a warning, not a hard stop.
 
 Optional semantic routing metadata may be recorded via
 `--routing-event` (JSON) into a `routing-events.jsonl` sidecar beside the TSV.
-Laya has no final routing authority; its route probabilities stay separate
-from raw evidence. Do not persist chain-of-thought or raw task contents.
+The sensor has no final routing authority; its route probabilities stay
+separate from raw evidence. Do not persist chain-of-thought or raw task
+contents.
 
 ## Semantic analysis (optional)
 
-Laya is a local, self-hosted System-1 routing sensor: a persistent service at
-`http://127.0.0.1:8000/v1/systemone` (Jev-compatible API). It evaluates the
-eligible execution routes directly — it does not generate task features. Ajax
-deterministic policy retains final authority. Configuration lives in
-`config/semantic_analysis.toml` (`enabled = true` by default; degrades when
-Laya is unreachable). Model capabilities are static in
-`config/model_capabilities.toml`.
+The routing sensor evaluates the eligible execution routes directly — it does
+not generate task features. Ajax deterministic policy retains final authority.
+
+- **Engine** — a local GLiNER2.5 classifier (`fastino/GLiNER2.5-Decide`) in
+  the router venv, run via `libexec/semantic/gliner_bridge.py` (the only place
+  `gliner2` is imported; set up with `scripts/setup-gliner`).
+- **Configuration** — `config/semantic_analysis.toml` (`enabled = true` by
+  default; degrades when the sensor is unavailable). Model capabilities are
+  static in `config/model_capabilities.toml`.
 
 - **Facts first** — explicit model override, changed files, diff size, retry
-  state, and other objective inputs are collected before any Laya call. Hard
+  state, and other objective inputs are collected before any sensor call. Hard
   constraints remove ineligible routes (availability, high-risk lanes) before
-  inference; Laya sees only compact decision-relevant task information, never
-  source files or large repository context.
-- **Validated decision** — Laya returns a registry route key
+  inference; the sensor sees only compact decision-relevant task information,
+  never source files or large repository context.
+- **Validated decision** — the sensor returns a registry route key
   (`MINIMAX`/`QWEN`/`CURSOR`/`GLM`/`CODEX`/`OPUS`), route probabilities, and complexity and
   ambiguity scores (1–5). `RouteDecision`, `FailureFeatures`, and
-  `ContextRequirements` use typed validation; invalid Laya output is rejected.
+  `ContextRequirements` use typed validation; invalid sensor output is rejected.
 - **Deterministic policy** — registry keys select the executor; hard rules
   (explicit override, auth/security/session/PTY/data-loss risk, model/harness
   availability, retry escalation, capability requirements, SKILL route-table
-  exceptions) cannot be overridden by Laya output. Laya's route is used only
-  when it names an eligible route at or above the confidence threshold;
+  exceptions) cannot be overridden by sensor output. The sensor's route is used
+  only when it names an eligible route at or above the confidence threshold;
   otherwise the existing deterministic default applies.
-- **Graceful degradation** — disabled, timeout, invalid JSON, low confidence, or
-  unreachable Laya → continue with deterministic default routing.
+- **Graceful degradation** — disabled, missing venv/model, timeout, invalid
+  JSON, low confidence, or unreachable engine → continue with deterministic
+  default routing.
 - **Explanation** — `scripts/analyze-task` emits structured fields (facts,
   eligible routes, selected route, route probabilities/confidence, complexity,
   ambiguity, fallback usage, matched rule, context strategy); no

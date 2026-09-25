@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""analyze-task CLI output: execution block, SCOPE/VERIFY mapping, Laya fallback."""
+"""analyze-task CLI output: execution block, SCOPE/VERIFY mapping, sensor fallback."""
 
 import sys
 import unittest
@@ -14,7 +14,7 @@ from semantic.analyzer import DisabledSemanticAnalyzer  # noqa: E402
 from semantic.schema import RouteDecision  # noqa: E402
 
 
-def _laya(route: str, confidence: float) -> RouteDecision:
+def _sensor(route: str, confidence: float) -> RouteDecision:
     other = "CURSOR" if route != "CURSOR" else "MINIMAX"
     return RouteDecision(
         route=route,
@@ -26,7 +26,7 @@ def _laya(route: str, confidence: float) -> RouteDecision:
 
 
 class AnalyzeTaskTests(unittest.TestCase):
-    def test_deterministic_execution_when_laya_disabled(self):
+    def test_deterministic_execution_when_sensor_disabled(self):
         output = run_analyze_task(
             {"task": "update readme"}, analyzer=DisabledSemanticAnalyzer()
         )
@@ -39,10 +39,10 @@ class AnalyzeTaskTests(unittest.TestCase):
         self.assertEqual(output["explanation"]["analysis_source"], "disabled")
         self.assertTrue(output["explanation"]["fallback_used"])
 
-    def test_laya_decision_flows_into_execution(self):
+    def test_sensor_decision_flows_into_execution(self):
         with mock.patch(
             "semantic.analyze_with_fallback",
-            return_value=(_laya("GLM", 0.85), None, "laya"),
+            return_value=(_sensor("GLM", 0.85), None, "sensor"),
         ):
             output = run_analyze_task(
                 {"task": "design new billing subsystem"},
@@ -52,10 +52,10 @@ class AnalyzeTaskTests(unittest.TestCase):
         self.assertEqual(execution["AGENT"], "pi")
         self.assertEqual(execution["MODEL"], "glm-5.2")
         self.assertEqual(output["explanation"]["selected_route"], "GLM")
-        self.assertEqual(output["explanation"]["analysis_source"], "laya")
-        self.assertEqual(output["decision"]["rule_id"], "R-LAYA")
+        self.assertEqual(output["explanation"]["analysis_source"], "sensor")
+        self.assertEqual(output["decision"]["rule_id"], "R-SENSOR")
 
-    def test_hard_override_skips_laya(self):
+    def test_hard_override_skips_sensor(self):
         output = run_analyze_task(
             {"task": "use codex for this", "user_asked_codex": True},
             analyzer=DisabledSemanticAnalyzer(),
@@ -66,7 +66,7 @@ class AnalyzeTaskTests(unittest.TestCase):
         )
         self.assertEqual(output["decision"]["rule_id"], "R-CODEX")
 
-    def test_single_eligible_skips_laya(self):
+    def test_single_eligible_skips_sensor(self):
         output = run_analyze_task(
             {
                 "task": "fix typo",

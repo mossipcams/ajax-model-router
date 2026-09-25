@@ -1,7 +1,7 @@
 """Schema-constrained RouteDecision / FailureFeatures — typed values only.
 
-Laya evaluates eligible execution routes directly (route + probabilities +
-complexity/ambiguity) instead of generating TaskFeatures. Parsing is strict:
+The sensor evaluates eligible execution routes directly (route + probabilities
++ complexity/ambiguity) instead of generating TaskFeatures. Parsing is strict:
 anything that is not a clean decision is rejected so policy can fall back to
 deterministic routing.
 """
@@ -151,7 +151,7 @@ def _reject_extra(data: dict[str, Any], allowed: tuple[str, ...], what: str) -> 
 
 @dataclass(frozen=True)
 class RouteDecision:
-    """One Laya decision: which eligible route, with probabilities and scores.
+    """One sensor decision: which eligible route, with probabilities and scores.
 
     `route` is a registry key (MINIMAX/QWEN/CURSOR/GLM/CODEX/OPUS), never a provider
     model id. `confidence` is the probability of the selected route.
@@ -224,7 +224,7 @@ class RouteDecision:
 
 
 def route_decision_json_schema(allowed_routes: tuple[str, ...]) -> dict[str, Any]:
-    """Compact expected-output description embedded in the Laya request."""
+    """Compact expected-output description for sensor responses."""
     return {
         "route": "one of the eligible route keys",
         "probabilities": {

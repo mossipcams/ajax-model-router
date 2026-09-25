@@ -1,4 +1,4 @@
-"""Typed errors for semantic analysis — Laya failures never block routing."""
+"""Typed errors for semantic analysis — sensor failures never block routing."""
 
 from __future__ import annotations
 
@@ -8,20 +8,20 @@ class SemanticError(Exception):
 
 
 class SemanticDisabledError(SemanticError):
-    """Laya analysis is disabled in configuration."""
+    """Semantic analysis is disabled in configuration."""
 
 
 class SemanticUnavailableError(SemanticError):
-    """Laya endpoint unreachable or unsupported."""
+    """Sensor unavailable (missing venv, missing model, bridge failure)."""
 
 
 class SemanticTimeoutError(SemanticError):
-    """Laya request timed out."""
+    """Sensor request timed out."""
 
 
 class SemanticValidationError(SemanticError):
-    """Laya output failed schema validation."""
+    """Sensor output failed schema validation."""
 
 
 class SemanticLowConfidenceError(SemanticError):
-    """Laya confidence below configured threshold."""
+    """Sensor confidence below configured threshold."""

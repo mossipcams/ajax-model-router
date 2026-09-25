@@ -16,7 +16,7 @@ from semantic.schema import (  # noqa: E402
 )
 
 
-def _laya(route: str = "CURSOR", complexity: int = 2, ambiguity: int = 1):
+def _sensor(route: str = "CURSOR", complexity: int = 2, ambiguity: int = 1):
     other = "MINIMAX" if route != "MINIMAX" else "CURSOR"
     return RouteDecision(
         route=route,
@@ -29,19 +29,19 @@ def _laya(route: str = "CURSOR", complexity: int = 2, ambiguity: int = 1):
 
 class ContextStrategyTests(unittest.TestCase):
     def test_glm_route_requests_architecture_docs_and_history(self):
-        context = derive_context_requirements(_laya("GLM"), RoutingFacts())
+        context = derive_context_requirements(_sensor("GLM"), RoutingFacts())
         self.assertTrue(context.architecture_docs)
         self.assertTrue(context.git_history)
 
     def test_high_complexity_requests_git_history(self):
         context = derive_context_requirements(
-            _laya("CURSOR", complexity=4), RoutingFacts()
+            _sensor("CURSOR", complexity=4), RoutingFacts()
         )
         self.assertTrue(context.git_history)
 
     def test_high_ambiguity_requests_architecture_docs(self):
         context = derive_context_requirements(
-            _laya("CURSOR", ambiguity=4), RoutingFacts()
+            _sensor("CURSOR", ambiguity=4), RoutingFacts()
         )
         self.assertTrue(context.architecture_docs)
 

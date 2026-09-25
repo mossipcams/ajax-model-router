@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Live Laya golden eval — skipped when Laya is unreachable (no CI dependency)."""
+"""Live sensor golden eval — skipped when the local sensor cannot run.
+
+Runs the local GLiNER sensor over the golden task set and asserts route
+diversity (no collapse). Skips cleanly when the venv or model is missing so
+CI has no external dependency.
+"""
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 import unittest
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,11 +19,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "libexec"))
 
 from semantic.analyzer import (  # noqa: E402
-    LayaAnalyzer,
     TaskAnalysisInput,
     analyze_with_fallback,
+    create_analyzer,
 )
-from semantic.config import load_laya_config  # noqa: E402
+from semantic.config import load_semantic_config  # noqa: E402
 from semantic.facts import RoutingFacts  # noqa: E402
 
 
@@ -101,19 +106,36 @@ GOLDEN_TASKS: tuple[GoldenTask, ...] = (
 )
 
 
-def _laya_reachable(endpoint: str, timeout_sec: float = 2.0) -> bool:
-    """Probe the Laya endpoint base URL derived from the /v1/systemone URL."""
-    base = endpoint.split("/v1/")[0].rstrip("/")
-    probe = f"{base}/"
-    request = urllib.request.Request(probe, method="GET")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_sec):
-            return True
-    except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError, OSError):
+def _gliner_available(config) -> bool:
+    """Probe the gliner bridge with a trivial task; skip when it cannot run."""
+    python = Path(config.python)
+    if not python.is_absolute():
+        python = ROOT / python
+    if not python.is_file():
         return False
+    bridge = ROOT / "libexec" / "semantic" / "gliner_bridge.py"
+    if not bridge.is_file():
+        return False
+    payload = json.dumps({
+        "task": "Fix a typo in the README.",
+        "eligible_routes": ["MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS"],
+        "model": config.model,
+    })
+    try:
+        proc = subprocess.run(
+            [str(python), str(bridge)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=str(ROOT),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
 
 
-class LayaGoldenTests(unittest.TestCase):
+class SensorGoldenTests(unittest.TestCase):
     def test_golden_task_count(self):
         self.assertEqual(len(GOLDEN_TASKS), 10)
         categories = {task.category for task in GOLDEN_TASKS}
@@ -123,11 +145,14 @@ class LayaGoldenTests(unittest.TestCase):
         self.assertIn("ui_visual", categories)
 
     def test_route_diversity_not_collapsed(self):
-        config = load_laya_config()
-        if not _laya_reachable(config.endpoint):
-            self.skipTest("Laya endpoint unreachable — skipping live golden eval")
+        config = load_semantic_config()
+        if not _gliner_available(config):
+            self.skipTest(
+                "gliner bridge unavailable (missing venv or model) — "
+                "run scripts/setup-gliner, or skip live golden eval"
+            )
 
-        analyzer = LayaAnalyzer(config)
+        analyzer = create_analyzer(config)
         results: list[tuple[str, str, float]] = []
         failures: list[str] = []
 

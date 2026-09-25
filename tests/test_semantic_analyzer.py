@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Laya analyzer behavior — sensor with typed failures, never blocks routing."""
+"""Semantic analyzer behavior — sensor with typed failures, never blocks routing."""
 
 import json
 import sys
@@ -12,12 +12,12 @@ sys.path.insert(0, str(ROOT / "libexec"))
 
 from semantic.analyzer import (  # noqa: E402
     DisabledSemanticAnalyzer,
-    LayaAnalyzer,
+    GlinerAnalyzer,
     TaskAnalysisInput,
     analyze_with_fallback,
     create_analyzer,
 )
-from semantic.config import LayaConfig  # noqa: E402
+from semantic.config import SemanticConfig  # noqa: E402
 from semantic.errors import (  # noqa: E402
     SemanticDisabledError,
     SemanticLowConfidenceError,
@@ -29,11 +29,19 @@ from semantic.facts import RoutingFacts  # noqa: E402
 from semantic.failure import FailureAnalysisInput  # noqa: E402
 from semantic.schema import RouteDecision  # noqa: E402
 
-CFG = LayaConfig(
+CFG = SemanticConfig(
     enabled=True,
-    endpoint="http://127.0.0.1:8000/v1/systemone",
+    model="fastino/GLiNER2.5-Decide",
+    python=".venv/bin/python",
     timeout_ms=5000,
     confidence_threshold=0.60,
+)
+CFG_GLINER = SemanticConfig(
+    enabled=True,
+    model="fastino/GLiNER2.5-Decide",
+    python=".venv/bin/python",
+    timeout_ms=20000,
+    confidence_threshold=0.45,
 )
 ELIGIBLE = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS")
 
@@ -48,106 +56,91 @@ def _task_input(**overrides) -> TaskAnalysisInput:
     return TaskAnalysisInput(**base)
 
 
-def _decision_body(route: str, confidence: float) -> dict:
-    return {
-        "route": route,
-        "probabilities": {route: confidence, "CURSOR": max(0.0, 1 - confidence)},
-        "complexity": 3,
-        "ambiguity": 2,
-    }
-
-
 class AnalyzerTests(unittest.TestCase):
     def test_create_analyzer_disabled(self):
-        analyzer = create_analyzer(LayaConfig(
-            enabled=False, endpoint="http://x", timeout_ms=100,
-            confidence_threshold=0.6,
+        analyzer = create_analyzer(SemanticConfig(
+            enabled=False, model="m", python="p",
+            timeout_ms=100, confidence_threshold=0.6,
         ))
         self.assertIsInstance(analyzer, DisabledSemanticAnalyzer)
 
-    def test_create_analyzer_enabled(self):
-        analyzer = create_analyzer(CFG)
-        self.assertIsInstance(analyzer, LayaAnalyzer)
+    def test_create_analyzer_gliner(self):
+        analyzer = create_analyzer(CFG_GLINER)
+        self.assertIsInstance(analyzer, GlinerAnalyzer)
+
+    def test_create_analyzer_defaults_to_gliner(self):
+        analyzer = create_analyzer()
+        self.assertIsInstance(analyzer, GlinerAnalyzer)
 
     def test_disabled_analyzer_raises(self):
         with self.assertRaises(SemanticDisabledError):
             DisabledSemanticAnalyzer().analyze_task(_task_input())
 
-    def test_analyze_task_returns_route_decision(self):
-        with mock.patch(
-            "semantic.analyzer.laya_request",
-            return_value=_decision_body("GLM", 0.85),
-        ) as request:
-            decision = LayaAnalyzer(CFG).analyze_task(_task_input())
-        self.assertEqual(decision.route, "GLM")
-        self.assertIsInstance(decision, RouteDecision)
-        self.assertEqual(decision.confidence, 0.85)
-        body = request.call_args[0][1]
-        self.assertEqual(body["kind"], "route")
-        self.assertEqual(body["eligible_routes"], list(ELIGIBLE))
-        self.assertIn("response_schema", body)
-        self.assertIn("GLM", body["route_definitions"])
 
-    def test_analyze_task_low_confidence_raises(self):
-        with mock.patch(
-            "semantic.analyzer.laya_request",
-            return_value=_decision_body("GLM", 0.4),
-        ):
-            with self.assertRaises(SemanticLowConfidenceError):
-                LayaAnalyzer(CFG).analyze_task(_task_input())
+class GlinerAnalyzerTests(unittest.TestCase):
+    def test_missing_venv_raises_unavailable(self):
+        cfg = SemanticConfig(
+            enabled=True, model="m",
+            python="/does/not/exist/python",
+            timeout_ms=1000, confidence_threshold=0.45,
+        )
+        with self.assertRaises(SemanticUnavailableError):
+            GlinerAnalyzer(cfg).analyze_task(_task_input())
 
-    def test_analyze_task_no_eligible_routes_raises(self):
+    def test_no_eligible_routes_raises(self):
         with self.assertRaises(SemanticValidationError):
-            LayaAnalyzer(CFG).analyze_task(_task_input(eligible_routes=()))
-
-    def test_analyze_task_invalid_route_rejected(self):
-        with mock.patch(
-            "semantic.analyzer.laya_request",
-            return_value=_decision_body("NOT_A_ROUTE", 0.9),
-        ):
-            with self.assertRaises(SemanticValidationError):
-                LayaAnalyzer(CFG).analyze_task(_task_input())
-
-    def test_analyze_failure_parses_features(self):
-        body = {
-            "failure_class": "test_regression",
-            "domain": "testing",
-            "component": "tests/test_auth.py",
-            "likely_task_related": True,
-            "retry_same_model": True,
-            "confidence": 0.9,
-        }
-        with mock.patch("semantic.analyzer.laya_request", return_value=body):
-            features = LayaAnalyzer(CFG).analyze_failure(
-                FailureAnalysisInput(log_excerpt="3 tests failed")
+            GlinerAnalyzer(CFG_GLINER).analyze_task(
+                _task_input(eligible_routes=())
             )
-        self.assertEqual(features.failure_class.value, "test_regression")
-        self.assertTrue(features.retry_same_model)
 
-    def test_analyze_failure_low_confidence_raises(self):
-        body = {
-            "failure_class": "unknown",
-            "domain": "unknown",
-            "component": "",
-            "likely_task_related": False,
-            "retry_same_model": False,
-            "confidence": 0.2,
-        }
-        with mock.patch("semantic.analyzer.laya_request", return_value=body):
+    def test_bridge_low_confidence_raises(self):
+        cfg = SemanticConfig(
+            enabled=True, model="m",
+            python=str(ROOT / ".venv" / "bin" / "python"),
+            timeout_ms=1000, confidence_threshold=0.99,
+        )
+        proc = mock.Mock()
+        proc.returncode = 0
+        proc.stdout = json.dumps({
+            "route": "GLM",
+            "probabilities": {"GLM": 0.5, "CURSOR": 0.5},
+            "complexity": 3,
+            "ambiguity": 2,
+        })
+        proc.stderr = ""
+        with mock.patch("semantic.gliner.subprocess.run", return_value=proc):
             with self.assertRaises(SemanticLowConfidenceError):
-                LayaAnalyzer(CFG).analyze_failure(
-                    FailureAnalysisInput(log_excerpt="???")
-                )
+                GlinerAnalyzer(cfg).analyze_task(_task_input())
 
-    def test_analyze_failure_invalid_schema_rejected(self):
-        with mock.patch(
-            "semantic.analyzer.laya_request",
-            return_value={"failure_class": "mystery", "domain": "unknown"},
-        ):
-            with self.assertRaises(SemanticValidationError):
-                LayaAnalyzer(CFG).analyze_failure(
-                    FailureAnalysisInput(log_excerpt="???")
-                )
+    def test_bridge_success_returns_decision(self):
+        proc = mock.Mock()
+        proc.returncode = 0
+        proc.stdout = json.dumps({
+            "route": "GLM",
+            "probabilities": {"GLM": 0.85, "CURSOR": 0.15},
+            "complexity": 3,
+            "ambiguity": 2,
+        })
+        proc.stderr = ""
+        with mock.patch("semantic.gliner.subprocess.run", return_value=proc):
+            decision = GlinerAnalyzer(CFG_GLINER).analyze_task(_task_input())
+        self.assertEqual(decision.route, "GLM")
+        self.assertEqual(decision.confidence, 0.85)
+
+    def test_bridge_failure_raises_unavailable(self):
+        proc = mock.Mock()
+        proc.returncode = 3
+        proc.stdout = ""
+        proc.stderr = "bridge: model not in local cache — run scripts/setup-gliner"
+        with mock.patch("semantic.gliner.subprocess.run", return_value=proc):
+            with self.assertRaises(SemanticUnavailableError):
+                GlinerAnalyzer(CFG_GLINER).analyze_task(_task_input())
+
+    def test_analyze_failure_unavailable(self):
+        with self.assertRaises(SemanticUnavailableError):
+            GlinerAnalyzer(CFG_GLINER).analyze_failure(
+                FailureAnalysisInput(log_excerpt="???")
+            )
 
 
 class AnalyzeWithFallbackTests(unittest.TestCase):
@@ -163,7 +156,7 @@ class AnalyzeWithFallbackTests(unittest.TestCase):
         decision, reason, source = analyze_with_fallback(analyzer, _task_input())
         self.assertEqual(decision.route, "GLM")
         self.assertIsNone(reason)
-        self.assertEqual(source, "laya")
+        self.assertEqual(source, "sensor")
 
     def test_disabled_returns_reason(self):
         decision, reason, source = analyze_with_fallback(
@@ -178,7 +171,7 @@ class AnalyzeWithFallbackTests(unittest.TestCase):
         analyzer.analyze_task.side_effect = SemanticLowConfidenceError("low")
         decision, reason, source = analyze_with_fallback(analyzer, _task_input())
         self.assertIsNone(decision)
-        self.assertEqual(source, "laya_rejected")
+        self.assertEqual(source, "sensor_rejected")
         self.assertEqual(reason, "low")
 
     def test_unavailable_returns_failed(self):
@@ -186,7 +179,7 @@ class AnalyzeWithFallbackTests(unittest.TestCase):
         analyzer.analyze_task.side_effect = SemanticUnavailableError("no endpoint")
         decision, reason, source = analyze_with_fallback(analyzer, _task_input())
         self.assertIsNone(decision)
-        self.assertEqual(source, "laya_failed")
+        self.assertEqual(source, "sensor_failed")
         self.assertEqual(reason, "no endpoint")
 
     def test_never_raises(self):
@@ -194,7 +187,7 @@ class AnalyzeWithFallbackTests(unittest.TestCase):
         analyzer.analyze_task.side_effect = SemanticTimeoutError("timed out")
         decision, reason, source = analyze_with_fallback(analyzer, _task_input())
         self.assertIsNone(decision)
-        self.assertEqual(source, "laya_failed")
+        self.assertEqual(source, "sensor_failed")
 
 
 if __name__ == "__main__":

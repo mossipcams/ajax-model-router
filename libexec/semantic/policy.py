@@ -1,7 +1,7 @@
-"""Deterministic routing policy — Laya is a sensor; it never picks the final model.
+"""Deterministic routing policy — the sensor is advisory; it never picks the final model.
 
-Pipeline: facts → hard constraints (eligibility) → optional Laya decision over
-eligible routes → deterministic fallback when Laya is absent/invalid/low
+Pipeline: facts → hard constraints (eligibility) → optional sensor decision over
+eligible routes → deterministic fallback when the sensor is absent/invalid/low
 confidence → hard overrides and escalation always win.
 """
 
@@ -30,39 +30,6 @@ MODEL_KEY_BY_ID: dict[str, str] = {
     model_id: key for key, (_, model_id) in REGISTRY.items()
 }
 
-# Compact route definitions sent to Laya (decision-relevant, no repo context).
-ROUTE_DEFINITIONS: dict[str, str] = {
-    "MINIMAX": (
-        "Mechanical, trivial, boilerplate, exact replacement, docs, generated "
-        "cleanup, or very small well-specified changes requiring little "
-        "investigation."
-    ),
-    "CURSOR": (
-        "Normal bounded implementation, feature work, bug fixes, "
-        "frontend/backend work, ordinary debugging, and the default "
-        "implementation lane."
-    ),
-    "QWEN": (
-        "Default bounded implementation, feature work, bug fixes, "
-        "frontend/backend work, and ordinary debugging."
-    ),
-    "GLM": (
-        "Unclear specification, architectural uncertainty, multiple plausible "
-        "approaches, or work requiring substantial investigation before "
-        "implementation."
-    ),
-    "CODEX": (
-        "Strong reasoning and demanding implementation; the fallback lane "
-        "when the strongest route is unavailable."
-    ),
-    "OPUS": (
-        "The strongest lane: hardest debugging, complex cross-cutting "
-        "reasoning, unusually demanding implementation, or escalation after a "
-        "failed implementation round."
-    ),
-}
-
-
 @dataclass(frozen=True)
 class RoutingDecision:
     agent: str
@@ -72,9 +39,9 @@ class RoutingDecision:
     rule_id: str
     reason: str
     fallback: str
-    # Laya sensor metadata (None when deterministic routing was used).
-    laya_used: bool = False
-    laya_confidence: float | None = None
+    # Sensor metadata (None when deterministic routing was used).
+    sensor_used: bool = False
+    sensor_confidence: float | None = None
     eligible_routes: tuple[str, ...] = field(default_factory=tuple)
     route_probabilities: dict[str, float] | None = None
     complexity: int | None = None
@@ -90,8 +57,8 @@ class RoutingDecision:
             "rule_id": self.rule_id,
             "reason": self.reason,
             "fallback": self.fallback,
-            "laya_used": self.laya_used,
-            "laya_confidence": self.laya_confidence,
+            "sensor_used": self.sensor_used,
+            "sensor_confidence": self.sensor_confidence,
             "eligible_routes": list(self.eligible_routes),
             "route_probabilities": (
                 dict(self.route_probabilities) if self.route_probabilities else None
@@ -124,7 +91,7 @@ def eligible_routes(facts: RoutingFacts) -> tuple[str, ...]:
     """Apply hard constraints: availability, then high-risk lane removal.
 
     Explicit overrides and retry escalation are applied in `select_route`
-    before any Laya inference, so they never reach the fuzzy step.
+    before any sensor inference, so they never reach the fuzzy step.
     """
     routes = [
         key
@@ -169,7 +136,7 @@ def _decision(
     facts: RoutingFacts,
     *,
     eligible: tuple[str, ...] | None = None,
-    laya: RouteDecision | None = None,
+    sensor: RouteDecision | None = None,
     fallback_reason: str | None = None,
 ) -> RoutingDecision:
     agent, model_id = REGISTRY[key]
@@ -181,12 +148,12 @@ def _decision(
         rule_id=rule_id,
         reason=reason,
         fallback=key,
-        laya_used=laya is not None,
-        laya_confidence=laya.confidence if laya else None,
+        sensor_used=sensor is not None,
+        sensor_confidence=sensor.confidence if sensor else None,
         eligible_routes=eligible if eligible is not None else eligible_routes(facts),
-        route_probabilities=dict(laya.probabilities) if laya else None,
-        complexity=laya.complexity if laya else None,
-        ambiguity=laya.ambiguity if laya else None,
+        route_probabilities=dict(sensor.probabilities) if sensor else None,
+        complexity=sensor.complexity if sensor else None,
+        ambiguity=sensor.ambiguity if sensor else None,
         fallback_reason=fallback_reason,
     )
 
@@ -194,16 +161,16 @@ def _decision(
 def select_route(
     facts: RoutingFacts,
     *,
-    laya: RouteDecision | None = None,
-    laya_fallback_reason: str | None = None,
+    sensor: RouteDecision | None = None,
+    sensor_fallback_reason: str | None = None,
     confidence_threshold: float = 0.60,
 ) -> RoutingDecision:
-    """Apply hard constraints, then Laya's eligible-route pick, then overrides.
+    """Apply hard constraints, then the sensor's eligible-route pick, then overrides.
 
-    Laya's route is used only when it names an eligible route at or above the
-    confidence threshold; otherwise the existing deterministic default applies.
-    Hard overrides (explicit model/agent, Codex ask, spec uncertainty, retry
-    escalation) always win over Laya.
+    The sensor's route is used only when it names an eligible route at or above
+    the confidence threshold; otherwise the existing deterministic default
+    applies. Hard overrides (explicit model/agent, Codex ask, spec uncertainty,
+    retry escalation) always win over the sensor.
     """
     eligible = eligible_routes(facts)
 
@@ -227,7 +194,7 @@ def select_route(
             reason=f"explicit non-registry model override: {facts.explicit_model}",
             fallback=facts.explicit_model,
             eligible_routes=eligible,
-            fallback_reason=laya_fallback_reason,
+            fallback_reason=sensor_fallback_reason,
         )
     if facts.user_asked_codex:
         return _decision(
@@ -270,31 +237,31 @@ def select_route(
             eligible=eligible,
         )
 
-    # Fuzzy step: Laya's pick among eligible routes.
+    # Fuzzy step: the sensor's pick among eligible routes.
     if (
-        laya is not None
-        and laya.route in eligible
-        and laya.confidence >= confidence_threshold
+        sensor is not None
+        and sensor.route in eligible
+        and sensor.confidence >= confidence_threshold
     ):
         return _decision(
-            laya.route,
-            "R-LAYA",
+            sensor.route,
+            "R-SENSOR",
             (
-                f"laya route {laya.route} (confidence {laya.confidence:.2f}, "
-                f"complexity {laya.complexity}, ambiguity {laya.ambiguity})"
+                f"sensor route {sensor.route} (confidence {sensor.confidence:.2f}, "
+                f"complexity {sensor.complexity}, ambiguity {sensor.ambiguity})"
             ),
             facts,
             eligible=eligible,
-            laya=laya,
+            sensor=sensor,
         )
 
     # Deterministic fallback (disabled, unavailable, invalid, low confidence).
-    if laya is not None and laya_fallback_reason is None:
-        if laya.route not in eligible:
-            laya_fallback_reason = f"laya route {laya.route} not eligible"
+    if sensor is not None and sensor_fallback_reason is None:
+        if sensor.route not in eligible:
+            sensor_fallback_reason = f"sensor route {sensor.route} not eligible"
         else:
-            laya_fallback_reason = (
-                f"laya confidence {laya.confidence:.2f} below threshold "
+            sensor_fallback_reason = (
+                f"sensor confidence {sensor.confidence:.2f} below threshold "
                 f"{confidence_threshold:.2f}"
             )
     route, reason = deterministic_default(facts, eligible)
@@ -309,5 +276,5 @@ def select_route(
         reason,
         facts,
         eligible=eligible,
-        fallback_reason=laya_fallback_reason,
+        fallback_reason=sensor_fallback_reason,
     )

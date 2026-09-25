@@ -1,4 +1,4 @@
-"""Deterministic facts collected before Laya inference."""
+"""Deterministic facts collected before sensor inference."""
 
 from __future__ import annotations
 

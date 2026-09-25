@@ -24,7 +24,7 @@ class FailureAnalysisInput:
 
 
 def normalize_failure(input_data: FailureAnalysisInput) -> FailureFeatures:
-    """Deterministic failure classification when Laya is unavailable."""
+    """Deterministic failure classification when the sensor is unavailable."""
     text = " ".join(
         part
         for part in (

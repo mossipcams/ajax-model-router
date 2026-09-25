@@ -11,35 +11,40 @@ DEFAULT_SEMANTIC_CONFIG = ROOT / "config" / "semantic_analysis.toml"
 DEFAULT_CAPABILITIES_CONFIG = ROOT / "config" / "model_capabilities.toml"
 
 
-@dataclass(frozen=True)
-class LayaConfig:
-    """Laya semantic routing settings.
+DEFAULT_MODEL = "fastino/GLiNER2.5-Decide"
+DEFAULT_PYTHON = ".venv/bin/python"
 
-    Laya is a local, persistent System-1 routing sensor. It is a sensor only:
-    Ajax deterministic policy retains final authority over routing.
+
+@dataclass(frozen=True)
+class SemanticConfig:
+    """Semantic routing sensor settings.
+
+    The sensor is a local GLiNER classifier (GLiNER2.5-Decide by default).
+    It is a sensor only: Ajax deterministic policy retains final authority
+    over routing.
     """
 
     enabled: bool
-    endpoint: str
+    model: str  # GLiNER model id (HF repo or local path)
+    python: str  # venv interpreter that has gliner2 installed
     timeout_ms: int
     confidence_threshold: float
 
 
-def load_laya_config(path: str | Path | None = None) -> LayaConfig:
-    """Load Laya settings from TOML; defaults keep analysis enabled."""
+def load_semantic_config(path: str | Path | None = None) -> SemanticConfig:
+    """Load semantic sensor settings from TOML; defaults keep analysis enabled."""
     toml_path = Path(path) if path is not None else DEFAULT_SEMANTIC_CONFIG
     if toml_path.is_file():
         raw = tomllib.loads(toml_path.read_text())
     else:
         raw = {}
     section = raw.get("semantic", {})
-    return LayaConfig(
+    return SemanticConfig(
         enabled=bool(section.get("enabled", True)),
-        endpoint=str(
-            section.get("endpoint", "http://127.0.0.1:8000/v1/systemone")
-        ),
-        timeout_ms=int(section.get("timeout_ms", 5000)),
-        confidence_threshold=float(section.get("confidence_threshold", 0.60)),
+        model=str(section.get("model", DEFAULT_MODEL)),
+        python=str(section.get("python", DEFAULT_PYTHON)),
+        timeout_ms=int(section.get("timeout_ms", 20000)),
+        confidence_threshold=float(section.get("confidence_threshold", 0.45)),
     )
 
 

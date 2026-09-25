@@ -74,7 +74,7 @@ forbid_text "$ROUTER" '`R-LOCAL-TINY`' "removed tiny-local write shortcut"
 
 uncertainty_line="$(grep -nF 'Recorded unresolved specification or architecture uncertainty' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
 cheap_line="$(grep -nF 'Routine docs, generated cleanup, exact replacements, or named boilerplate' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
-cursor_line="$(grep -nF 'No exception matched; Laya unavailable, invalid, or low confidence' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
+cursor_line="$(grep -nF 'No exception matched; sensor unavailable, invalid, or low confidence' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
 if [[ -z "$uncertainty_line" || -z "$cheap_line" || -z "$cursor_line" || "$uncertainty_line" -ge "$cheap_line" || "$cheap_line" -ge "$cursor_line" ]]; then
   echo "wrong-order: GLM → MiniMax → CURSOR-default must hold" >&2
   failures=$((failures + 1))

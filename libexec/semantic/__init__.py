@@ -1,8 +1,8 @@
-"""Laya semantic routing — sensor only, no routing authority.
+"""Semantic routing — local GLiNER sensor.
 
-Pipeline: facts → hard constraints (eligibility) → optional Laya decision over
-eligible routes → deterministic policy → decision, explanation, execution.
-Laya failure never blocks routing.
+Pipeline: facts → hard constraints (eligibility) → optional sensor decision
+over eligible routes → deterministic policy → decision, explanation,
+execution. Sensor failure never blocks routing.
 """
 
 from __future__ import annotations
@@ -14,14 +14,14 @@ from pathlib import Path
 
 from semantic.analyzer import (
     DisabledSemanticAnalyzer,
-    LayaAnalyzer,
+    GlinerAnalyzer,
     SemanticAnalyzer,
     TaskAnalysisInput,
     analyze_with_fallback,
     create_analyzer,
 )
 from semantic.capabilities import CapabilityRegistry
-from semantic.config import LayaConfig, load_capabilities, load_laya_config
+from semantic.config import SemanticConfig, load_capabilities, load_semantic_config
 from semantic.context import (
     derive_context_requirements,
     derive_execution_scope,
@@ -47,12 +47,12 @@ __all__ = [
     "DisabledSemanticAnalyzer",
     "FailureAnalysisInput",
     "FailureFeatures",
-    "LayaAnalyzer",
-    "LayaConfig",
+    "GlinerAnalyzer",
     "RoutingDecision",
     "RoutingFacts",
     "RouteDecision",
     "SemanticAnalyzer",
+    "SemanticConfig",
     "TaskAnalysisInput",
     "analyze_task_main",
     "analyze_with_fallback",
@@ -67,7 +67,7 @@ __all__ = [
     "failure_input_from_dict",
     "has_hard_override",
     "load_capabilities",
-    "load_laya_config",
+    "load_semantic_config",
     "normalize_failure",
     "run_analyze_task",
     "select_route",
@@ -95,21 +95,21 @@ def run_analyze_task(
     payload: dict | None = None,
     *,
     analyzer: SemanticAnalyzer | None = None,
-    config: LayaConfig | None = None,
+    config: SemanticConfig | None = None,
 ) -> dict:
-    """Facts → eligibility → optional Laya → policy → decision + explanation.
+    """Facts → eligibility → optional sensor → policy → decision + explanation.
 
-    Laya is only consulted when no hard override applies and at least two
-    routes remain eligible; otherwise deterministic routing runs directly.
+    The sensor is only consulted when no hard override applies and at least
+    two routes remain eligible; otherwise deterministic routing runs directly.
     """
     payload = payload or {}
     facts = collect_facts(payload)
-    cfg = config or load_laya_config()
+    cfg = config or load_semantic_config()
     if analyzer is None:
         analyzer = create_analyzer(cfg)
     eligible = eligible_routes(facts)
 
-    laya: RouteDecision | None = None
+    sensor: RouteDecision | None = None
     fallback_reason: str | None = None
     analysis_source = "deterministic"
     if has_hard_override(facts):
@@ -122,22 +122,22 @@ def run_analyze_task(
             facts=facts,
             eligible_routes=eligible,
         )
-        laya, fallback_reason, analysis_source = analyze_with_fallback(
+        sensor, fallback_reason, analysis_source = analyze_with_fallback(
             analyzer, task_input
         )
 
     decision = select_route(
         facts,
-        laya=laya,
-        laya_fallback_reason=fallback_reason,
+        sensor=sensor,
+        sensor_fallback_reason=fallback_reason,
         confidence_threshold=cfg.confidence_threshold,
     )
-    context = derive_context_requirements(laya, facts)
+    context = derive_context_requirements(sensor, facts)
     explanation = build_explanation(
         facts=facts,
         decision=decision,
         context=context,
-        laya=laya,
+        sensor=sensor,
         fallback_reason=fallback_reason,
         analysis_source=analysis_source,
     )
@@ -153,7 +153,7 @@ def run_analyze_task(
 
 
 def analyze_task_main(argv=None) -> int:
-    """CLI entry: facts → eligibility → optional Laya → policy → JSON output."""
+    """CLI entry: facts → eligibility → optional sensor → policy → JSON output."""
     args = _parse_cli_args(argv)
     payload = _load_cli_payload(args)
     output = run_analyze_task(payload)

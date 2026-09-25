@@ -20,7 +20,7 @@ from semantic.schema import RouteDecision  # noqa: E402
 ALL_ROUTES = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS")
 
 
-def _laya(route: str, confidence: float, **overrides) -> RouteDecision:
+def _sensor(route: str, confidence: float, **overrides) -> RouteDecision:
     other = "CURSOR" if route != "CURSOR" else "MINIMAX"
     base = dict(
         route=route,
@@ -96,51 +96,53 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertEqual(decision.model_key, "CODEX")
         self.assertEqual(decision.rule_id, "R-RETRY-ESCALATE")
 
-    def test_hard_override_wins_over_laya(self):
+    def test_hard_override_wins_over_sensor(self):
         facts = RoutingFacts(user_asked_codex=True)
-        decision = select_route(facts, laya=_laya("MINIMAX", 0.99))
+        decision = select_route(facts, sensor=_sensor("MINIMAX", 0.99))
         self.assertEqual(decision.model_key, "CODEX")
-        self.assertFalse(decision.laya_used)
-        self.assertIsNone(decision.laya_confidence)
+        self.assertFalse(decision.sensor_used)
+        self.assertIsNone(decision.sensor_confidence)
 
-    def test_laya_route_used_when_eligible_and_confident(self):
+    def test_sensor_route_used_when_eligible_and_confident(self):
         facts = RoutingFacts(user_request="refactor parser", diff_line_count=120)
-        laya = _laya("GLM", 0.85)
-        decision = select_route(facts, laya=laya)
+        sensor = _sensor("GLM", 0.85)
+        decision = select_route(facts, sensor=sensor)
         self.assertEqual(decision.model_key, "GLM")
-        self.assertEqual(decision.rule_id, "R-LAYA")
-        self.assertTrue(decision.laya_used)
-        self.assertEqual(decision.laya_confidence, 0.85)
+        self.assertEqual(decision.rule_id, "R-SENSOR")
+        self.assertTrue(decision.sensor_used)
+        self.assertEqual(decision.sensor_confidence, 0.85)
         self.assertEqual(decision.complexity, 3)
         self.assertEqual(decision.ambiguity, 2)
         self.assertIsNone(decision.fallback_reason)
 
-    def test_laya_low_confidence_falls_back(self):
+    def test_sensor_low_confidence_falls_back(self):
         facts = RoutingFacts(user_request="refactor parser", diff_line_count=120)
-        laya = _laya("GLM", 0.5)
-        decision = select_route(facts, laya=laya, laya_fallback_reason="low confidence")
+        sensor = _sensor("GLM", 0.5)
+        decision = select_route(
+            facts, sensor=sensor, sensor_fallback_reason="low confidence"
+        )
         self.assertEqual(decision.model_key, "QWEN")
         self.assertEqual(decision.rule_id, "R-QWEN")
-        self.assertFalse(decision.laya_used)
+        self.assertFalse(decision.sensor_used)
         self.assertEqual(decision.fallback_reason, "low confidence")
 
-    def test_laya_ineligible_route_falls_back(self):
+    def test_sensor_ineligible_route_falls_back(self):
         facts = RoutingFacts(
             user_request="trivial docs",
             changed_file_count=1,
             diff_line_count=5,
             unavailable_routes=["MINIMAX"],
         )
-        laya = RouteDecision(
+        sensor = RouteDecision(
             route="MINIMAX",
             probabilities={"MINIMAX": 0.9, "CURSOR": 0.1},
             complexity=1,
             ambiguity=1,
             confidence=0.9,
         )
-        decision = select_route(facts, laya=laya)
+        decision = select_route(facts, sensor=sensor)
         self.assertEqual(decision.model_key, "QWEN")
-        self.assertEqual(decision.fallback_reason, "laya route MINIMAX not eligible")
+        self.assertEqual(decision.fallback_reason, "sensor route MINIMAX not eligible")
 
     def test_deterministic_default_bounded_trivial(self):
         facts = RoutingFacts(

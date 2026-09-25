@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Set up the local GLiNER routing sensor: router venv + model in the HF cache.
+#
+# The main router process stays stdlib-only; the bridge
+# (libexec/semantic/gliner_bridge.py) runs under the venv python and is the
+# only place gliner2 is imported. Any failure here degrades routing to the
+# deterministic default — it never blocks dispatch.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+VENV="$ROOT/.venv"
+
+# Read model + python path from the semantic config (defaults match config.py).
+read -r MODEL PYBIN < <(python3 - "$ROOT/config/semantic_analysis.toml" <<'PY'
+import sys
+from pathlib import Path
+try:
+    import tomllib
+    with open(sys.argv[1], "rb") as fh:
+        cfg = tomllib.load(fh).get("semantic", {})
+except Exception:
+    cfg = {}
+print(cfg.get("model", "fastino/GLiNER2.5-Decide"),
+      cfg.get("python", ".venv/bin/python"))
+PY
+)
+
+echo "==> model:    $MODEL"
+echo "==> venv:     $VENV"
+
+if [ ! -x "$VENV/bin/python" ]; then
+  echo "==> creating venv"
+  python3 -m venv "$VENV"
+fi
+
+echo "==> installing gliner2"
+"$VENV/bin/python" -m pip install --quiet --upgrade pip
+"$VENV/bin/python" -m pip install --quiet gliner2
+
+echo "==> priming HF cache for $MODEL"
+"$VENV/bin/python" - <<PY
+from gliner2.classification import Classifier
+Classifier.from_pretrained("$MODEL")
+print("model cached: $MODEL")
+PY
+
+echo "==> smoke-testing the bridge"
+echo '{"task": "Fix a typo in the README.", "eligible_routes": ["MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS"], "model": "'"${MODEL}"'"}' \
+  | "$VENV/bin/python" "$ROOT/libexec/semantic/gliner_bridge.py"
+
+echo "==> done. Sensor configured via config/semantic_analysis.toml (engine = \"gliner\")."
