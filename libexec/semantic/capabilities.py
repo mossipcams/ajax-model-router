@@ -54,6 +54,8 @@ class CapabilityRegistry:
     def to_dict(self) -> dict[str, dict[str, Any]]:
         return {
             key: {
+                "context_window": cap.context_window,
+                "max_output_tokens": cap.max_output_tokens,
                 "cost_tier": cap.cost_tier,
                 "architecture_strength": cap.architecture_strength,
                 "localized_implementation_strength": cap.localized_implementation_strength,

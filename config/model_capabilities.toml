@@ -43,3 +43,16 @@ debugging_strength = 3
 test_writing_strength = 3
 large_context_strength = 3
 review_strength = 4
+
+[QWEN]
+context_window = 65536
+max_output_tokens = 4096
+cost_tier = 2
+architecture_strength = 3
+localized_implementation_strength = 4
+frontend_strength = 3
+rust_strength = 3
+debugging_strength = 3
+test_writing_strength = 3
+large_context_strength = 4
+review_strength = 3

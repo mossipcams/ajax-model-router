@@ -15,7 +15,7 @@ deterministic facts first, applies hard constraints to compute the eligible
 routes, and may ask **Laya** — a self-hosted open-source local System-1 routing
 sensor — to evaluate those eligible routes directly. Laya runs as a persistent
 local service at `http://127.0.0.1:8000/v1/systemone` (Jev-compatible API) and
-returns one compact decision: a registry route key (`MINIMAX`/`CURSOR`/`GLM`/`CODEX`),
+returns one compact decision: a registry route key (`MINIMAX`/`QWEN`/`CURSOR`/`GLM`/`CODEX`),
 route probabilities, and complexity/ambiguity scores (1–5). The response is
 validated strictly and fed into deterministic policy. Laya is a sensor only —
 it never chooses the final model, never owns hard policy, safety, execution,
@@ -91,9 +91,10 @@ first); hard overrides below always win over Laya.
 
 | Scenario | Agent / model |
 |---|---|
-| Bounded implementation (default) | `cursor` / `composer-2.5` |
+| Bounded implementation (default) | `pi` / `qwen3.8-27b` |
+| QWEN unavailable | `cursor` / `composer-2.5` |
 | Explicit user/model override | the requested model |
-| Explicit Codex ask | `codex` / `gpt-5.6-sol` |
+| Explicit Codex ask | `codex` / `gpt-6-astra` |
 | Recorded spec/architecture uncertainty | `pi` / `glm-5.2` |
 | Retry after failed cheap-model attempt | escalate (`GLM` → `CODEX`) |
 | Shallow docs/boilerplate ≤2 files/~60 lines | `pi` / `minimax-m3` |

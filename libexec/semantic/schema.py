@@ -153,7 +153,7 @@ def _reject_extra(data: dict[str, Any], allowed: tuple[str, ...], what: str) -> 
 class RouteDecision:
     """One Laya decision: which eligible route, with probabilities and scores.
 
-    `route` is a registry key (MINIMAX/CURSOR/GLM/CODEX), never a provider
+    `route` is a registry key (MINIMAX/QWEN/CURSOR/GLM/CODEX), never a provider
     model id. `confidence` is the probability of the selected route.
     """
 

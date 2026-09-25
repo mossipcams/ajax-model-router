@@ -59,8 +59,8 @@ class RoutingExplainTests(unittest.TestCase):
         ):
             self.assertIn(key, explanation)
         self.assertIsNone(explanation["laya"])
-        self.assertEqual(explanation["selected_route"], "CURSOR")
-        self.assertEqual(explanation["matched_rule"], "R-CURSOR")
+        self.assertEqual(explanation["selected_route"], "QWEN")
+        self.assertEqual(explanation["matched_rule"], "R-QWEN")
 
     def test_explanation_includes_laya_confidence_when_present(self):
         facts = RoutingFacts(user_request="design cache layer", diff_line_count=120)
@@ -102,7 +102,7 @@ class RoutingExplainTests(unittest.TestCase):
         )
         self.assertTrue(explanation["fallback_used"])
         self.assertIn("below threshold", explanation["fallback_reason"])
-        self.assertEqual(explanation["selected_route"], "CURSOR")
+        self.assertEqual(explanation["selected_route"], "QWEN")
 
     def test_execution_block_required_fields(self):
         facts = RoutingFacts(user_request="fix typo")
@@ -111,8 +111,8 @@ class RoutingExplainTests(unittest.TestCase):
         block = build_execution_block(decision=decision, context=context, facts=facts)
         for key in ("AGENT", "MODEL", "RISK", "REASON", "FALLBACK"):
             self.assertIn(key, block)
-        self.assertEqual(block["AGENT"], "cursor")
-        self.assertEqual(block["MODEL"], "composer-2.5")
+        self.assertEqual(block["AGENT"], "pi")
+        self.assertEqual(block["MODEL"], "qwen3.8-27b")
 
     def test_execution_block_omits_empty_scope_verify(self):
         facts = RoutingFacts(user_request="fix typo")

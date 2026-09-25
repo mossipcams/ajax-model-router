@@ -31,8 +31,8 @@ class AnalyzeTaskTests(unittest.TestCase):
             {"task": "update readme"}, analyzer=DisabledSemanticAnalyzer()
         )
         execution = output["execution"]
-        self.assertEqual(execution["AGENT"], "cursor")
-        self.assertEqual(execution["MODEL"], "composer-2.5")
+        self.assertEqual(execution["AGENT"], "pi")
+        self.assertEqual(execution["MODEL"], "qwen3.8-27b")
         self.assertIn("RISK", execution)
         self.assertIn("REASON", execution)
         self.assertIn("FALLBACK", execution)
@@ -60,7 +60,7 @@ class AnalyzeTaskTests(unittest.TestCase):
             {"task": "use codex for this", "user_asked_codex": True},
             analyzer=DisabledSemanticAnalyzer(),
         )
-        self.assertEqual(output["execution"]["MODEL"], "gpt-5.6-sol")
+        self.assertEqual(output["execution"]["MODEL"], "gpt-6-astra")
         self.assertEqual(
             output["explanation"]["analysis_source"], "skipped_hard_override"
         )
@@ -72,7 +72,7 @@ class AnalyzeTaskTests(unittest.TestCase):
                 "task": "fix typo",
                 "changed_file_count": 1,
                 "diff_line_count": 5,
-                "unavailable_routes": ["MINIMAX", "GLM", "CODEX"],
+                "unavailable_routes": ["MINIMAX", "QWEN", "GLM", "CODEX"],
             },
             analyzer=DisabledSemanticAnalyzer(),
         )

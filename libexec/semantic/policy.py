@@ -15,14 +15,15 @@ from semantic.schema import RouteDecision
 
 # Registry keys — model IDs live only in the SKILL.md registry table.
 REGISTRY: dict[str, tuple[str, str]] = {
-    "CODEX": ("codex", "gpt-5.6-sol"),
+    "CODEX": ("codex", "gpt-6-astra"),
     "CURSOR": ("cursor", "composer-2.5"),
     "MINIMAX": ("pi", "minimax-m3"),
+    "QWEN": ("pi", "qwen3.8-27b"),
     "GLM": ("pi", "glm-5.2"),
 }
 
 # Canonical route order (cheap → strongest), used for tie-breaking and logs.
-ROUTE_ORDER: tuple[str, ...] = ("MINIMAX", "CURSOR", "GLM", "CODEX")
+ROUTE_ORDER: tuple[str, ...] = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX")
 
 MODEL_KEY_BY_ID: dict[str, str] = {
     model_id: key for key, (_, model_id) in REGISTRY.items()
@@ -39,6 +40,10 @@ ROUTE_DEFINITIONS: dict[str, str] = {
         "Normal bounded implementation, feature work, bug fixes, "
         "frontend/backend work, ordinary debugging, and the default "
         "implementation lane."
+    ),
+    "QWEN": (
+        "Default bounded implementation, feature work, bug fixes, "
+        "frontend/backend work, and ordinary debugging."
     ),
     "GLM": (
         "Unclear specification, architectural uncertainty, multiple plausible "
@@ -140,11 +145,13 @@ def _bounded_trivial(facts: RoutingFacts) -> bool:
 def deterministic_default(
     facts: RoutingFacts, eligible: tuple[str, ...]
 ) -> tuple[str, str]:
-    """Existing deterministic default: bounded trivial → MINIMAX, else CURSOR."""
+    """Deterministic default: bounded trivial → MINIMAX, else QWEN → CURSOR."""
     if "MINIMAX" in eligible and _bounded_trivial(facts):
         return "MINIMAX", "bounded trivial change within file/line limits"
+    if "QWEN" in eligible:
+        return "QWEN", "no exception matched; default implementation"
     if "CURSOR" in eligible:
-        return "CURSOR", "no exception matched; default implementation"
+        return "CURSOR", "QWEN unavailable; fallback implementation"
     if eligible:
         return eligible[0], "only remaining eligible route"
     return "CURSOR", "no eligible routes; safe default"
@@ -280,6 +287,7 @@ def select_route(
     route, reason = deterministic_default(facts, eligible)
     rule_id = {
         "MINIMAX": "R-MINIMAX",
+        "QWEN": "R-QWEN",
         "CURSOR": "R-CURSOR",
     }.get(route, "R-ELIGIBLE-FALLBACK")
     return _decision(

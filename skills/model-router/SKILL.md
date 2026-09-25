@@ -67,12 +67,13 @@ read the whole subsystem for that review unless risk requires it.
 Only this table owns provider model IDs. Route rules refer to registry keys;
 the decision copies the corresponding exact ID into `MODEL`.
 
-| Key | Model ID |
-|---|---|
-| `CODEX` | `gpt-5.6-sol` |
-| `CURSOR` | `composer-2.5` |
-| `MINIMAX` | `minimax-m3` |
-| `GLM` | `glm-5.2` |
+| Key | Model ID | Agent | Provider | Base URL | Context | Max output |
+|---|---|---|---|---|---:|---:|
+| `CODEX` | `gpt-6-astra` | `codex` | — | — | — | — |
+| `CURSOR` | `composer-2.5` | `cursor` | — | — | — | — |
+| `MINIMAX` | `minimax-m3` | `pi` | — | — | — | — |
+| `QWEN` | `qwen3.8-27b` | `pi` | `local` | `http://127.0.0.1:18000/v1` | 65536 | 4096 |
+| `GLM` | `glm-5.2` | `pi` | — | — | — | — |
 
 ## Execution Decision
 
@@ -138,10 +139,12 @@ planning with no implementation write).
 | `R-RETRY-ESCALATE` | Retry after failed cheap-model attempt | `pi`/`codex` | `GLM`/`CODEX` | Always wins over Laya |
 | `R-LAYA` | No exception matched; Laya names an eligible route at/above the confidence threshold | registry | Laya route key | Fuzzy lane among eligible routes |
 | `R-MINIMAX` | Routine docs, generated cleanup, exact replacements, or named boilerplate; at most 2 files and roughly 60 changed lines; no auth/security/data-loss concerns | `pi` | `MINIMAX` | Deterministic default |
-| `R-CURSOR` | No exception matched; Laya unavailable, invalid, or low confidence | `cursor` | `CURSOR` | Default implementation |
+| `R-QWEN` | No exception matched; Laya unavailable, invalid, or low confidence | `pi` | `QWEN` | Default implementation |
+| `R-CURSOR` | QWEN unavailable | `cursor` | `CURSOR` | Fallback implementation |
 | `R-STOP` | Selected tool unavailable and every fallback exhausted; or task exceeds one bounded behavior | — | — | `FALLBACK: STOP` |
 
-Default implementation agent is `cursor` / `CURSOR`. Divert only when an
+Default implementation agent is `pi` / `QWEN`, with `cursor` / `CURSOR` as
+its availability fallback. Divert only when an
 exception row matches. Do not divert to MiniMax or GLM just because the change
 is backend, PTY, frontend, multi-file, or under `ajax-web`.
 
@@ -342,7 +345,7 @@ Laya is unreachable). Model capabilities are static in
   inference; Laya sees only compact decision-relevant task information, never
   source files or large repository context.
 - **Validated decision** — Laya returns a registry route key
-  (`MINIMAX`/`CURSOR`/`GLM`/`CODEX`), route probabilities, and complexity and
+  (`MINIMAX`/`QWEN`/`CURSOR`/`GLM`/`CODEX`), route probabilities, and complexity and
   ambiguity scores (1–5). `RouteDecision`, `FailureFeatures`, and
   `ContextRequirements` use typed validation; invalid Laya output is rejected.
 - **Deterministic policy** — registry keys select the executor; hard rules

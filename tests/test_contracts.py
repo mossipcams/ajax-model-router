@@ -103,7 +103,7 @@ class ContractTests(unittest.TestCase):
     def test_codex_uses_requested_model_and_xhigh_effort(self):
         router = ROUTER.read_text()
         adapter = (ROOT / "skills" / "codex-delegate" / "SKILL.md").read_text()
-        self.assertIn("| `CODEX` | `gpt-5.6-sol` |", router)
+        self.assertIn("| `CODEX` | `gpt-6-astra` |", router)
         self.assertNotIn("gpt-5.5", router)
         self.assertIn("--reasoning-effort xhigh", adapter)
         self.assertIn("--tool codex", adapter)

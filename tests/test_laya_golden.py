@@ -137,7 +137,7 @@ class LayaGoldenTests(unittest.TestCase):
                 TaskAnalysisInput(
                     user_request=task.prompt,
                     facts=RoutingFacts(user_request=task.prompt),
-                    eligible_routes=("MINIMAX", "CURSOR", "GLM", "CODEX"),
+                    eligible_routes=("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX"),
                 ),
             )
             if decision is None:

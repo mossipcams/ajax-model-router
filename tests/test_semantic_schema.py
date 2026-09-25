@@ -19,7 +19,7 @@ from semantic.schema import (  # noqa: E402
     route_decision_json_schema,
 )
 
-ALLOWED = ("MINIMAX", "CURSOR", "GLM", "CODEX")
+ALLOWED = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX")
 
 VALID_ROUTE = """{
   "route": "GLM",

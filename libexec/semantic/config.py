@@ -46,6 +46,8 @@ def load_laya_config(path: str | Path | None = None) -> LayaConfig:
 @dataclass(frozen=True)
 class ModelCapability:
     key: str
+    context_window: int
+    max_output_tokens: int
     cost_tier: int
     architecture_strength: int
     localized_implementation_strength: int
@@ -66,6 +68,8 @@ def load_capabilities(path: Path | None = None) -> dict[str, ModelCapability]:
             continue
         result[key] = ModelCapability(
             key=key,
+            context_window=int(values.get("context_window", 0)),
+            max_output_tokens=int(values.get("max_output_tokens", 0)),
             cost_tier=int(values.get("cost_tier", 0)),
             architecture_strength=int(values.get("architecture_strength", 0)),
             localized_implementation_strength=int(
