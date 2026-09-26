@@ -1011,6 +1011,60 @@ while True:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("DETAILS: ignored ext error", report_path.read_text())
 
+    def test_cursor_ignorable_ext_error_does_not_fail_status_stream(self):
+        report = REPORT_COMPLETE.format(detail="status stream ok")
+        ext_error = json.dumps({
+            "jsonrpc": "2.0",
+            "id": "ext",
+            "error": {"code": -32601, "message": "Method not found: cursor/task"},
+        })
+        report_event = json.dumps({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": report},
+            },
+        })
+        stop_event = json.dumps({
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": {"stopReason": "end_turn"},
+        })
+        body = (
+            f"print({json.dumps(ext_error)}, flush=True)\n"
+            f"print({json.dumps(report_event)}, flush=True)\n"
+            f"print({json.dumps(stop_event)}, flush=True)\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            env, _ = install_fake_acpx(tmp, fake_acpx_script(body=body, emit_report=False))
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("bounded task")
+            raw = tmp / "raw.log"
+            report_path = tmp / "report.yaml"
+            result = subprocess.run(
+                [
+                    RUNNER, "--tool", "cursor", "--model", "test-model",
+                    "--prompt", prompt, "--raw-log", raw, "--report", report_path,
+                    "--run-id", "run_ext_err", "--parent-task-id", "task_ext_err",
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            status_lines = [
+                json.loads(line)
+                for line in result.stdout.splitlines()
+                if line.strip().startswith("{") and '"subagent_status"' in line
+            ]
+            self.assertTrue(status_lines)
+            self.assertNotIn("failed", [row.get("state") for row in status_lines])
+            terminal = [row for row in status_lines if row.get("state") in {"completed", "failed"}]
+            self.assertTrue(terminal)
+            self.assertEqual(terminal[-1]["state"], "completed")
+
 
 class UnavailableSignatureTests(unittest.TestCase):
     def test_detects_quota_auth_and_rate_limit(self):

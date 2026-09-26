@@ -330,9 +330,14 @@ def run_acpx_process(command, args, raw, deadline, debug=None):
                 else:
                     raw.write(line)
                     raw.flush()
-                    if tracker:
-                        tracker.handle_stdout_line(line)
                     record = parse_jsonl_line(line)
+                    ignorable = (
+                        record is not None
+                        and args.tool == "cursor"
+                        and ignorable_cursor_ext_failure(record)
+                    )
+                    if tracker and not ignorable:
+                        tracker.handle_stdout_line(line)
                     if record is None:
                         continue
                     if is_active_turn_activity(record):
