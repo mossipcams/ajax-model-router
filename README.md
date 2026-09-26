@@ -92,13 +92,13 @@ first); hard overrides below always win over the sensor.
 
 | Scenario | Agent / model |
 |---|---|
-| Bounded implementation (default) | `pi` / `qwen3.8-27b` |
+| Bounded implementation (default) | `pi` / `local/qwen3.8-27b` |
 | QWEN unavailable | `cursor` / `composer-2.5` |
 | Explicit user/model override | the requested model |
 | Explicit Codex ask | `codex` / `gpt-6-astra` |
-| Recorded spec/architecture uncertainty | `pi` / `glm-5.2` |
+| Recorded spec/architecture uncertainty | `pi` / `opencode-go/glm-5.2` |
 | Retry after failed cheap-model attempt | escalate (`GLM` → `OPUS` → `CODEX`) |
-| Shallow docs/boilerplate ≤2 files/~60 lines | `pi` / `minimax-m3` |
+| Shallow docs/boilerplate ≤2 files/~60 lines | `pi` / `opencode-go/minimax-m3` |
 | High-risk (auth/security/session/PTY/data-loss) | never `minimax-m3` |
 | sensor unavailable/invalid/low confidence | existing deterministic default |
 | Pure Q&A / architecture planning | `parent` (no write) |

@@ -1012,5 +1012,17 @@ while True:
             self.assertIn("DETAILS: ignored ext error", report_path.read_text())
 
 
+class UnavailableSignatureTests(unittest.TestCase):
+    def test_detects_quota_auth_and_rate_limit(self):
+        from libexec.run_delegate import unavailable_signature
+
+        self.assertTrue(unavailable_signature("\n\nUpgrade your plan to continue"))
+        self.assertTrue(
+            unavailable_signature("unexpected status 401 Unauthorized: Incorrect API key provided")
+        )
+        self.assertTrue(unavailable_signature("HTTP 429 Too Many Requests"))
+        self.assertEqual(unavailable_signature("error: test failed in src/lib.rs"), "")
+
+
 if __name__ == "__main__":
     unittest.main()

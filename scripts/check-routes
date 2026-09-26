@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Probe every registry route and refresh the route-health cache.
+ROOT="$(cd "$(dirname "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
+export PYTHONPATH="$ROOT/libexec${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 "$ROOT/libexec/route_health.py" "$@"

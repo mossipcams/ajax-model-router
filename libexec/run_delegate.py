@@ -4,6 +4,7 @@
 import argparse
 import os
 import queue
+import re
 import shutil
 import signal
 import subprocess
@@ -517,6 +518,26 @@ def _log_failure(debug, args, outcome):
     )
 
 
+# Provider replies meaning the tool cannot work right now (quota, plan, auth, rate
+# limit). Only consulted after a failed run, so the parent can fall back.
+# ponytail: substring scan of the whole raw log, which also echoes the prompt; a
+# task text quoting these phrases can misclassify a real failure. The cost is only
+# an extra fallback attempt on an untouched tree; parse ACP error events if it bites.
+UNAVAILABLE_PATTERNS = (
+    ("quota", re.compile(r"upgrade your plan|insufficient_quota|exceeded your current quota|usage limit", re.I)),
+    ("auth", re.compile(r"401 unauthorized|incorrect api key|invalid api key|not logged in|authentication required|please (log|sign) in", re.I)),
+    ("rate limit", re.compile(r"429 too many requests|rate limit(ed)? exceeded", re.I)),
+)
+
+
+def unavailable_signature(text):
+    for label, pattern in UNAVAILABLE_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return f"{label} ({match.group(0)})"
+    return ""
+
+
 def run_acpx(args):
     debug = debug_log_path(args.raw_log)
     executable = acpx_path()
@@ -549,6 +570,11 @@ def run_acpx(args):
         )
         outcome = run_acpx_process(command, args, raw, deadline, debug=debug)
         if outcome.get("failure"):
+            raw.flush()
+            signature = unavailable_signature(args.raw_log.read_text(errors="replace"))
+            if signature:
+                outcome["failure_reason"] = "TOOL_UNAVAILABLE"
+                outcome["failure"] = f"{args.tool}/{args.model} unavailable: {signature}"
             _log_failure(debug, args, outcome)
             return outcome.get("exit_code", 1)
         last_report = outcome.get("report_text") or ""

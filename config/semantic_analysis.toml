@@ -7,4 +7,6 @@ enabled = true
 model = "fastino/GLiNER2.5-Decide"
 python = ".venv/bin/python"
 timeout_ms = 20000
-confidence_threshold = 0.45
+# ponytail: 0.60 is the policy default, not data-fitted (0.45 let ~coin-flip picks route).
+# Recalibrate once routing events are logged next to outcomes.
+confidence_threshold = 0.60

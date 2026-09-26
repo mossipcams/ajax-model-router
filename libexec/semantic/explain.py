@@ -10,7 +10,7 @@ from semantic.context import (
     derive_execution_verify,
 )
 from semantic.facts import RoutingFacts
-from semantic.policy import RoutingDecision
+from semantic.policy import REGISTRY, RoutingDecision
 from semantic.schema import RouteDecision
 
 
@@ -76,6 +76,11 @@ def build_execution_block(
         "REASON": decision.reason,
         "FALLBACK": decision.fallback,
     }
+    if decision.fallback_chain:
+        # agent/model entries, consumed verbatim as the context `fallback_chain`.
+        block["FALLBACK_CHAIN"] = [
+            "/".join(REGISTRY[key]) for key in decision.fallback_chain
+        ]
     scope = derive_execution_scope(context, facts)
     verify = derive_execution_verify(context, facts)
     if scope:

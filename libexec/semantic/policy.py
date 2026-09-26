@@ -17,18 +17,39 @@ from semantic.schema import RouteDecision
 REGISTRY: dict[str, tuple[str, str]] = {
     "CODEX": ("codex", "gpt-6-astra"),
     "CURSOR": ("cursor", "composer-2.5"),
-    "MINIMAX": ("pi", "minimax-m3"),
-    "QWEN": ("pi", "qwen3.8-27b"),
-    "GLM": ("pi", "glm-5.2"),
+    # pi only accepts provider-qualified IDs (what its ACP agent advertises).
+    "MINIMAX": ("pi", "opencode-go/minimax-m3"),
+    "QWEN": ("pi", "local/qwen3.8-27b"),
+    "GLM": ("pi", "opencode-go/glm-5.2"),
     "OPUS": ("cursor", "claude-opus-5-5"),
 }
 
 # Canonical route order (cheap → strongest), used for tie-breaking and logs.
 ROUTE_ORDER: tuple[str, ...] = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS")
 
+# Bare IDs ("glm-5.2") stay valid for explicit user overrides.
 MODEL_KEY_BY_ID: dict[str, str] = {
-    model_id: key for key, (_, model_id) in REGISTRY.items()
+    alias: key
+    for key, (_, model_id) in REGISTRY.items()
+    for alias in {model_id, model_id.rpartition("/")[2]}
 }
+
+
+def fallback_chain(primary: str, eligible: tuple[str, ...]) -> tuple[str, ...]:
+    """Routes to try, in order, when `primary` is unavailable (quota, auth, missing tool).
+
+    Stronger routes after the primary first, then cheaper ones; never the primary
+    itself, and never MINIMAX unless the primary was MINIMAX (its lane is bounded).
+    """
+    if primary not in ROUTE_ORDER:
+        return ()
+    start = ROUTE_ORDER.index(primary)
+    ordered = ROUTE_ORDER[start + 1 :] + ROUTE_ORDER[:start]
+    return tuple(
+        key
+        for key in ordered
+        if key in eligible and (key != "MINIMAX" or primary == "MINIMAX")
+    )
 
 @dataclass(frozen=True)
 class RoutingDecision:
@@ -39,6 +60,7 @@ class RoutingDecision:
     rule_id: str
     reason: str
     fallback: str
+    fallback_chain: tuple[str, ...] = field(default_factory=tuple)
     # Sensor metadata (None when deterministic routing was used).
     sensor_used: bool = False
     sensor_confidence: float | None = None
@@ -57,6 +79,7 @@ class RoutingDecision:
             "rule_id": self.rule_id,
             "reason": self.reason,
             "fallback": self.fallback,
+            "fallback_chain": list(self.fallback_chain),
             "sensor_used": self.sensor_used,
             "sensor_confidence": self.sensor_confidence,
             "eligible_routes": list(self.eligible_routes),
@@ -140,6 +163,8 @@ def _decision(
     fallback_reason: str | None = None,
 ) -> RoutingDecision:
     agent, model_id = REGISTRY[key]
+    eligible = eligible if eligible is not None else eligible_routes(facts)
+    chain = fallback_chain(key, eligible)
     return RoutingDecision(
         agent=agent,
         model_key=key,
@@ -147,10 +172,11 @@ def _decision(
         risk=_risk_level(facts),
         rule_id=rule_id,
         reason=reason,
-        fallback=key,
+        fallback=chain[0] if chain else "STOP",
+        fallback_chain=chain,
         sensor_used=sensor is not None,
         sensor_confidence=sensor.confidence if sensor else None,
-        eligible_routes=eligible if eligible is not None else eligible_routes(facts),
+        eligible_routes=eligible,
         route_probabilities=dict(sensor.probabilities) if sensor else None,
         complexity=sensor.complexity if sensor else None,
         ambiguity=sensor.ambiguity if sensor else None,

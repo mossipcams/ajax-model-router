@@ -19,7 +19,7 @@ class SemanticConfigTests(unittest.TestCase):
         self.assertEqual(cfg.model, "fastino/GLiNER2.5-Decide")
         self.assertEqual(cfg.python, ".venv/bin/python")
         self.assertEqual(cfg.timeout_ms, 20000)
-        self.assertAlmostEqual(cfg.confidence_threshold, 0.45)
+        self.assertAlmostEqual(cfg.confidence_threshold, 0.60)
 
     def test_disabled_override(self):
         with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as tmp:

@@ -32,7 +32,7 @@ class AnalyzeTaskTests(unittest.TestCase):
         )
         execution = output["execution"]
         self.assertEqual(execution["AGENT"], "pi")
-        self.assertEqual(execution["MODEL"], "qwen3.8-27b")
+        self.assertEqual(execution["MODEL"], "local/qwen3.8-27b")
         self.assertIn("RISK", execution)
         self.assertIn("REASON", execution)
         self.assertIn("FALLBACK", execution)
@@ -50,7 +50,7 @@ class AnalyzeTaskTests(unittest.TestCase):
             )
         execution = output["execution"]
         self.assertEqual(execution["AGENT"], "pi")
-        self.assertEqual(execution["MODEL"], "glm-5.2")
+        self.assertEqual(execution["MODEL"], "opencode-go/glm-5.2")
         self.assertEqual(output["explanation"]["selected_route"], "GLM")
         self.assertEqual(output["explanation"]["analysis_source"], "sensor")
         self.assertEqual(output["decision"]["rule_id"], "R-SENSOR")

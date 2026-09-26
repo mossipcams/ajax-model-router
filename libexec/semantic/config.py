@@ -41,5 +41,5 @@ def load_semantic_config(path: str | Path | None = None) -> SemanticConfig:
         model=str(section.get("model", DEFAULT_MODEL)),
         python=str(section.get("python", DEFAULT_PYTHON)),
         timeout_ms=int(section.get("timeout_ms", 20000)),
-        confidence_threshold=float(section.get("confidence_threshold", 0.45)),
+        confidence_threshold=float(section.get("confidence_threshold", 0.60)),
     )

@@ -12,6 +12,7 @@ from semantic.facts import RoutingFacts  # noqa: E402
 from semantic.policy import (  # noqa: E402
     MODEL_KEY_BY_ID,
     eligible_routes,
+    fallback_chain,
     has_hard_override,
     select_route,
 )
@@ -188,6 +189,30 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertEqual(MODEL_KEY_BY_ID["minimax-m3"], "MINIMAX")
         self.assertEqual(MODEL_KEY_BY_ID["glm-5.2"], "GLM")
         self.assertEqual(MODEL_KEY_BY_ID["claude-opus-5-5"], "OPUS")
+
+
+class FallbackChainTests(unittest.TestCase):
+    def test_fallback_is_never_the_selected_route(self):
+        for route in ALL_ROUTES:
+            chain = fallback_chain(route, ALL_ROUTES)
+            self.assertNotIn(route, chain)
+            if route != "MINIMAX":
+                self.assertNotIn("MINIMAX", chain)
+
+    def test_chain_prefers_stronger_routes_then_wraps(self):
+        self.assertEqual(fallback_chain("CURSOR", ALL_ROUTES), ("GLM", "CODEX", "OPUS", "QWEN"))
+        self.assertEqual(fallback_chain("CODEX", ALL_ROUTES), ("OPUS", "QWEN", "CURSOR", "GLM"))
+
+    def test_chain_skips_unavailable_routes(self):
+        self.assertEqual(
+            fallback_chain("CURSOR", ("QWEN", "CURSOR", "CODEX")), ("CODEX", "QWEN")
+        )
+
+    def test_decision_exposes_chain_and_next_fallback(self):
+        decision = select_route(RoutingFacts(user_request="add feature"))
+        self.assertTrue(decision.fallback_chain)
+        self.assertEqual(decision.fallback, decision.fallback_chain[0])
+        self.assertNotEqual(decision.fallback, decision.model_key)
 
 
 if __name__ == "__main__":

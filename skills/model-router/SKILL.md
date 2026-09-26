@@ -47,12 +47,12 @@ Do not reroute between artificial lifecycle stages. Reroute only when:
 | Role | Owns |
 |---|---|
 | **Router** | Classification; executor and model; risk; scope; verification expectation; fallback |
-| **Delegate** | Investigation inside scope; implementation; test selection; verification; user-requested commits, pushes, and `gh pr create` |
+| **Delegate** | Investigation inside scope; implementation; test selection; verification; user-requested commits, pushes, and PR creation |
 | **Parent** | Planning; routing; acceptance; proportional review; retry, rejection, or escalation |
 
 The parent writes the plan when required. The parent (orchestrator) never
 performs implementation: no product or docs writes, no commits, pushes, merges,
-rebases, branch creation, branch switches, or `gh pr create`. Route
+rebases, branch creation, branch switches, or PR creation. Route
 (`EXECUTION`), review the delta, and accept.
 
 Before dispatch, the parent must not Grep, Read, or search the repository to
@@ -71,9 +71,9 @@ the decision copies the corresponding exact ID into `MODEL`.
 |---|---|---|---|---|---:|---:|
 | `CODEX` | `gpt-6-astra` | `codex` | — | — | — | — |
 | `CURSOR` | `composer-2.5` | `cursor` | — | — | — | — |
-| `MINIMAX` | `minimax-m3` | `pi` | — | — | — | — |
-| `QWEN` | `qwen3.8-27b` | `pi` | `local` | `http://127.0.0.1:18000/v1` | 65536 | 4096 |
-| `GLM` | `glm-5.2` | `pi` | — | — | — | — |
+| `MINIMAX` | `opencode-go/minimax-m3` | `pi` | — | — | — | — |
+| `QWEN` | `local/qwen3.8-27b` | `pi` | `local` | `http://127.0.0.1:18000/v1` | 131072 | 8192 |
+| `GLM` | `opencode-go/glm-5.2` | `pi` | — | — | — | — |
 | `OPUS` | `claude-opus-5-5` | `cursor` | — | — | — | — |
 
 ## Execution Decision
@@ -103,13 +103,15 @@ acceptance — not for writing the change when a delegate can do it.
 - All implementation — including user-requested commits and pull requests —
   runs through the selected delegate.
 - When the user asks to create a PR, the delegate runs the repository's local
-  verification gate, commits if needed, pushes, and runs `gh pr create`. The
+  verification gate, commits if needed, pushes, and opens the PR with the
+  repository's documented PR command (for example `scripts/gh-pr-create`); raw
+  `gh pr create` only when the repository documents none. The
   parent reports the PR URL after reviewing the delta. Still no merge, rebase,
   force-push, or branch switch unless the user explicitly asked.
 - Never create worktrees or new branches without explicit user authority.
 - Delegates must not commit, push, merge, rebase, create branches, or switch
   branches unless the user explicitly requested that behavior (a PR request
-  implies commit, push, and `gh pr create`).
+  implies commit, push, and opening the PR).
 - Edit only paths inside `SCOPE`. Expanding scope requires a new `EXECUTION`.
 - Empty diff plus a success claim is failure.
 - Stop after two failed execute rounds (bounded retry).
@@ -152,7 +154,20 @@ is backend, PTY, frontend, multi-file, or under `ajax-web`.
 
 If the selected tool is unavailable, reroute once via `FALLBACK` to the next
 matching agent; never retry the same unavailable tool. `STOP` only when no
-agent remains.
+agent remains. `FALLBACK` is never the selected route itself: `analyze-task`
+emits it plus `FALLBACK_CHAIN` (every other eligible route as `agent/model`,
+stronger routes first; MiniMax only when MiniMax was selected). Pass the chain
+as context `fallback_chain` and `run-transaction` walks it automatically when a
+delegate is unavailable (quota, plan, auth, rate limit, missing CLI;
+`TOOL_UNAVAILABLE` / `MISSING_TOOL`) and left the tree untouched. Each skipped
+attempt is recorded in `artifacts.fallback_attempts`.
+
+Route health: dispatch results land in `~/.ajax-router/route-health.json`
+(15-minute TTL). `analyze-task` treats routes that failed recently as
+unavailable, so routing skips them; it never probes. Some adapters (pi) swallow
+provider errors and just end the turn, so a `FAILED` round that left the tree
+untouched is confirmed with a one-line probe of that route before falling back.
+`scripts/check-routes` probes every registry route on demand.
 
 ### Risk
 
@@ -184,8 +199,11 @@ You are already the selected implementation worker. Implement in-process.
 Never spawn native Cursor Task, best-of-n, or any other subagent.
 Never merge, rebase, force-push, or switch branches.
 If the user explicitly requested a commit or pull request, you may create a
-branch when needed, commit, push, and run `gh pr create` after the repository's
-local verification gate. Otherwise never commit, push, or create branches.
+branch when needed, commit, push, and open the PR after the repository's local
+verification gate. Open it with the repository's documented PR command (for
+example `scripts/gh-pr-create` when its AGENTS.md or docs require it); use raw
+`gh pr create` only when the repository documents none. Otherwise never commit,
+push, or create branches.
 
 Implement the requested outcome.
 Allowed scope:
@@ -248,7 +266,8 @@ Kept because removing them causes concrete failures:
 ```bash
 SNAP="$(mktemp -d)"
 # context.json: task_id, agent, model, risk, allowed_files, acceptance,
-# verify, fallback, working_directory, snapshot_directory, user_request
+# verify, fallback, fallback_chain, working_directory, snapshot_directory,
+# user_request, instructions, revision_findings
 scripts/run-transaction --context context.json --until-stage after_execute
 # parent review (risk-proportional) over delta.json / delta.patch
 # on DISCARD:
@@ -258,6 +277,13 @@ scripts/run-transaction --context context.json \
   --from-stage log_outcome --until-stage log_outcome \
   --gate-result ACCEPT
 ```
+
+`before_execute` builds `run/prompt.txt` from the Dispatch wrapper plus
+`allowed_files`, `acceptance`, `user_request`, `instructions` (verbatim, under
+"Additional instructions"), `revision_findings` (labelled revision findings,
+for `REVISE` rounds), and `verify`. Nothing else reaches the delegate; a
+top-level `prompt`, `prompt_path`, or `prompt_file` is rejected. Check
+`run/prompt.txt` before `execute` when constraints matter.
 
 Manual snapshot equivalents remain valid for recovery:
 

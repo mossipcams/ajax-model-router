@@ -13,6 +13,7 @@ from io import StringIO
 from pathlib import Path
 
 import lifecycle_context as ctxlib
+import route_health
 import router_state
 from subagent_status import is_subagent_status_line
 
@@ -23,7 +24,7 @@ Current directory is the task worktree.
 You are already the selected implementation worker. Implement in-process.
 Never spawn native Cursor Task, best-of-n, or any other subagent.
 Never merge, rebase, force-push, or switch branches.
-If the user explicitly requested a commit or pull request, you may create a branch when needed, commit, push, and run `gh pr create` after the repository's local verification gate. Otherwise never commit, push, or create branches.
+If the user explicitly requested a commit or pull request, you may create a branch when needed, commit, push, and open the PR after the repository's local verification gate. Open it with the repository's documented PR command (for example `scripts/gh-pr-create` when its AGENTS.md or docs require it); use raw `gh pr create` only when the repository documents none. Otherwise never commit, push, or create branches.
 
 Implement the requested outcome.
 Allowed scope:
@@ -131,6 +132,16 @@ def before_execute(ctx):
     request = (ctx.get("user_request") or "").strip()
     if request:
         prompt += f"Requested outcome:\n{request}\n\n"
+    instructions = (ctx.get("instructions") or "").strip()
+    if instructions:
+        prompt += f"Additional instructions:\n{instructions}\n\n"
+    if ctx.get("revision_findings"):
+        prompt += (
+            "Revision findings (the previous round was rejected; the worktree still "
+            "holds its edits; fix every finding):\n"
+            + _bullet_lines(ctx["revision_findings"])
+            + "\n"
+        )
     if ctx.get("verify"):
         prompt += "Verification expectation:\n" + _bullet_lines(ctx["verify"]) + "\n"
 
@@ -195,7 +206,101 @@ def _task_label(ctx):
     return ctx["task_id"]
 
 
+# Report concern types meaning the tool never got to work (quota, auth, missing CLI).
+UNAVAILABLE_TYPES = frozenset({"TOOL_UNAVAILABLE", "MISSING_TOOL"})
+
+
+def _unavailable_reason(ctx):
+    report = Path(ctx["artifacts"].get("report_path") or "")
+    text = report.read_text() if report.is_file() else ""
+    match = re.search(r"^\s*-\s*TYPE:\s*(\S+)", text, re.MULTILINE)
+    if "STATUS: FAILED" in text and match and match.group(1) in UNAVAILABLE_TYPES:
+        return match.group(1)
+    return ""
+
+
+def _worktree_changed(ctx):
+    """True when the working tree differs from the pre-execute snapshot."""
+    snapshot_dir = Path(ctx["snapshot_directory"])
+
+    def capture_probe():
+        router_state.capture(snapshot_dir, "probe", quiet=True)
+
+    _with_cwd(ctx["working_directory"], capture_probe)
+    pre = router_state.load_manifest(snapshot_dir, "pre")["files"]
+    probe = router_state.load_manifest(snapshot_dir, "probe")["files"]
+    return bool(router_state.classify(pre, probe)[-1])
+
+
+def _parse_route(entry):
+    agent, _, model = entry.partition("/")
+    agent, model = agent.strip().lower(), model.strip()
+    if agent not in ("cursor", "codex", "pi") or not model:
+        raise HookError(f"fallback_chain entries must be agent/model, got {entry!r}")
+    return agent, model
+
+
+def _report_status(ctx):
+    report = Path(ctx["artifacts"].get("report_path") or "")
+    text = report.read_text() if report.is_file() else ""
+    match = re.search(r"STATUS:\s*(\w+)", text)
+    return match.group(1) if match else ""
+
+
 def execute(ctx):
+    """Dispatch; on an unavailable tool with an untouched tree, walk fallback_chain.
+
+    Results feed the route-health cache so routing skips known-dead routes. Some
+    adapters (pi) swallow provider errors and just end the turn, so a failure
+    that left the tree untouched is confirmed with a probe before falling back.
+    """
+    while True:
+        _execute_once(ctx)
+        route = f"{ctx['agent']}/{ctx['model']}"
+        status = _report_status(ctx)
+        if status == "COMPLETE":
+            route_health.record(route, True, "dispatch completed")
+            break
+        if status != "FAILED":
+            break
+        reason = _unavailable_reason(ctx)
+        changed = _worktree_changed(ctx)
+        if not reason and not changed:
+            healthy, detail = route_health.probe(route)
+            if not healthy:
+                reason = "TOOL_UNAVAILABLE"
+                sys.stderr.write(f"[ajax-router] {route} probe failed: {detail}\n")
+        if reason:
+            route_health.record(route, False, reason)
+        down = route_health.unavailable()
+        while ctx.get("fallback_chain") and ctx["fallback_chain"][0] in down:
+            skipped = ctx["fallback_chain"].pop(0)
+            sys.stderr.write(f"[ajax-router] skipping {skipped}: recently unavailable\n")
+        if not reason or not ctx.get("fallback_chain") or changed:
+            break
+        agent, model = _parse_route(ctx["fallback_chain"].pop(0))
+        run = _run_dir(ctx)
+        attempt = len(ctx["artifacts"]["fallback_attempts"])
+        kept = {}
+        for name in ("raw_log", "debug_log", "report_path"):
+            path = Path(ctx["artifacts"].get(name) or "")
+            if path.is_file():
+                target = run / f"attempt-{attempt}-{ctx['agent']}-{path.name}"
+                path.replace(target)
+                kept[name] = str(target)
+        ctx["artifacts"]["fallback_attempts"].append(
+            {"agent": ctx["agent"], "model": ctx["model"], "reason": reason, **kept}
+        )
+        sys.stderr.write(
+            f"[ajax-router] {ctx['agent']}/{ctx['model']} unavailable ({reason}); "
+            f"falling back to {agent}/{model}\n"
+        )
+        ctx["agent"], ctx["model"], ctx["tool"] = agent, model, agent
+    ctx["status"] = "EXECUTED"
+    return ctx
+
+
+def _execute_once(ctx):
     run = _run_dir(ctx)
     prompt_path = Path(ctx["artifacts"]["prompt_path"])
     if not prompt_path.is_file():
@@ -282,8 +387,6 @@ def execute(ctx):
             f"delegate transport failed ({result.returncode}): "
             f"{(result.stderr or result.stdout or '').strip()[:500]}"
         )
-    ctx["status"] = "EXECUTED"
-    return ctx
 
 
 def _parse_report_compact(report_text):

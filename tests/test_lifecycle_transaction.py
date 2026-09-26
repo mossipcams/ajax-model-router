@@ -32,6 +32,18 @@ def run(*args, cwd=None, check=True, env=None):
 
 
 class LifecycleTransactionTests(unittest.TestCase):
+    def setUp(self):
+        # Never read/write the real route-health cache or run real probe CLIs.
+        cache_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(cache_dir.cleanup)
+        self.health_cache = Path(cache_dir.name) / "route-health.json"
+        patcher = mock.patch.dict("os.environ", {"AJAX_ROUTER_HEALTH_CACHE": str(self.health_cache)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        probe = mock.patch("route_health.probe", return_value=(True, "ok"))
+        self.probe = probe.start()
+        self.addCleanup(probe.stop)
+
     def make_repo(self, tmp):
         repo = Path(tmp) / "repo"
         repo.mkdir()
@@ -413,6 +425,159 @@ class LifecycleTransactionTests(unittest.TestCase):
             task_index = command.index("--task")
             self.assertEqual(command[task_index + 1], "chip-abc")
             self.assertNotIn("very long user request", command[task_index + 1])
+
+
+    def test_prompt_includes_instructions_and_revision_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            data = self.base_context(
+                repo,
+                snap,
+                instructions="Keep the public name VALUE.",
+                revision_findings=["Round 1 renamed VALUE; restore it."],
+            )
+            ctx = hooks.before_execute(ctxlib.validate_context(data))
+            prompt = Path(ctx["artifacts"]["prompt_path"]).read_text()
+            self.assertIn("Additional instructions:\nKeep the public name VALUE.", prompt)
+            self.assertIn("Revision findings", prompt)
+            self.assertIn("- Round 1 renamed VALUE; restore it.", prompt)
+
+    def test_context_rejects_caller_prompt_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            for field in ("prompt", "prompt_path", "prompt_file"):
+                data = self.base_context(repo, snap, **{field: "/tmp/detailed.md"})
+                with self.assertRaisesRegex(ctxlib.ContextError, field):
+                    ctxlib.validate_context(data)
+
+    def test_prompt_defers_to_repository_pr_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            ctx = hooks.before_execute(ctxlib.validate_context(self.base_context(repo, snap)))
+            prompt = Path(ctx["artifacts"]["prompt_path"]).read_text()
+            self.assertIn("repository's documented PR command", prompt)
+            self.assertIn("scripts/gh-pr-create", prompt)
+            self.assertNotIn("push, and run `gh pr create` after", prompt)
+
+    def _fake_attempts(self, outcomes, touch=None):
+        """Return an _execute_once stand-in writing one report per call."""
+        calls = []
+
+        def fake(ctx):
+            status, concern = outcomes[len(calls)]
+            calls.append((ctx["agent"], ctx["model"]))
+            if touch:
+                touch()
+            run_dir = Path(ctx["snapshot_directory"]) / "run"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            report = run_dir / "report.yaml"
+            report.write_text(
+                f"DELEGATE_REPORT:\n  STATUS: {status}\n  CHANGED_FILES: []\n"
+                f"  VERIFICATION: []\n  CONCERNS:\n    - TYPE: {concern}\n"
+            )
+            ctx["artifacts"]["report_path"] = str(report)
+
+        return fake, calls
+
+    def test_execute_walks_fallback_chain_when_tool_unavailable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            data = self.base_context(
+                repo, snap, fallback_chain=["codex/model-b", "cursor/model-c"]
+            )
+            ctx = hooks.snapshot(hooks.before_execute(ctxlib.validate_context(data)))
+            fake, calls = self._fake_attempts(
+                [("FAILED", "TOOL_UNAVAILABLE"), ("FAILED", "MISSING_TOOL"), ("COMPLETE", "NONE")]
+            )
+            with mock.patch("lifecycle_hooks._execute_once", side_effect=fake):
+                with mock.patch("sys.stderr", StringIO()):
+                    ctx = hooks.execute(ctx)
+            self.assertEqual(
+                calls, [("pi", "test-model"), ("codex", "model-b"), ("cursor", "model-c")]
+            )
+            self.assertEqual((ctx["agent"], ctx["model"], ctx["tool"]), ("cursor", "model-c", "cursor"))
+            self.assertEqual(ctx["requested_agent"], "pi")
+            attempts = ctx["artifacts"]["fallback_attempts"]
+            self.assertEqual([a["reason"] for a in attempts], ["TOOL_UNAVAILABLE", "MISSING_TOOL"])
+            self.assertTrue(Path(attempts[0]["report_path"]).is_file())
+            self.assertEqual(ctx["fallback_chain"], [])
+
+    def test_execute_does_not_fall_back_after_tree_changed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            data = self.base_context(repo, snap, fallback_chain=["codex/model-b"])
+            ctx = hooks.snapshot(hooks.before_execute(ctxlib.validate_context(data)))
+            fake, calls = self._fake_attempts(
+                [("FAILED", "TOOL_UNAVAILABLE")],
+                touch=lambda: (repo / "src" / "example.py").write_text("VALUE = 9\n"),
+            )
+            with mock.patch("lifecycle_hooks._execute_once", side_effect=fake):
+                ctx = hooks.execute(ctx)
+            self.assertEqual(calls, [("pi", "test-model")])
+            self.assertEqual(ctx["artifacts"]["fallback_attempts"], [])
+            self.assertEqual(ctx["fallback_chain"], ["codex/model-b"])
+
+    def test_execute_does_not_fall_back_on_ordinary_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            data = self.base_context(repo, snap, fallback_chain=["codex/model-b"])
+            ctx = hooks.snapshot(hooks.before_execute(ctxlib.validate_context(data)))
+            fake, calls = self._fake_attempts([("FAILED", "MISSING_STRUCTURED_REPORT")])
+            with mock.patch("lifecycle_hooks._execute_once", side_effect=fake):
+                ctx = hooks.execute(ctx)
+            self.assertEqual(calls, [("pi", "test-model")])
+
+
+    def test_silent_failure_probed_and_falls_back_when_route_down(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            data = self.base_context(repo, snap, fallback_chain=["codex/model-b"])
+            ctx = hooks.snapshot(hooks.before_execute(ctxlib.validate_context(data)))
+            self.probe.return_value = (False, "429 usage limit")
+            fake, calls = self._fake_attempts(
+                [("FAILED", "MISSING_STRUCTURED_REPORT"), ("COMPLETE", "NONE")]
+            )
+            with mock.patch("lifecycle_hooks._execute_once", side_effect=fake):
+                with mock.patch("sys.stderr", StringIO()):
+                    ctx = hooks.execute(ctx)
+            self.assertEqual(calls, [("pi", "test-model"), ("codex", "model-b")])
+            self.probe.assert_called_once_with("pi/test-model")
+            cache = json.loads(self.health_cache.read_text())
+            self.assertFalse(cache["pi/test-model"]["ok"])
+            self.assertTrue(cache["codex/model-b"]["ok"])
+
+    def test_fallback_skips_routes_recently_marked_down(self):
+        import route_health
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            route_health.record("codex/model-b", False, "401")
+            data = self.base_context(
+                repo, snap, fallback_chain=["codex/model-b", "cursor/model-c"]
+            )
+            ctx = hooks.snapshot(hooks.before_execute(ctxlib.validate_context(data)))
+            fake, calls = self._fake_attempts(
+                [("FAILED", "TOOL_UNAVAILABLE"), ("COMPLETE", "NONE")]
+            )
+            with mock.patch("lifecycle_hooks._execute_once", side_effect=fake):
+                with mock.patch("sys.stderr", StringIO()):
+                    ctx = hooks.execute(ctx)
+            self.assertEqual(calls, [("pi", "test-model"), ("cursor", "model-c")])
 
 
 if __name__ == "__main__":

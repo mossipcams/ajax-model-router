@@ -31,6 +31,9 @@ REQUIRED_FIELDS = (
     "snapshot_directory",
 )
 
+# Top-level prompt overrides that the prompt builder never reads.
+UNSUPPORTED_PROMPT_FIELDS = ("prompt", "prompt_path", "prompt_file")
+
 EVIDENCE_NAME = "evidence.json"
 CONTEXT_STATE_NAME = "context.json"
 
@@ -108,6 +111,7 @@ def empty_artifacts():
         "delta_patch": "",
         "token_usage": "UNKNOWN",
         "provider_metadata": {},
+        "fallback_attempts": [],
     }
 
 
@@ -171,10 +175,24 @@ def validate_context(data):
         if key in data and data[key] is not None:
             ctx[key] = _require_str(data[key], key)
 
-    if "verify" in data and data["verify"] is not None:
-        ctx["verify"] = _require_str_list(data["verify"], "verify")
+    # The dispatch prompt is built only from these fields; a caller-supplied prompt
+    # file would otherwise be silently ignored, so reject it outright.
+    for key in UNSUPPORTED_PROMPT_FIELDS:
+        if key in data:
+            raise ContextError(
+                f"{key} is not supported; put caller instructions in `instructions` "
+                "and REVISE findings in `revision_findings`"
+            )
+    if data.get("instructions") is not None:
+        ctx["instructions"] = _require_str(data["instructions"], "instructions")
+    for key in ("verify", "revision_findings", "fallback_chain"):
+        if key in data and data[key] is not None:
+            ctx[key] = _require_str_list(data[key], key)
 
     ctx.setdefault("verify", [])
+    ctx.setdefault("instructions", "")
+    ctx.setdefault("revision_findings", [])
+    ctx.setdefault("fallback_chain", [])
     ctx.setdefault("user_request", "")
     ctx.setdefault("fallback", "STOP")
     ctx.setdefault("tool", ctx["agent"] if ctx["agent"] != "parent" else "")

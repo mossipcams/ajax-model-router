@@ -29,6 +29,7 @@ from semantic.context import (
 from semantic.explain import build_execution_block, build_explanation
 from semantic.facts import RoutingFacts, collect_facts
 from semantic.policy import (
+    REGISTRY,
     RoutingDecision,
     eligible_routes,
     has_hard_override,
@@ -140,10 +141,21 @@ def run_analyze_task(
     }
 
 
+def _known_down_routes() -> set[str]:
+    """Registry keys whose route recently failed (route-health cache, no probing)."""
+    import route_health
+
+    down = route_health.unavailable()
+    return {key for key, pair in REGISTRY.items() if "/".join(pair) in down}
+
+
 def analyze_task_main(argv=None) -> int:
     """CLI entry: facts → eligibility → optional sensor → policy → JSON output."""
     args = _parse_cli_args(argv)
     payload = _load_cli_payload(args)
+    payload["unavailable_routes"] = sorted(
+        set(payload.get("unavailable_routes") or []) | _known_down_routes()
+    )
     output = run_analyze_task(payload)
     indent = 2 if args.pretty else None
     print(json.dumps(output, indent=indent, sort_keys=True))
