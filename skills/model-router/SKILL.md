@@ -121,7 +121,8 @@ acceptance — not for writing the change when a delegate can do it.
 Follow the first matching rule. Copy a selected registry value into `MODEL`.
 
 **Required for bounded implementation routes:** before emitting `EXECUTION`, run
-`scripts/analyze-task` with the task payload (stdin JSON or `--input`). Copy
+`scripts/analyze-task --execution` with the task payload (stdin JSON or
+`--input`); it prints only the execution block. Copy
 `AGENT`, `MODEL`, `RISK`, `REASON`, and `FALLBACK` from `output.execution` —
 deterministic policy selects the executor and registry model; never copy model
 choices from raw sensor fields. When present, also copy `SCOPE` and `VERIFY`
@@ -173,45 +174,46 @@ work. Do not apply high-risk ceremony to routine changes.
 Replace detailed implementation packets with this outcome-based prompt. The
 parent owns planning and routing only — no pre-dispatch repo exploration. The
 delegate owns investigation, edit selection, test selection, and verification.
-Every dispatch is stateless: the parent assembles the full prompt for initial
+Empty sections are omitted. Every dispatch is stateless: the parent assembles the full prompt for initial
 work and for every revision; delegates run one-shot `acpx exec` with no saved
 sessions.
 
 ```text
-You are a bounded implementation worker for a parent agent.
-Current directory is the task worktree.
 You are already the selected implementation worker. Implement in-process.
 Never spawn native Cursor Task, best-of-n, or any other subagent.
-Never merge, rebase, force-push, or switch branches.
-If the user explicitly requested a commit or pull request, you may create a
-branch when needed, commit, push, and run `gh pr create` after the repository's
-local verification gate. Otherwise never commit, push, or create branches.
+Never merge, rebase, force-push, or switch branches. Commit, push, branch, or run `gh pr create` only if the user explicitly asked, after the local verification gate.
 
 Implement the requested outcome.
-Allowed scope:
+
+Task:
+<user request>
+
+Scope (edit only these):
 - <paths or subsystem>
-Acceptance criteria:
+
+Acceptance:
 - <required behavior>
+
+Verify with:
+- <VERIFY from EXECUTION>
+
 Investigate the repository as needed.
 Choose the implementation approach.
 Run appropriate verification.
-Return changed files, verification results, and remaining concerns.
 Stop if completing the task requires expanding beyond the allowed scope.
 
-Return exactly this report between marker lines:
+End with only this report:
 ROUTER_REPORT_BEGIN
 DELEGATE_REPORT:
   STATUS: COMPLETE | BLOCKED | FAILED
   CHANGED_FILES: [<paths>]
   VERIFICATION:
-    - TYPE: test | existing_test | build | typecheck | lint | static_analysis | integration | browser | manual | other
+    - TYPE: test | build | lint | typecheck | integration | manual | other
       COMMAND: <command or NONE>
       RESULT: pass | fail | skipped | blocked
-      DETAILS: <short result note>
+      DETAILS: <short>
   CONCERNS: []
 ROUTER_REPORT_END
-
-<outcome / acceptance / scope from EXECUTION>
 ```
 
 A success claim without verification entries is failure. Failed verification

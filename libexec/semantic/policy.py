@@ -23,6 +23,26 @@ REGISTRY: dict[str, tuple[str, str]] = {
     "OPUS": ("cursor", "claude-opus-5-5"),
 }
 
+# Next-best executors per route (SKILL: MINIMAX revises on GLM, QWEN falls to CURSOR).
+FALLBACK_CHAIN: dict[str, tuple[str, ...]] = {
+    "MINIMAX": ("GLM", "CURSOR"),
+    "QWEN": ("CURSOR", "CODEX"),
+    "CURSOR": ("QWEN", "CODEX"),
+    "GLM": ("OPUS", "CODEX"),
+    "CODEX": ("OPUS",),
+    "OPUS": ("CODEX",),
+}
+
+
+def fallback_for(key: str, unavailable=()) -> str:
+    """`agent/model` of the first usable fallback route, else STOP."""
+    for alt in FALLBACK_CHAIN.get(key, ()):
+        if alt not in unavailable:
+            agent, model_id = REGISTRY[alt]
+            return f"{agent}/{model_id}"
+    return "STOP"
+
+
 # Canonical route order (cheap → strongest), used for tie-breaking and logs.
 ROUTE_ORDER: tuple[str, ...] = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS")
 
@@ -147,7 +167,7 @@ def _decision(
         risk=_risk_level(facts),
         rule_id=rule_id,
         reason=reason,
-        fallback=key,
+        fallback=fallback_for(key, facts.unavailable_routes),
         sensor_used=sensor is not None,
         sensor_confidence=sensor.confidence if sensor else None,
         eligible_routes=eligible if eligible is not None else eligible_routes(facts),

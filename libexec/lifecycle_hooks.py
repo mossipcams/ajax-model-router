@@ -18,37 +18,30 @@ from subagent_status import is_subagent_status_line
 
 ROOT = Path(__file__).resolve().parents[1]
 
-DISPATCH_WRAPPER = """You are a bounded implementation worker for a parent agent.
-Current directory is the task worktree.
-You are already the selected implementation worker. Implement in-process.
+PROMPT_HEAD = """You are already the selected implementation worker. Implement in-process.
 Never spawn native Cursor Task, best-of-n, or any other subagent.
-Never merge, rebase, force-push, or switch branches.
-If the user explicitly requested a commit or pull request, you may create a branch when needed, commit, push, and run `gh pr create` after the repository's local verification gate. Otherwise never commit, push, or create branches.
+Never merge, rebase, force-push, or switch branches. Commit, push, branch, or run `gh pr create` only if the user explicitly asked, after the local verification gate.
 
 Implement the requested outcome.
-Allowed scope:
-{scope}
-Acceptance criteria:
-{acceptance}
-Investigate the repository as needed.
+"""
+
+PROMPT_TAIL = """Investigate the repository as needed.
 Choose the implementation approach.
 Run appropriate verification.
-Return changed files, verification results, and remaining concerns.
 Stop if completing the task requires expanding beyond the allowed scope.
 
-Return exactly this report between marker lines:
+End with only this report:
 ROUTER_REPORT_BEGIN
 DELEGATE_REPORT:
   STATUS: COMPLETE | BLOCKED | FAILED
   CHANGED_FILES: [<paths>]
   VERIFICATION:
-    - TYPE: test | existing_test | build | typecheck | lint | static_analysis | integration | browser | manual | other
+    - TYPE: test | build | lint | typecheck | integration | manual | other
       COMMAND: <command or NONE>
       RESULT: pass | fail | skipped | blocked
-      DETAILS: <short result note>
+      DETAILS: <short>
   CONCERNS: []
 ROUTER_REPORT_END
-
 """
 
 
@@ -92,6 +85,29 @@ def _bullet_lines(items):
     return "\n".join(f"- {item}" for item in items)
 
 
+def _clean(items):
+    """Strip, drop empties, dedupe while keeping order."""
+    return list(dict.fromkeys(i.strip() for i in items if i and i.strip()))
+
+
+def build_prompt(ctx):
+    """Compact delegate prompt: only non-empty sections, task before report."""
+    parts = [PROMPT_HEAD]
+    request = (ctx.get("user_request") or "").strip()
+    if request:
+        parts.append(f"Task:\n{request}\n")
+    for title, items in (
+        ("Scope (edit only these)", ctx["allowed_files"]),
+        ("Acceptance", ctx["acceptance"]),
+        ("Verify with", ctx.get("verify") or []),
+    ):
+        items = _clean(items)
+        if items:
+            parts.append(f"{title}:\n{_bullet_lines(items)}\n")
+    parts.append(PROMPT_TAIL)
+    return "\n".join(parts)
+
+
 def before_execute(ctx):
     """Normalize paths, prepare snapshot dir, reject unsafe context early."""
     working = Path(ctx["working_directory"])
@@ -124,15 +140,7 @@ def before_execute(ctx):
 
     # Build outcome prompt once; parent owns planning, delegate owns investigation.
     run = _run_dir(ctx)
-    prompt = DISPATCH_WRAPPER.format(
-        scope=_bullet_lines(ctx["allowed_files"]),
-        acceptance=_bullet_lines(ctx["acceptance"]),
-    )
-    request = (ctx.get("user_request") or "").strip()
-    if request:
-        prompt += f"Requested outcome:\n{request}\n\n"
-    if ctx.get("verify"):
-        prompt += "Verification expectation:\n" + _bullet_lines(ctx["verify"]) + "\n"
+    prompt = build_prompt(ctx)
 
     prompt_path = run / "prompt.txt"
     prompt_path.write_text(prompt)
