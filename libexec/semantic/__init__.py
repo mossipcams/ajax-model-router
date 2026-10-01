@@ -66,6 +66,11 @@ __all__ = [
 def _parse_cli_args(argv=None):
     parser = argparse.ArgumentParser(description="Semantic task analysis and routing.")
     parser.add_argument("--input", type=Path, help="JSON input file (default: stdin)")
+    parser.add_argument(
+        "--execution",
+        action="store_true",
+        help="Print only the EXECUTION block (what the parent copies)",
+    )
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
     return parser.parse_args(argv)
 
@@ -107,7 +112,7 @@ def run_analyze_task(
         analysis_source = "skipped_single_eligible"
     else:
         task_input = TaskAnalysisInput(
-            user_request=facts.user_request or str(payload.get("task") or ""),
+            user_request=facts.user_request,
             facts=facts,
             eligible_routes=eligible,
         )
@@ -157,6 +162,8 @@ def analyze_task_main(argv=None) -> int:
         set(payload.get("unavailable_routes") or []) | _known_down_routes()
     )
     output = run_analyze_task(payload)
+    if args.execution:
+        output = output["execution"]
     indent = 2 if args.pretty else None
     print(json.dumps(output, indent=indent, sort_keys=True))
     return 0

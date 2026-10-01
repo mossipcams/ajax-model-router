@@ -80,8 +80,6 @@ def derive_execution_verify(
     verify: list[str] = []
     if facts.test_command:
         verify.append(facts.test_command)
-    elif context.related_tests:
-        verify.append("Run related unit or integration tests")
     if facts.file_extensions and set(facts.file_extensions) & _FRONTEND_EXTENSIONS:
         verify.append("Browser or visual validation of UI changes")
     return verify
