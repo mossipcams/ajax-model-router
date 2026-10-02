@@ -32,7 +32,7 @@ class AnalyzeTaskTests(unittest.TestCase):
         )
         execution = output["execution"]
         self.assertEqual(execution["AGENT"], "pi")
-        self.assertEqual(execution["MODEL"], "local/qwen3.8-27b")
+        self.assertEqual(execution["MODEL"], "local/swift")
         self.assertIn("RISK", execution)
         self.assertIn("REASON", execution)
         self.assertIn("FALLBACK", execution)

@@ -19,7 +19,7 @@ REGISTRY: dict[str, tuple[str, str]] = {
     "CURSOR": ("cursor", "composer-2.5"),
     # pi only accepts provider-qualified IDs (what its ACP agent advertises).
     "MINIMAX": ("pi", "opencode-go/minimax-m3"),
-    "QWEN": ("pi", "local/qwen3.8-27b"),
+    "QWEN": ("pi", "local/swift"),
     "GLM": ("pi", "opencode-go/glm-5.2"),
     "OPUS": ("cursor", "claude-opus-5-5"),
 }

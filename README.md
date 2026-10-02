@@ -92,7 +92,7 @@ first); hard overrides below always win over the sensor.
 
 | Scenario | Agent / model |
 |---|---|
-| Bounded implementation (default) | `pi` / `local/qwen3.8-27b` |
+| Bounded implementation (default) | `pi` / `local/swift` |
 | QWEN unavailable | `cursor` / `composer-2.5` |
 | Explicit user/model override | the requested model |
 | Explicit Codex ask | `codex` / `gpt-6-astra` |
