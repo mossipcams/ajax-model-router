@@ -72,7 +72,7 @@ the decision copies the corresponding exact ID into `MODEL`.
 | `CODEX` | `gpt-6-astra` | `codex` | — | — | — | — |
 | `CURSOR` | `composer-2.5` | `cursor` | — | — | — | — |
 | `MINIMAX` | `opencode-go/minimax-m3` | `pi` | — | — | — | — |
-| `QWEN` | `local/swift` | `pi` | `local` | `http://127.0.0.1:18000/v1` | 131072 | 8192 |
+| `QWEN` | `local/swift-1.5-qwen-3.8-27b` | `pi` | `local` | `http://127.0.0.1:18000/v1` | 131072 | 8192 |
 | `GLM` | `opencode-go/glm-5.2` | `pi` | — | — | — | — |
 | `OPUS` | `claude-opus-5-5` | `cursor` | — | — | — | — |
 

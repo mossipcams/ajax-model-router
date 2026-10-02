@@ -185,7 +185,7 @@ class RoutingPolicyTests(unittest.TestCase):
     def test_model_key_by_id_registry(self):
         self.assertEqual(MODEL_KEY_BY_ID["gpt-6-astra"], "CODEX")
         self.assertEqual(MODEL_KEY_BY_ID["composer-2.5"], "CURSOR")
-        self.assertEqual(MODEL_KEY_BY_ID["swift"], "QWEN")
+        self.assertEqual(MODEL_KEY_BY_ID["swift-1.5-qwen-3.8-27b"], "QWEN")
         self.assertEqual(MODEL_KEY_BY_ID["minimax-m3"], "MINIMAX")
         self.assertEqual(MODEL_KEY_BY_ID["glm-5.2"], "GLM")
         self.assertEqual(MODEL_KEY_BY_ID["claude-opus-5-5"], "OPUS")
