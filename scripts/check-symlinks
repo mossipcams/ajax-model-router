@@ -124,7 +124,8 @@ for skill in \
   "model-router" \
   "cursor-delegate" \
   "pi-delegate" \
-  "codex-delegate"
+  "codex-delegate" \
+  "claude-delegate"
 do
   check_one ".cursor" "$skill"
 done
@@ -133,7 +134,8 @@ for skill in \
   "model-router" \
   "cursor-delegate" \
   "pi-delegate" \
-  "codex-delegate"
+  "codex-delegate" \
+  "claude-delegate"
 do
   check_one ".codex" "$skill"
   check_one ".claude" "$skill"

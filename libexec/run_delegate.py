@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run router delegates through acpx (ACP client) for cursor, codex, and pi."""
+"""Run router delegates through acpx (ACP client) for cursor, codex, pi, and claude."""
 
 import argparse
 import os

@@ -148,7 +148,8 @@ for skill in \
   "model-router" \
   "cursor-delegate" \
   "pi-delegate" \
-  "codex-delegate"
+  "codex-delegate" \
+  "claude-delegate"
 do
   install_one ".cursor" "$skill"
 done
@@ -157,7 +158,8 @@ for skill in \
   "model-router" \
   "cursor-delegate" \
   "pi-delegate" \
-  "codex-delegate"
+  "codex-delegate" \
+  "claude-delegate"
 do
   install_one ".codex" "$skill"
   install_one ".claude" "$skill"

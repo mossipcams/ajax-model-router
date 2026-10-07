@@ -110,7 +110,7 @@ chain-of-thought, no raw task contents.
 
 ## Delegate transport
 
-All three delegates (`cursor`, `codex`, `pi`) dispatch through
+All four delegates (`cursor`, `codex`, `pi`, `claude`) dispatch through
 [acpx](https://github.com/openclaw/acpx) ACP (`npm install -g acpx@0.13.2`, Node
 22.13+). Pin that release and ensure `acpx` is on `PATH`; missing
 `acpx` is a hard stop with no fallback to harness-native CLIs. The runner
