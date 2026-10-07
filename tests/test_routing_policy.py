@@ -18,7 +18,7 @@ from semantic.policy import (  # noqa: E402
 )
 from semantic.schema import RouteDecision  # noqa: E402
 
-ALL_ROUTES = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS")
+ALL_ROUTES = ("MINIMAX", "QWEN", "HAIKU", "CURSOR", "GLM", "CODEX", "OPUS")
 
 
 def _sensor(route: str, confidence: float, **overrides) -> RouteDecision:
@@ -41,11 +41,11 @@ class RoutingPolicyTests(unittest.TestCase):
 
     def test_high_risk_removes_minimax(self):
         facts = RoutingFacts(user_request="fix auth token rotation")
-        self.assertEqual(eligible_routes(facts), ("QWEN", "CURSOR", "GLM", "CODEX", "OPUS"))
+        self.assertEqual(eligible_routes(facts), ("QWEN", "HAIKU", "CURSOR", "GLM", "CODEX", "OPUS"))
 
     def test_unavailable_routes_removed(self):
         facts = RoutingFacts(unavailable_routes=["MINIMAX", "GLM"])
-        self.assertEqual(eligible_routes(facts), ("QWEN", "CURSOR", "CODEX", "OPUS"))
+        self.assertEqual(eligible_routes(facts), ("QWEN", "HAIKU", "CURSOR", "CODEX", "OPUS"))
 
     def test_explicit_user_model_override(self):
         facts = RoutingFacts(explicit_model="glm-5.2")
@@ -159,8 +159,16 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertEqual(decision.model_key, "QWEN")
         self.assertEqual(decision.rule_id, "R-QWEN")
 
-    def test_cursor_is_default_when_qwen_unavailable(self):
+    def test_haiku_is_default_when_qwen_unavailable(self):
         facts = RoutingFacts(user_request="big refactor", unavailable_routes=["QWEN"])
+        decision = select_route(facts)
+        self.assertEqual(decision.model_key, "HAIKU")
+        self.assertEqual(decision.rule_id, "R-HAIKU")
+
+    def test_cursor_is_default_when_qwen_and_haiku_unavailable(self):
+        facts = RoutingFacts(
+            user_request="big refactor", unavailable_routes=["QWEN", "HAIKU"]
+        )
         decision = select_route(facts)
         self.assertEqual(decision.model_key, "CURSOR")
         self.assertEqual(decision.rule_id, "R-CURSOR")
@@ -200,8 +208,8 @@ class FallbackChainTests(unittest.TestCase):
                 self.assertNotIn("MINIMAX", chain)
 
     def test_chain_prefers_stronger_routes_then_wraps(self):
-        self.assertEqual(fallback_chain("CURSOR", ALL_ROUTES), ("GLM", "CODEX", "OPUS", "QWEN"))
-        self.assertEqual(fallback_chain("CODEX", ALL_ROUTES), ("OPUS", "QWEN", "CURSOR", "GLM"))
+        self.assertEqual(fallback_chain("CURSOR", ALL_ROUTES), ("GLM", "CODEX", "OPUS", "QWEN", "HAIKU"))
+        self.assertEqual(fallback_chain("CODEX", ALL_ROUTES), ("OPUS", "QWEN", "HAIKU", "CURSOR", "GLM"))
 
     def test_chain_skips_unavailable_routes(self):
         self.assertEqual(

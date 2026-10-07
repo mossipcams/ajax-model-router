@@ -58,7 +58,7 @@ forbid_text "$ROUTER" "R-SIZE-SPLIT" "removed size-split ceremony"
 forbid_text "$ROUTER" "GROK" "no Grok registry or route"
 forbid_text "$ROUTER" "grok" "no Grok model id"
 
-for key in CODEX CURSOR MINIMAX QWEN GLM OPUS; do
+for key in CODEX CURSOR MINIMAX QWEN GLM OPUS HAIKU; do
   model_id="$(awk -F'`' -v key="$key" '$2 == key {print $4; exit}' "$ROOT/$ROUTER")"
   if [[ -z "$model_id" ]]; then
     echo "missing: model registry key $key" >&2

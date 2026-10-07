@@ -69,6 +69,8 @@ def probe_command(agent: str, model: str) -> list[str]:
         return ["codex", "exec", "--skip-git-repo-check", "-m", model, PROBE_PROMPT]
     if agent == "cursor":
         return ["cursor-agent", "-p", "--trust", "--output-format", "text", "--model", model, PROBE_PROMPT]
+    if agent == "claude":
+        return ["claude", "-p", "--model", model, PROBE_PROMPT]
     raise ValueError(f"no probe for agent {agent!r}")
 
 

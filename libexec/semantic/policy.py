@@ -22,10 +22,11 @@ REGISTRY: dict[str, tuple[str, str]] = {
     "QWEN": ("pi", "local/swift-1.5-qwen-3.8-27b"),
     "GLM": ("pi", "opencode-go/glm-5.2"),
     "OPUS": ("cursor", "claude-opus-5-5"),
+    "HAIKU": ("claude", "claude-haiku-5-5"),
 }
 
 # Canonical route order (cheap → strongest), used for tie-breaking and logs.
-ROUTE_ORDER: tuple[str, ...] = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS")
+ROUTE_ORDER: tuple[str, ...] = ("MINIMAX", "QWEN", "HAIKU", "CURSOR", "GLM", "CODEX", "OPUS")
 
 # Bare IDs ("glm-5.2") stay valid for explicit user overrides.
 MODEL_KEY_BY_ID: dict[str, str] = {
@@ -140,11 +141,13 @@ def _bounded_trivial(facts: RoutingFacts) -> bool:
 def deterministic_default(
     facts: RoutingFacts, eligible: tuple[str, ...]
 ) -> tuple[str, str]:
-    """Deterministic default: bounded trivial → MINIMAX, else QWEN → CURSOR."""
+    """Deterministic default: bounded trivial → MINIMAX, else QWEN → HAIKU → CURSOR."""
     if "MINIMAX" in eligible and _bounded_trivial(facts):
         return "MINIMAX", "bounded trivial change within file/line limits"
     if "QWEN" in eligible:
         return "QWEN", "no exception matched; default implementation"
+    if "HAIKU" in eligible:
+        return "HAIKU", "QWEN unavailable; fallback implementation"
     if "CURSOR" in eligible:
         return "CURSOR", "QWEN unavailable; fallback implementation"
     if eligible:
@@ -294,6 +297,7 @@ def select_route(
     rule_id = {
         "MINIMAX": "R-MINIMAX",
         "QWEN": "R-QWEN",
+        "HAIKU": "R-HAIKU",
         "CURSOR": "R-CURSOR",
     }.get(route, "R-ELIGIBLE-FALLBACK")
     return _decision(

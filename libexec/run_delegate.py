@@ -28,7 +28,7 @@ from subagent_status import TERMINAL_STATES, SubagentStatusTracker, emit_ndjson
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROFILE_BY_TOOL = {"cursor": "cursor", "codex": "codex", "pi": "pi"}
+PROFILE_BY_TOOL = {"cursor": "cursor", "codex": "codex", "pi": "pi", "claude": "claude"}
 CURSOR_FILTER = ROOT / "libexec" / "cursor_acp_filter.py"
 
 

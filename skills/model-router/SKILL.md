@@ -75,6 +75,7 @@ the decision copies the corresponding exact ID into `MODEL`.
 | `QWEN` | `local/swift-1.5-qwen-3.8-27b` | `pi` | `local` | `http://127.0.0.1:18000/v1` | 131072 | 8192 |
 | `GLM` | `opencode-go/glm-5.2` | `pi` | — | — | — | — |
 | `OPUS` | `claude-opus-5-5` | `cursor` | — | — | — | — |
+| `HAIKU` | `claude-haiku-5-5` | `claude` | — | — | — | — |
 
 ## Execution Decision
 
@@ -83,7 +84,7 @@ fields rather than inventing placeholders.
 
 ```yaml
 EXECUTION:
-  AGENT: parent | cursor | codex | pi
+  AGENT: parent | cursor | codex | pi | claude
   MODEL: <exact ID from Model Registry or NONE>
   RISK: low | medium | high
   SCOPE:
@@ -145,11 +146,12 @@ planning with no implementation write).
 | `R-SENSOR` | No exception matched; the sensor names an eligible route at/above the confidence threshold | registry | sensor route key | Fuzzy lane among eligible routes |
 | `R-MINIMAX` | Routine docs, generated cleanup, exact replacements, or named boilerplate; at most 2 files and roughly 60 changed lines; no auth/security/data-loss concerns | `pi` | `MINIMAX` | Deterministic default |
 | `R-QWEN` | No exception matched; sensor unavailable, invalid, or low confidence | `pi` | `QWEN` | Default implementation |
-| `R-CURSOR` | QWEN unavailable | `cursor` | `CURSOR` | Fallback implementation |
+| `R-HAIKU` | QWEN unavailable | `claude` | `HAIKU` | Preferred fallback implementation |
+| `R-CURSOR` | QWEN and HAIKU unavailable | `cursor` | `CURSOR` | Last-resort implementation |
 | `R-STOP` | Selected tool unavailable and every fallback exhausted; or task exceeds one bounded behavior | — | — | `FALLBACK: STOP` |
 
-Default implementation agent is `pi` / `QWEN`, with `cursor` / `CURSOR` as
-its availability fallback. Divert only when an
+Default implementation agent is `pi` / `QWEN`, with `claude` / `HAIKU`, then
+`cursor` / `CURSOR`, as its availability fallbacks. Divert only when an
 exception row matches. Do not divert to MiniMax or GLM just because the change
 is backend, PTY, frontend, multi-file, or under `ajax-web`.
 
@@ -374,7 +376,7 @@ not generate task features. Ajax deterministic policy retains final authority.
   inference; the sensor sees only compact decision-relevant task information,
   never source files or large repository context.
 - **Validated decision** — the sensor returns a registry route key
-  (`MINIMAX`/`QWEN`/`CURSOR`/`GLM`/`CODEX`/`OPUS`), route probabilities, and complexity and
+  (`MINIMAX`/`QWEN`/`HAIKU`/`CURSOR`/`GLM`/`CODEX`/`OPUS`), route probabilities, and complexity and
   ambiguity scores (1–5). `RouteDecision` and `ContextRequirements` use typed
   validation; invalid sensor output is rejected.
 - **Deterministic policy** — registry keys select the executor; hard rules

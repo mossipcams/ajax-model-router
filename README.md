@@ -16,7 +16,7 @@ routes, and may ask the **routing sensor** to evaluate those eligible routes
 directly. The sensor is a local **GLiNER** classifier
 (`fastino/GLiNER2.5-Decide` in a router venv, `scripts/setup-gliner`) and
 returns one compact decision: a registry route key
-(`MINIMAX`/`QWEN`/`CURSOR`/`GLM`/`CODEX`/`OPUS`), route probabilities, and
+(`MINIMAX`/`QWEN`/`HAIKU`/`CURSOR`/`GLM`/`CODEX`/`OPUS`), route probabilities, and
 complexity/ambiguity scores (1–5). The response is validated strictly and fed
 into deterministic policy. The sensor is advisory only — it never chooses the
 final model, never owns hard policy, safety, execution, retries, verification,
@@ -93,7 +93,7 @@ first); hard overrides below always win over the sensor.
 | Scenario | Agent / model |
 |---|---|
 | Bounded implementation (default) | `pi` / `local/swift-1.5-qwen-3.8-27b` |
-| QWEN unavailable | `cursor` / `composer-2.5` |
+| QWEN unavailable | `claude` / `claude-haiku-5-5`, then `cursor` / `composer-2.5` |
 | Explicit user/model override | the requested model |
 | Explicit Codex ask | `codex` / `gpt-6-astra` |
 | Recorded spec/architecture uncertainty | `pi` / `opencode-go/glm-5.2` |

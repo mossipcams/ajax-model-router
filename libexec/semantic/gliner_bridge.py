@@ -37,6 +37,7 @@ def _quiet_stdout():
 ROUTE_LABELS = {
     "MINIMAX": "cheap fast model for trivial one-file edits: typos, version bumps, small obvious bug fixes",
     "QWEN": "local model for small bounded changes in one or two files with a clear spec",
+    "HAIKU": "fast Claude model for small to moderate bounded implementation with a clear spec",
     "CURSOR": "strong model for standard features, UI work, and test writing with moderate scope",
     "GLM": "strong model for rework after a failed attempt or when the spec has recorded uncertainty",
     "CODEX": "top-tier model for complex cross-module work, refactors, investigations, or when the user explicitly asked",

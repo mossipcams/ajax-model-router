@@ -72,7 +72,7 @@ class AnalyzeTaskTests(unittest.TestCase):
                 "task": "fix typo",
                 "changed_file_count": 1,
                 "diff_line_count": 5,
-                "unavailable_routes": ["MINIMAX", "QWEN", "GLM", "CODEX", "OPUS"],
+                "unavailable_routes": ["MINIMAX", "QWEN", "HAIKU", "GLM", "CODEX", "OPUS"],
             },
             analyzer=DisabledSemanticAnalyzer(),
         )
