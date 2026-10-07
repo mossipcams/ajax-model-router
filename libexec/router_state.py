@@ -53,6 +53,8 @@ def capture(snapshot_dir, label, quiet=False):
             info = path.stat(follow_symlinks=False)
         except FileNotFoundError:
             continue
+        if stat.S_ISDIR(info.st_mode):  # gitlink (submodule): not delegate-editable
+            continue
         kind, data = payload(path, info)
         digest = hashlib.sha256(data).hexdigest()
         object_path = objects / digest
