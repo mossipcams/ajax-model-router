@@ -42,10 +42,10 @@ do
   require_tab_free "${pair#*:}" "${pair%%:*}"
 done
 
-[[ "$requested_agent" =~ ^(parent|cursor|codex|pi)$ ]] || {
+[[ "$requested_agent" =~ ^(parent|cursor|codex|pi|claude)$ ]] || {
   echo "error: invalid requested-agent" >&2; exit 2
 }
-[[ "$actual_agent" =~ ^(parent|cursor|codex|pi)$ ]] || {
+[[ "$actual_agent" =~ ^(parent|cursor|codex|pi|claude)$ ]] || {
   echo "error: invalid actual-agent" >&2; exit 2
 }
 if [[ -n "$success" && ! "$success" =~ ^(true|false)$ ]]; then
