@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-AGENTS = ("parent", "cursor", "codex", "pi")
+AGENTS = ("parent", "cursor", "codex", "pi", "claude")
 RISKS = ("low", "medium", "high")
 
 STAGES = (

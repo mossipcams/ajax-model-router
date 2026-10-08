@@ -80,7 +80,7 @@ if [[ -z "$uncertainty_line" || -z "$cheap_line" || -z "$cursor_line" || "$uncer
   failures=$((failures + 1))
 fi
 
-for adapter in cursor-delegate pi-delegate codex-delegate; do
+for adapter in cursor-delegate pi-delegate codex-delegate claude-delegate; do
   file="skills/$adapter/SKILL.md"
   require_text "$file" "EXECUTION" "$adapter requires execution binding"
   require_text "$file" 'return `STOP`' "$adapter unavailable-tool behavior"

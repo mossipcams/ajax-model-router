@@ -240,7 +240,7 @@ def _worktree_changed(ctx):
 def _parse_route(entry):
     agent, _, model = entry.partition("/")
     agent, model = agent.strip().lower(), model.strip()
-    if agent not in ("cursor", "codex", "pi") or not model:
+    if agent not in ("cursor", "codex", "pi", "claude") or not model:
         raise HookError(f"fallback_chain entries must be agent/model, got {entry!r}")
     return agent, model
 
