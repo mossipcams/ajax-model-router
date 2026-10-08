@@ -13,3 +13,8 @@
 - Do not add MCP, wrappers, generated subagents, or routing enforcement unless
   explicitly requested.
 - Do not rename the skill to `ajax-model-router`.
+- You are not going to need it: do not add features, abstractions, configuration,
+  or dependencies for hypothetical future needs. Implement only what the current
+  task requires.
+- Prefer reusing existing code over writing a new equivalent. Search before you
+  write.
