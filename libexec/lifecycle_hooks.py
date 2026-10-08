@@ -193,6 +193,7 @@ def _tool_for(ctx):
         "cursor": "cursor",
         "pi": "pi",
         "codex": "codex",
+        "claude": "claude",
         "minimax": "pi",
         "glm": "pi",
     }
