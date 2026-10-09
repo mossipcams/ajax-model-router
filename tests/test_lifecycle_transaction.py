@@ -481,6 +481,8 @@ class LifecycleTransactionTests(unittest.TestCase):
                 f"  VERIFICATION: []\n  CONCERNS:\n    - TYPE: {concern}\n"
             )
             ctx["artifacts"]["report_path"] = str(report)
+            # Runner-authored failures exit nonzero; see hooks._failure_type.
+            ctx["artifacts"]["provider_metadata"] = {"exit_code": 1}
 
         return fake, calls
 

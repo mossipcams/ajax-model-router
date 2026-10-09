@@ -243,7 +243,7 @@ def _failure_type(ctx):
     A runner failure exits nonzero; a FAILED report from a clean exit was written by
     the delegate itself, so its TYPE is not trusted to drive retry or route health.
     """
-    if ctx["artifacts"].get("provider_metadata", {}).get("exit_code") == 0:
+    if not ctx["artifacts"].get("provider_metadata", {}).get("exit_code"):
         return ""
     report = Path(ctx["artifacts"].get("report_path") or "")
     text = report.read_text() if report.is_file() else ""
