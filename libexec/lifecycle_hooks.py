@@ -238,7 +238,13 @@ UNAVAILABLE_TYPES = frozenset({"TOOL_UNAVAILABLE", "MISSING_TOOL"})
 
 
 def _failure_type(ctx):
-    """First CONCERNS TYPE of a FAILED runner report, else ''."""
+    """First CONCERNS TYPE of a FAILED runner report, else ''.
+
+    A runner failure exits nonzero; a FAILED report from a clean exit was written by
+    the delegate itself, so its TYPE is not trusted to drive retry or route health.
+    """
+    if ctx["artifacts"].get("provider_metadata", {}).get("exit_code") == 0:
+        return ""
     report = Path(ctx["artifacts"].get("report_path") or "")
     text = report.read_text() if report.is_file() else ""
     match = re.search(r"^\s*-\s*TYPE:\s*(\S+)", text, re.MULTILINE)

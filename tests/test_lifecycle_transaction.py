@@ -642,6 +642,21 @@ class LifecycleTransactionTests(unittest.TestCase):
                 self.assertEqual("tool calls" in prompt and "report BLOCKED" in prompt, expected)
                 self.assertIn("Investigate the repository as needed.", prompt)
 
+    def test_delegate_authored_failed_report_is_not_trusted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            data = self.base_context(repo, snap, fallback_chain=["codex/model-b"])
+            ctx = hooks.snapshot(hooks.before_execute(ctxlib.validate_context(data)))
+            fake, calls = self._fake_attempts([("FAILED", "PROVIDER_ERROR")])
+            def clean_exit(c):
+                fake(c)
+                c["artifacts"]["provider_metadata"] = {"exit_code": 0}
+            with mock.patch("lifecycle_hooks._execute_once", side_effect=clean_exit):
+                hooks.execute(ctx)
+            self.assertEqual(len(calls), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
