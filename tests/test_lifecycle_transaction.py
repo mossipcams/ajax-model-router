@@ -579,6 +579,69 @@ class LifecycleTransactionTests(unittest.TestCase):
                     ctx = hooks.execute(ctx)
             self.assertEqual(calls, [("pi", "test-model"), ("cursor", "model-c")])
 
+    def test_provider_error_retries_same_route_once_with_resume_note(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            data = self.base_context(repo, snap, fallback_chain=["codex/model-b"])
+            ctx = hooks.snapshot(hooks.before_execute(ctxlib.validate_context(data)))
+            fake, calls = self._fake_attempts(
+                [("FAILED", "PROVIDER_ERROR"), ("COMPLETE", "NONE")],
+                touch=lambda: (repo / "src" / "example.py").write_text("VALUE = 9\n"),
+            )
+            with mock.patch("lifecycle_hooks._execute_once", side_effect=fake):
+                with mock.patch("sys.stderr", StringIO()):
+                    ctx = hooks.execute(ctx)
+            self.assertEqual(calls, [("pi", "test-model")] * 2)
+            self.assertIn("Resume:", Path(ctx["artifacts"]["prompt_path"]).read_text())
+            self.assertEqual(ctx["fallback_chain"], ["codex/model-b"])
+            self.probe.assert_not_called()
+
+    def test_second_provider_error_marks_route_down_and_falls_back_if_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            data = self.base_context(repo, snap, fallback_chain=["codex/model-b"])
+            ctx = hooks.snapshot(hooks.before_execute(ctxlib.validate_context(data)))
+            fake, calls = self._fake_attempts(
+                [("FAILED", "PROVIDER_ERROR"), ("FAILED", "PROVIDER_ERROR"), ("COMPLETE", "NONE")]
+            )
+            with mock.patch("lifecycle_hooks._execute_once", side_effect=fake):
+                with mock.patch("sys.stderr", StringIO()):
+                    ctx = hooks.execute(ctx)
+            self.assertEqual(calls, [("pi", "test-model")] * 2 + [("codex", "model-b")])
+            self.assertNotIn("Resume:", Path(ctx["artifacts"]["prompt_path"]).read_text())
+            self.assertFalse(json.loads(self.health_cache.read_text())["pi/test-model"]["ok"])
+
+    def test_timeout_is_not_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            data = self.base_context(repo, snap, fallback_chain=["codex/model-b"])
+            ctx = hooks.snapshot(hooks.before_execute(ctxlib.validate_context(data)))
+            fake, calls = self._fake_attempts(
+                [("FAILED", "TIMEOUT")],
+                touch=lambda: (repo / "src" / "example.py").write_text("VALUE = 9\n"),
+            )
+            with mock.patch("lifecycle_hooks._execute_once", side_effect=fake):
+                hooks.execute(ctx)
+            self.assertEqual(calls, [("pi", "test-model")])
+
+    def test_budget_note_only_for_local_models(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            for model, expected in (("local/swift", True), ("test-model", False)):
+                data = self.base_context(repo, snap, model=model)
+                ctx = hooks.before_execute(ctxlib.validate_context(data))
+                prompt = Path(ctx["artifacts"]["prompt_path"]).read_text()
+                self.assertEqual("tool calls" in prompt and "report BLOCKED" in prompt, expected)
+                self.assertIn("Investigate the repository as needed.", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

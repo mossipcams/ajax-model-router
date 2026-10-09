@@ -108,6 +108,22 @@ route, route probabilities/confidence, complexity, ambiguity, whether
 fallback/default routing was used, and the matched hard override — no
 chain-of-thought, no raw task contents.
 
+## Calibrating Swift budgets
+
+Every run writes a `stats tool_calls=N elapsed=Ns prompt_bytes=B outcome=...` line
+to `run/debug.log`. Swift (`local/` models) gets a soft budget of 30 tool calls in
+its prompt (`LOCAL_TOOL_CALL_BUDGET`) and the default 900s timeout.
+
+Measured on 77 logged runs (Oct 6-9 2026): 53 reported, 19 `TIMEOUT`, 5 provider
+failures. Prompt size did not predict timeouts (21-36% in every size bucket, 2-10 KB).
+Tool calls did: 0 of 16 timed out under 10 calls, 13 of 22 at 30+. Successful runs
+took p50 192s, p90 454s; only 4 exceeded 600s, so a longer timeout buys little.
+
+Recalibrate: collect `stats` lines (`grep -h ' stats ' /var/folders/*/*/T/tmp*/run/debug.log`),
+bucket by `tool_calls`, and set the budget at the largest bucket whose timeout rate
+stays under ~10%. Set the timeout to about 2x the p90 elapsed of reported runs.
+Route tasks past the budget to another model instead of raising it.
+
 ## Delegate transport
 
 All four delegates (`cursor`, `codex`, `pi`, `claude`) dispatch through

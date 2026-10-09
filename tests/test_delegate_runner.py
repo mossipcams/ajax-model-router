@@ -1078,5 +1078,49 @@ class UnavailableSignatureTests(unittest.TestCase):
         self.assertEqual(unavailable_signature("error: test failed in src/lib.rs"), "")
 
 
+class SwiftReliabilityTests(unittest.TestCase):
+    """Runner classification for the local pi/Swift route. Calls libexec directly."""
+
+    def run_runner(self, body, *, timeout="30"):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        env, _ = install_fake_acpx(tmp, fake_acpx_script(body=body, emit_report=False))
+        prompt = tmp / "prompt.txt"
+        prompt.write_text("task")
+        report = tmp / "report.yaml"
+        result = subprocess.run(
+            [
+                sys.executable, ROOT / "libexec" / "run_delegate.py", "--tool", "pi",
+                "--model", "local/swift", "--prompt", prompt, "--raw-log", tmp / "raw.log",
+                "--report", report, "--timeout-seconds", timeout, "--term-grace-seconds", "0.2",
+            ],
+            text=True, capture_output=True, env=env,
+        )
+        return result, report.read_text(), (tmp / "debug.log").read_text()
+
+    @staticmethod
+    def chunk(kind, text):
+        update = {"sessionUpdate": kind, "content": {"type": "text", "text": text}}
+        return f"print(json.dumps({{'jsonrpc': '2.0', 'method': 'session/update', 'params': {json.dumps(update)}}}), flush=True)\n"
+
+    def test_exhausted_pi_retries_are_provider_error_not_missing_report(self):
+        retries = "Retrying (attempt 1/3, waiting 2s)...Retrying (attempt 3/3, waiting 8s)...Retry finished, resuming."
+        _, report, _ = self.run_runner(self.chunk("agent_message_chunk", retries))
+        self.assertIn("TYPE: PROVIDER_ERROR", report)
+
+    def test_recovered_retry_without_report_stays_missing_report(self):
+        _, report, _ = self.run_runner(
+            self.chunk("agent_message_chunk", "Retrying (attempt 1/3, waiting 2s)...Retry finished, resuming.")
+        )
+        self.assertIn("TYPE: MISSING_STRUCTURED_REPORT", report)
+
+    def test_timeout_reports_progress_and_stats_line(self):
+        body = self.chunk("tool_call", "x") * 3 + "import time\ntime.sleep(60)\n"
+        result, report, debug = self.run_runner(body, timeout="1")
+        self.assertEqual(result.returncode, 124)
+        self.assertIn("tool_calls=3", report)
+        self.assertRegex(debug, r"stats tool_calls=3 elapsed=\d+s prompt_bytes=4 outcome=TIMEOUT")
+
+
 if __name__ == "__main__":
     unittest.main()

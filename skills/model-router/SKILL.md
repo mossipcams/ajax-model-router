@@ -329,6 +329,15 @@ Dispatch prompt assembled by the parent (outcome, scope, acceptance,
 findings, and constraints). Use `DISCARD` for a rejected delta. After two failed
 rounds, `STOP`.
 
+Read the runner's failure `TYPE` before choosing the next step:
+
+| `TYPE` | Meaning | Action |
+|---|---|---|
+| `PROVIDER_ERROR` | Model server failed after the harness's own retries | Runner already retried once; if it persists the route is marked down |
+| `TIMEOUT` | Delegate was working but the task was too big (`tool_calls`, `idle` in detail) | Never re-run on the same route or raise the timeout; escalate or split. Pass partial edits as revision findings |
+| `BLOCKED` (call budget) | Local model hit its tool-call budget | Same as `TIMEOUT`, but the report says what remains |
+| `MISSING_STRUCTURED_REPORT` | Model ended its turn without a report | One `REVISE` at most |
+
 DISCARD is a verdict, not permission to reset the worktree. Run
 `scripts/delegate-delta restore "$SNAP"`; it verifies current non-ignored
 state still equals the post snapshot, then restores only delegate paths to

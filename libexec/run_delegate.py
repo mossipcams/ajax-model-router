@@ -217,6 +217,8 @@ def run_acpx_process(command, args, raw, deadline, debug=None):
     failure_reason = "ACP_EVENT_FAILED"
     terminal = False
     saw_activity = False
+    tool_calls = 0
+    last_activity = time.monotonic()
     stderr_lines = []
     acpx_pid = None
     tracker = None
@@ -286,10 +288,15 @@ def run_acpx_process(command, args, raw, deadline, debug=None):
                         "failed",
                         f"Timed out after {args.timeout_seconds:g} seconds",
                     )
+                idle = time.monotonic() - last_activity
                 return {
                     "exit_code": 124,
                     "failure_reason": "TIMEOUT",
-                    "failure": f"{args.tool} delegation timed out after {args.timeout_seconds:g} seconds",
+                    "failure": (
+                        f"{args.tool} delegation timed out after {args.timeout_seconds:g} seconds "
+                        f"({_progress(tool_calls, idle)})"
+                    ),
+                    "tool_calls": tool_calls,
                 }
             try:
                 stream, line = events.get(timeout=min(0.1, remaining))
@@ -342,6 +349,9 @@ def run_acpx_process(command, args, raw, deadline, debug=None):
                         continue
                     if is_active_turn_activity(record):
                         saw_activity = True
+                        last_activity = time.monotonic()
+                        if _is_new_tool_call(record):
+                            tool_calls += 1
                     event = normalize_record(record)
                     if event is None:
                         continue
@@ -404,6 +414,7 @@ def run_acpx_process(command, args, raw, deadline, debug=None):
     transport_detail = _stderr_transport_detail(stderr_lines)
 
     def finish(outcome):
+        outcome.setdefault("tool_calls", tool_calls)
         if acpx_pid is not None:
             outcome["acpx_pid"] = acpx_pid
         if transport_detail:
@@ -435,7 +446,10 @@ def run_acpx_process(command, args, raw, deadline, debug=None):
         return finish({
             "exit_code": 124,
             "failure_reason": "TIMEOUT",
-            "failure": f"{args.tool} delegation timed out after {args.timeout_seconds:g} seconds",
+            "failure": (
+                f"{args.tool} delegation timed out after {args.timeout_seconds:g} seconds "
+                f"({_progress(tool_calls, time.monotonic() - last_activity)})"
+            ),
         })
     if exit_code == 130:
         return finish({
@@ -480,12 +494,38 @@ def run_acpx_process(command, args, raw, deadline, debug=None):
     if not report_text:
         report_text = combined if _report_text(combined) else ""
     if not report_text:
+        if provider_retries_exhausted(combined):
+            return finish({
+                "exit_code": 1,
+                "failure_reason": "PROVIDER_ERROR",
+                "failure": "delegate's model provider failed after the harness exhausted its retries",
+            })
         return finish({
             "exit_code": 1,
             "failure_reason": "MISSING_STRUCTURED_REPORT",
             "failure": "delegate produced no structured report text",
         })
     return finish({"exit_code": exit_code, "report_text": report_text})
+
+
+def _is_new_tool_call(record):
+    params = record.get("params") or {}
+    return (params.get("update") or params).get("sessionUpdate") == "tool_call"
+
+
+def _progress(tool_calls, idle):
+    """Working-but-too-big (escalate or split) vs stalled (provider/transport)."""
+    return f"tool_calls={tool_calls}, idle {idle:.0f}s"
+
+
+# Pi narrates its own provider retries into the message stream, then ends the turn
+# without a report when the last attempt fails: "Retrying (attempt 3/3, waiting 8s)...".
+_PI_RETRY = re.compile(r"Retrying \(attempt (\d+)/(\d+)")
+
+
+def provider_retries_exhausted(text):
+    attempts = _PI_RETRY.findall(text)
+    return bool(attempts) and attempts[-1][0] == attempts[-1][1]
 
 
 def _cursor_step_crash(text):
@@ -573,7 +613,15 @@ def run_acpx(args):
             f"timeout_seconds={args.timeout_seconds:g} "
             f"argv={' '.join(map(str, command))}",
         )
+        started = time.monotonic()
         outcome = run_acpx_process(command, args, raw, deadline, debug=debug)
+        emit_debug(
+            debug,
+            f"stats tool_calls={outcome.get('tool_calls', 0)} "
+            f"elapsed={time.monotonic() - started:.0f}s "
+            f"prompt_bytes={args.prompt.stat().st_size} "
+            f"outcome={outcome.get('failure_reason') or 'reported'}",
+        )
         if outcome.get("failure"):
             raw.flush()
             signature = unavailable_signature(args.raw_log.read_text(errors="replace"))

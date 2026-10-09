@@ -46,6 +46,23 @@ ROUTER_REPORT_END
 """
 
 
+# Local models (Swift via pi) run slowly: in 77 logged runs, 13 of 22 runs past 30 tool
+# calls timed out vs 2 of 22 at 10-20. A soft call budget turns a hard-kill timeout
+# (no report) into a BLOCKED report the parent can escalate. Recalibrate from the
+# `stats` line in debug.log (see README "Calibrating Swift budgets").
+LOCAL_MODEL_PREFIX = "local/"
+LOCAL_TOOL_CALL_BUDGET = 30
+BUDGET_NOTE = (
+    f"Budget: about {LOCAL_TOOL_CALL_BUDGET} tool calls. If you are not close to done "
+    "by then, stop, leave the tree consistent, and report BLOCKED with what remains "
+    "in CONCERNS.\n"
+)
+RESUME_NOTE = (
+    "Resume: an earlier attempt was cut off by a provider error and the worktree may "
+    "hold its partial edits. Inspect them, keep what is good, and finish.\n\n"
+)
+
+
 class HookError(RuntimeError):
     """Deterministic execute-hook failure."""
 
@@ -113,7 +130,11 @@ def build_prompt(ctx):
         if items:
             parts.append(f"{title}:\n{_bullet_lines(items)}\n")
     parts.append(PROMPT_TAIL)
-    return "\n".join(parts)
+    prompt = "\n".join(parts)
+    # ponytail: keyed on the initial model; a fallback route keeps the note, harmlessly.
+    if (ctx.get("model") or "").startswith(LOCAL_MODEL_PREFIX):
+        prompt = prompt.replace(PROMPT_TAIL, BUDGET_NOTE + PROMPT_TAIL, 1)
+    return prompt
 
 
 def before_execute(ctx):
@@ -216,13 +237,30 @@ def _task_label(ctx):
 UNAVAILABLE_TYPES = frozenset({"TOOL_UNAVAILABLE", "MISSING_TOOL"})
 
 
-def _unavailable_reason(ctx):
+def _failure_type(ctx):
+    """First CONCERNS TYPE of a FAILED runner report, else ''."""
     report = Path(ctx["artifacts"].get("report_path") or "")
     text = report.read_text() if report.is_file() else ""
     match = re.search(r"^\s*-\s*TYPE:\s*(\S+)", text, re.MULTILINE)
-    if "STATUS: FAILED" in text and match and match.group(1) in UNAVAILABLE_TYPES:
-        return match.group(1)
-    return ""
+    return match.group(1) if "STATUS: FAILED" in text and match else ""
+
+
+def _unavailable_reason(ctx):
+    kind = _failure_type(ctx)
+    return kind if kind in UNAVAILABLE_TYPES else ""
+
+
+def _keep_attempt_logs(ctx, attempt):
+    """Move this attempt's logs aside so the next attempt starts clean."""
+    run = _run_dir(ctx)
+    kept = {}
+    for name in ("raw_log", "debug_log", "report_path"):
+        path = Path(ctx["artifacts"].get(name) or "")
+        if path.is_file():
+            target = run / f"attempt-{attempt}-{ctx['agent']}-{path.name}"
+            path.replace(target)
+            kept[name] = str(target)
+    return kept
 
 
 def _worktree_changed(ctx):
@@ -260,6 +298,7 @@ def execute(ctx):
     adapters (pi) swallow provider errors and just end the turn, so a failure
     that left the tree untouched is confirmed with a probe before falling back.
     """
+    provider_retried = False
     while True:
         _execute_once(ctx)
         route = f"{ctx['agent']}/{ctx['model']}"
@@ -271,6 +310,22 @@ def execute(ctx):
             break
         reason = _unavailable_reason(ctx)
         changed = _worktree_changed(ctx)
+        if _failure_type(ctx) == "PROVIDER_ERROR":
+            # Transient model-server error, not a model failure: retry the same
+            # route once (keeping partial edits); a second one marks the route down.
+            if not provider_retried:
+                provider_retried = True
+                attempt = len(ctx["artifacts"]["fallback_attempts"])
+                kept = _keep_attempt_logs(ctx, attempt)
+                ctx["artifacts"]["fallback_attempts"].append(
+                    {"agent": ctx["agent"], "model": ctx["model"], "reason": "PROVIDER_ERROR", **kept}
+                )
+                if changed:
+                    prompt = Path(ctx["artifacts"]["prompt_path"])
+                    prompt.write_text(prompt.read_text().replace(PROMPT_TAIL, RESUME_NOTE + PROMPT_TAIL, 1))
+                sys.stderr.write(f"[ajax-router] {route} provider error; retrying once\n")
+                continue
+            reason = "PROVIDER_ERROR"
         if not reason and not changed:
             healthy, detail = route_health.probe(route)
             if not healthy:
@@ -285,15 +340,8 @@ def execute(ctx):
         if not reason or not ctx.get("fallback_chain") or changed:
             break
         agent, model = _parse_route(ctx["fallback_chain"].pop(0))
-        run = _run_dir(ctx)
         attempt = len(ctx["artifacts"]["fallback_attempts"])
-        kept = {}
-        for name in ("raw_log", "debug_log", "report_path"):
-            path = Path(ctx["artifacts"].get(name) or "")
-            if path.is_file():
-                target = run / f"attempt-{attempt}-{ctx['agent']}-{path.name}"
-                path.replace(target)
-                kept[name] = str(target)
+        kept = _keep_attempt_logs(ctx, attempt)
         ctx["artifacts"]["fallback_attempts"].append(
             {"agent": ctx["agent"], "model": ctx["model"], "reason": reason, **kept}
         )
