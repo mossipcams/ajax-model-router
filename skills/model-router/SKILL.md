@@ -155,6 +155,14 @@ Default implementation agent is `pi` / `QWEN`, with `claude` / `HAIKU`, then
 exception row matches. Do not divert to MiniMax or GLM just because the change
 is backend, PTY, frontend, multi-file, or under `ajax-web`.
 
+`QWEN` size gate: one `QWEN` dispatch has at most 4 files in `SCOPE` and about
+20 tool calls of work. Measured on 125 local runs: 1–4 files timed out 10–14% and
+finished within ~530s at p90; 5+ files timed out ~30%. Split anything larger into
+sequential slices of at most 4 files, each of which builds and verifies on its own,
+and dispatch each slice as its own `EXECUTION` with only that slice's context. If it
+cannot be sliced (a type change that only compiles across many files), route it to
+`HAIKU`; do not send it to `QWEN`.
+
 If the selected tool is unavailable, reroute once via `FALLBACK` to the next
 matching agent; never retry the same unavailable tool. `STOP` only when no
 agent remains. `FALLBACK` is never the selected route itself: `analyze-task`

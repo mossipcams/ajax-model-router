@@ -235,6 +235,10 @@ def run_acpx_process(command, args, raw, deadline, debug=None):
         tracker.event("queued", "Waiting to start")
         tracker.event("starting", "Launching delegate")
     env = os.environ.copy()
+    if args.model.startswith("local/"):
+        # context-fold rewrites history, busting llama.cpp's prefix cache (~40-90s re-prefill
+        # per fold). On a 900s local run it never pays back: ~25 turns to break even.
+        env["CONTEXTFOLD"] = "0"
     shim_dir = None
     if args.tool == "cursor":
         env, shim_dir = cursor_agent_path_env(env)
