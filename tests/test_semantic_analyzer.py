@@ -42,7 +42,7 @@ CFG_GLINER = SemanticConfig(
     timeout_ms=20000,
     confidence_threshold=0.45,
 )
-ELIGIBLE = ("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS")
+ELIGIBLE = ("DEEPSEEK", "QWEN", "CURSOR", "CODEX", "OPUS")
 
 
 def _task_input(**overrides) -> TaskAnalysisInput:
@@ -101,8 +101,8 @@ class GlinerAnalyzerTests(unittest.TestCase):
         proc = mock.Mock()
         proc.returncode = 0
         proc.stdout = json.dumps({
-            "route": "GLM",
-            "probabilities": {"GLM": 0.5, "CURSOR": 0.5},
+            "route": "OPUS",
+            "probabilities": {"OPUS": 0.5, "CURSOR": 0.5},
             "complexity": 3,
             "ambiguity": 2,
         })
@@ -115,15 +115,15 @@ class GlinerAnalyzerTests(unittest.TestCase):
         proc = mock.Mock()
         proc.returncode = 0
         proc.stdout = json.dumps({
-            "route": "GLM",
-            "probabilities": {"GLM": 0.85, "CURSOR": 0.15},
+            "route": "OPUS",
+            "probabilities": {"OPUS": 0.85, "CURSOR": 0.15},
             "complexity": 3,
             "ambiguity": 2,
         })
         proc.stderr = ""
         with mock.patch("semantic.gliner.subprocess.run", return_value=proc):
             decision = GlinerAnalyzer(CFG_GLINER).analyze_task(_task_input())
-        self.assertEqual(decision.route, "GLM")
+        self.assertEqual(decision.route, "OPUS")
         self.assertEqual(decision.confidence, 0.85)
 
     def test_bridge_failure_raises_unavailable(self):
@@ -140,14 +140,14 @@ class AnalyzeWithFallbackTests(unittest.TestCase):
     def test_success_returns_decision(self):
         analyzer = mock.MagicMock()
         analyzer.analyze_task.return_value = RouteDecision(
-            route="GLM",
-            probabilities={"GLM": 0.85, "CURSOR": 0.15},
+            route="OPUS",
+            probabilities={"OPUS": 0.85, "CURSOR": 0.15},
             complexity=3,
             ambiguity=2,
             confidence=0.85,
         )
         decision, reason, source = analyze_with_fallback(analyzer, _task_input())
-        self.assertEqual(decision.route, "GLM")
+        self.assertEqual(decision.route, "OPUS")
         self.assertIsNone(reason)
         self.assertEqual(source, "sensor")
 

@@ -15,8 +15,8 @@ from semantic.policy import select_route  # noqa: E402
 from semantic.schema import RouteDecision  # noqa: E402
 
 
-def _sensor(route: str = "GLM", confidence: float = 0.85) -> RouteDecision:
-    other = "CURSOR" if route != "CURSOR" else "MINIMAX"
+def _sensor(route: str = "OPUS", confidence: float = 0.85) -> RouteDecision:
+    other = "CURSOR" if route != "CURSOR" else "DEEPSEEK"
     return RouteDecision(
         route=route,
         probabilities={route: confidence, other: max(0.0, 1 - confidence)},
@@ -64,7 +64,7 @@ class RoutingExplainTests(unittest.TestCase):
 
     def test_explanation_includes_sensor_confidence_when_present(self):
         facts = RoutingFacts(user_request="design cache layer", diff_line_count=120)
-        sensor = _sensor("GLM", 0.85)
+        sensor = _sensor("OPUS", 0.85)
         decision = select_route(facts, sensor=sensor)
         context = derive_context_requirements(sensor, facts)
         explanation = build_explanation(
@@ -75,10 +75,10 @@ class RoutingExplainTests(unittest.TestCase):
             analysis_source="sensor",
         )
         self.assertEqual(explanation["analysis_source"], "sensor")
-        self.assertEqual(explanation["sensor"]["route"], "GLM")
+        self.assertEqual(explanation["sensor"]["route"], "OPUS")
         self.assertEqual(explanation["sensor"]["confidence"], 0.85)
         self.assertEqual(explanation["route_confidence"], 0.85)
-        self.assertEqual(explanation["route_probabilities"]["GLM"], 0.85)
+        self.assertEqual(explanation["route_probabilities"]["OPUS"], 0.85)
         self.assertEqual(explanation["complexity"], 3)
         self.assertEqual(explanation["ambiguity"], 2)
         self.assertFalse(explanation["fallback_used"])
@@ -86,7 +86,7 @@ class RoutingExplainTests(unittest.TestCase):
 
     def test_explanation_records_fallback_reason(self):
         facts = RoutingFacts(user_request="design cache layer", diff_line_count=120)
-        sensor = _sensor("GLM", 0.5)
+        sensor = _sensor("OPUS", 0.5)
         decision = select_route(
             facts,
             sensor=sensor,

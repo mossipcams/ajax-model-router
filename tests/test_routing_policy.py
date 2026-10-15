@@ -18,11 +18,11 @@ from semantic.policy import (  # noqa: E402
 )
 from semantic.schema import RouteDecision  # noqa: E402
 
-ALL_ROUTES = ("MINIMAX", "QWEN", "HAIKU", "CURSOR", "GLM", "CODEX", "OPUS")
+ALL_ROUTES = ("DEEPSEEK", "QWEN", "HAIKU", "CURSOR", "CODEX", "OPUS")
 
 
 def _sensor(route: str, confidence: float, **overrides) -> RouteDecision:
-    other = "CURSOR" if route != "CURSOR" else "MINIMAX"
+    other = "CURSOR" if route != "CURSOR" else "DEEPSEEK"
     base = dict(
         route=route,
         probabilities={route: confidence, other: max(0.0, 1 - confidence)},
@@ -39,18 +39,18 @@ class RoutingPolicyTests(unittest.TestCase):
         facts = RoutingFacts(user_request="add feature")
         self.assertEqual(eligible_routes(facts), ALL_ROUTES)
 
-    def test_high_risk_removes_minimax(self):
+    def test_high_risk_removes_deepseek(self):
         facts = RoutingFacts(user_request="fix auth token rotation")
-        self.assertEqual(eligible_routes(facts), ("QWEN", "HAIKU", "CURSOR", "GLM", "CODEX", "OPUS"))
-
-    def test_unavailable_routes_removed(self):
-        facts = RoutingFacts(unavailable_routes=["MINIMAX", "GLM"])
         self.assertEqual(eligible_routes(facts), ("QWEN", "HAIKU", "CURSOR", "CODEX", "OPUS"))
 
+    def test_unavailable_routes_removed(self):
+        facts = RoutingFacts(unavailable_routes=["DEEPSEEK", "CURSOR"])
+        self.assertEqual(eligible_routes(facts), ("QWEN", "HAIKU", "CODEX", "OPUS"))
+
     def test_explicit_user_model_override(self):
-        facts = RoutingFacts(explicit_model="glm-5.2")
+        facts = RoutingFacts(explicit_model="deepseek-v4.1-flash")
         decision = select_route(facts)
-        self.assertEqual(decision.model_key, "GLM")
+        self.assertEqual(decision.model_key, "DEEPSEEK")
         self.assertEqual(decision.rule_id, "R-EXPLICIT-MODEL")
 
     def test_explicit_non_registry_model(self):
@@ -68,13 +68,13 @@ class RoutingPolicyTests(unittest.TestCase):
     def test_recorded_spec_uncertainty(self):
         facts = RoutingFacts(user_request="design cache", recorded_spec_uncertainty=True)
         decision = select_route(facts)
-        self.assertEqual(decision.model_key, "GLM")
-        self.assertEqual(decision.rule_id, "R-GLM")
+        self.assertEqual(decision.model_key, "DEEPSEEK")
+        self.assertEqual(decision.rule_id, "R-DEEPSEEK-SPEC")
 
-    def test_retry_escalates_from_minimax(self):
-        facts = RoutingFacts(is_retry=True, previous_model_key="MINIMAX")
+    def test_retry_escalates_from_deepseek(self):
+        facts = RoutingFacts(is_retry=True, previous_model_key="DEEPSEEK")
         decision = select_route(facts)
-        self.assertEqual(decision.model_key, "GLM")
+        self.assertEqual(decision.model_key, "OPUS")
         self.assertEqual(decision.rule_id, "R-RETRY-ESCALATE")
 
     def test_retry_escalates_from_cursor(self):
@@ -99,16 +99,16 @@ class RoutingPolicyTests(unittest.TestCase):
 
     def test_hard_override_wins_over_sensor(self):
         facts = RoutingFacts(user_asked_codex=True)
-        decision = select_route(facts, sensor=_sensor("MINIMAX", 0.99))
+        decision = select_route(facts, sensor=_sensor("DEEPSEEK", 0.99))
         self.assertEqual(decision.model_key, "CODEX")
         self.assertFalse(decision.sensor_used)
         self.assertIsNone(decision.sensor_confidence)
 
     def test_sensor_route_used_when_eligible_and_confident(self):
         facts = RoutingFacts(user_request="refactor parser", diff_line_count=120)
-        sensor = _sensor("GLM", 0.85)
+        sensor = _sensor("OPUS", 0.85)
         decision = select_route(facts, sensor=sensor)
-        self.assertEqual(decision.model_key, "GLM")
+        self.assertEqual(decision.model_key, "OPUS")
         self.assertEqual(decision.rule_id, "R-SENSOR")
         self.assertTrue(decision.sensor_used)
         self.assertEqual(decision.sensor_confidence, 0.85)
@@ -118,7 +118,7 @@ class RoutingPolicyTests(unittest.TestCase):
 
     def test_sensor_low_confidence_falls_back(self):
         facts = RoutingFacts(user_request="refactor parser", diff_line_count=120)
-        sensor = _sensor("GLM", 0.5)
+        sensor = _sensor("OPUS", 0.5)
         decision = select_route(
             facts, sensor=sensor, sensor_fallback_reason="low confidence"
         )
@@ -132,26 +132,26 @@ class RoutingPolicyTests(unittest.TestCase):
             user_request="trivial docs",
             changed_file_count=1,
             diff_line_count=5,
-            unavailable_routes=["MINIMAX"],
+            unavailable_routes=["DEEPSEEK"],
         )
         sensor = RouteDecision(
-            route="MINIMAX",
-            probabilities={"MINIMAX": 0.9, "CURSOR": 0.1},
+            route="DEEPSEEK",
+            probabilities={"DEEPSEEK": 0.9, "CURSOR": 0.1},
             complexity=1,
             ambiguity=1,
             confidence=0.9,
         )
         decision = select_route(facts, sensor=sensor)
         self.assertEqual(decision.model_key, "QWEN")
-        self.assertEqual(decision.fallback_reason, "sensor route MINIMAX not eligible")
+        self.assertEqual(decision.fallback_reason, "sensor route DEEPSEEK not eligible")
 
     def test_deterministic_default_bounded_trivial(self):
         facts = RoutingFacts(
             user_request="fix typo", changed_file_count=1, diff_line_count=5
         )
         decision = select_route(facts)
-        self.assertEqual(decision.model_key, "MINIMAX")
-        self.assertEqual(decision.rule_id, "R-MINIMAX")
+        self.assertEqual(decision.model_key, "DEEPSEEK")
+        self.assertEqual(decision.rule_id, "R-DEEPSEEK")
 
     def test_deterministic_default_large_change(self):
         facts = RoutingFacts(user_request="big refactor", diff_line_count=500)
@@ -182,11 +182,11 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertEqual(high.risk, "high")
 
     def test_has_hard_override_detection(self):
-        self.assertTrue(has_hard_override(RoutingFacts(explicit_model="glm-5.2")))
+        self.assertTrue(has_hard_override(RoutingFacts(explicit_model="deepseek-v4.1-flash")))
         self.assertTrue(has_hard_override(RoutingFacts(user_asked_codex=True)))
         self.assertTrue(has_hard_override(RoutingFacts(recorded_spec_uncertainty=True)))
         self.assertTrue(
-            has_hard_override(RoutingFacts(is_retry=True, previous_model_key="MINIMAX"))
+            has_hard_override(RoutingFacts(is_retry=True, previous_model_key="DEEPSEEK"))
         )
         self.assertFalse(has_hard_override(RoutingFacts(user_request="normal task")))
 
@@ -194,8 +194,9 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertEqual(MODEL_KEY_BY_ID["gpt-6-astra"], "CODEX")
         self.assertEqual(MODEL_KEY_BY_ID["composer-2.5"], "CURSOR")
         self.assertEqual(MODEL_KEY_BY_ID["swift-1.5-qwen-3.8-27b"], "QWEN")
-        self.assertEqual(MODEL_KEY_BY_ID["minimax-m3"], "MINIMAX")
-        self.assertEqual(MODEL_KEY_BY_ID["glm-5.2"], "GLM")
+        self.assertEqual(MODEL_KEY_BY_ID["deepseek-v4.1-flash"], "DEEPSEEK")
+        self.assertNotIn("glm-5.2", MODEL_KEY_BY_ID)
+        self.assertNotIn("minimax-m3", MODEL_KEY_BY_ID)
         self.assertEqual(MODEL_KEY_BY_ID["claude-opus-5-5"], "OPUS")
 
 
@@ -204,12 +205,12 @@ class FallbackChainTests(unittest.TestCase):
         for route in ALL_ROUTES:
             chain = fallback_chain(route, ALL_ROUTES)
             self.assertNotIn(route, chain)
-            if route != "MINIMAX":
-                self.assertNotIn("MINIMAX", chain)
+            if route != "DEEPSEEK":
+                self.assertNotIn("DEEPSEEK", chain)
 
     def test_chain_prefers_stronger_routes_then_wraps(self):
-        self.assertEqual(fallback_chain("CURSOR", ALL_ROUTES), ("GLM", "CODEX", "OPUS", "QWEN", "HAIKU"))
-        self.assertEqual(fallback_chain("CODEX", ALL_ROUTES), ("OPUS", "QWEN", "HAIKU", "CURSOR", "GLM"))
+        self.assertEqual(fallback_chain("CURSOR", ALL_ROUTES), ("CODEX", "OPUS", "QWEN", "HAIKU"))
+        self.assertEqual(fallback_chain("CODEX", ALL_ROUTES), ("OPUS", "QWEN", "HAIKU", "CURSOR"))
 
     def test_chain_skips_unavailable_routes(self):
         self.assertEqual(

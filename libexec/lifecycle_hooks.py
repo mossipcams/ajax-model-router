@@ -215,8 +215,7 @@ def _tool_for(ctx):
         "pi": "pi",
         "codex": "codex",
         "claude": "claude",
-        "minimax": "pi",
-        "glm": "pi",
+        "deepseek": "pi",
     }
     if tool not in mapping:
         raise HookError(f"unsupported tool/agent for execute: {tool!r}")

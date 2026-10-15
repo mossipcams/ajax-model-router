@@ -5,7 +5,7 @@ description: Run Pi only from a model-router EXECUTION decision.
 
 # Pi Delegate
 
-Thin adapter for router-selected Pi agents (including MiniMax / GLM model
+Thin adapter for router-selected Pi agents (including DeepSeek / Qwen model
 IDs). Do not reconstruct routing from the user request. If no `EXECUTION` is
 supplied, return `STOP` and ask the parent to run `model-router`.
 

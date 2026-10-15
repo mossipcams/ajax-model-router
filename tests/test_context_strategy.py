@@ -17,7 +17,7 @@ from semantic.schema import (  # noqa: E402
 
 
 def _sensor(route: str = "CURSOR", complexity: int = 2, ambiguity: int = 1):
-    other = "MINIMAX" if route != "MINIMAX" else "CURSOR"
+    other = "DEEPSEEK" if route != "DEEPSEEK" else "CURSOR"
     return RouteDecision(
         route=route,
         probabilities={route: 0.9, other: 0.1},
@@ -28,11 +28,6 @@ def _sensor(route: str = "CURSOR", complexity: int = 2, ambiguity: int = 1):
 
 
 class ContextStrategyTests(unittest.TestCase):
-    def test_glm_route_requests_architecture_docs_and_history(self):
-        context = derive_context_requirements(_sensor("GLM"), RoutingFacts())
-        self.assertTrue(context.architecture_docs)
-        self.assertTrue(context.git_history)
-
     def test_high_complexity_requests_git_history(self):
         context = derive_context_requirements(
             _sensor("CURSOR", complexity=4), RoutingFacts()
@@ -80,7 +75,7 @@ class ContextStrategyTests(unittest.TestCase):
 
     def test_retry_sets_git_history(self):
         context = derive_context_requirements(
-            None, RoutingFacts(is_retry=True, previous_model_key="MINIMAX")
+            None, RoutingFacts(is_retry=True, previous_model_key="DEEPSEEK")
         )
         self.assertTrue(context.git_history)
 

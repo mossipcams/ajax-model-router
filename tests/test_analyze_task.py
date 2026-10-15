@@ -15,7 +15,7 @@ from semantic.schema import RouteDecision  # noqa: E402
 
 
 def _sensor(route: str, confidence: float) -> RouteDecision:
-    other = "CURSOR" if route != "CURSOR" else "MINIMAX"
+    other = "CURSOR" if route != "CURSOR" else "DEEPSEEK"
     return RouteDecision(
         route=route,
         probabilities={route: confidence, other: max(0.0, 1 - confidence)},
@@ -42,16 +42,16 @@ class AnalyzeTaskTests(unittest.TestCase):
     def test_sensor_decision_flows_into_execution(self):
         with mock.patch(
             "semantic.analyze_with_fallback",
-            return_value=(_sensor("GLM", 0.85), None, "sensor"),
+            return_value=(_sensor("OPUS", 0.85), None, "sensor"),
         ):
             output = run_analyze_task(
                 {"task": "design new billing subsystem"},
                 analyzer=DisabledSemanticAnalyzer(),
             )
         execution = output["execution"]
-        self.assertEqual(execution["AGENT"], "pi")
-        self.assertEqual(execution["MODEL"], "opencode-go/glm-5.2")
-        self.assertEqual(output["explanation"]["selected_route"], "GLM")
+        self.assertEqual(execution["AGENT"], "cursor")
+        self.assertEqual(execution["MODEL"], "claude-opus-5-5")
+        self.assertEqual(output["explanation"]["selected_route"], "OPUS")
         self.assertEqual(output["explanation"]["analysis_source"], "sensor")
         self.assertEqual(output["decision"]["rule_id"], "R-SENSOR")
 
@@ -72,7 +72,7 @@ class AnalyzeTaskTests(unittest.TestCase):
                 "task": "fix typo",
                 "changed_file_count": 1,
                 "diff_line_count": 5,
-                "unavailable_routes": ["MINIMAX", "QWEN", "HAIKU", "GLM", "CODEX", "OPUS"],
+                "unavailable_routes": ["DEEPSEEK", "QWEN", "HAIKU", "CODEX", "OPUS"],
             },
             analyzer=DisabledSemanticAnalyzer(),
         )

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # Auth / security / session / PTY / data-loss signals. Deliberately broad:
-# over-matching only removes the cheap lane (MINIMAX), which is the safe side.
+# over-matching only removes the cheap lane (DEEPSEEK), which is the safe side.
 _HIGH_RISK_TERMS = (
     "auth",
     "authenticat",

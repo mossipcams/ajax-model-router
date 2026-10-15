@@ -48,7 +48,7 @@ class RouteHealthTests(unittest.TestCase):
             "route_health.subprocess.run",
             return_value=self._run(1, "", "429 GoUsageLimitError"),
         ):
-            ok, detail = route_health.probe("pi/opencode-go/glm")
+            ok, detail = route_health.probe("pi/opencode-go/deepseek")
             self.assertFalse(ok)
             self.assertIn("429", detail)
         with mock.patch("route_health.subprocess.run", side_effect=FileNotFoundError):

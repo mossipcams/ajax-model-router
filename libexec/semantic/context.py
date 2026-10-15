@@ -25,9 +25,6 @@ def derive_context_requirements(
     subsystems: list[str] = []
 
     if decision is not None:
-        if decision.route == "GLM":
-            architecture_docs = True
-            git_history = True
         if decision.complexity >= 4 or decision.ambiguity >= 4:
             git_history = True
         if decision.ambiguity >= 4:

@@ -118,7 +118,7 @@ def _gliner_available(config) -> bool:
         return False
     payload = json.dumps({
         "task": "Fix a typo in the README.",
-        "eligible_routes": ["MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS"],
+        "eligible_routes": ["DEEPSEEK", "QWEN", "CURSOR", "CODEX", "OPUS"],
         "model": config.model,
     })
     try:
@@ -162,7 +162,7 @@ class SensorGoldenTests(unittest.TestCase):
                 TaskAnalysisInput(
                     user_request=task.prompt,
                     facts=RoutingFacts(user_request=task.prompt),
-                    eligible_routes=("MINIMAX", "QWEN", "CURSOR", "GLM", "CODEX", "OPUS"),
+                    eligible_routes=("DEEPSEEK", "QWEN", "CURSOR", "CODEX", "OPUS"),
                 ),
             )
             if decision is None:

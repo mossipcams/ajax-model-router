@@ -120,8 +120,8 @@ class ContractTests(unittest.TestCase):
             cells = [cell.strip().strip("`") for cell in line.strip("|").split("|")]
             rows.append(cells)
         ids = [row[0] for row in rows]
-        self.assertLess(ids.index("R-GLM"), ids.index("R-MINIMAX"))
-        self.assertLess(ids.index("R-MINIMAX"), ids.index("R-CURSOR"))
+        self.assertLess(ids.index("R-DEEPSEEK-SPEC"), ids.index("R-DEEPSEEK"))
+        self.assertLess(ids.index("R-DEEPSEEK"), ids.index("R-CURSOR"))
         cursor = next(row for row in rows if row[0] == "R-CURSOR")
         self.assertEqual(cursor[2], "cursor")
         self.assertEqual(cursor[3], "CURSOR")

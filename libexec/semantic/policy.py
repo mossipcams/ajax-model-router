@@ -18,17 +18,16 @@ REGISTRY: dict[str, tuple[str, str]] = {
     "CODEX": ("codex", "gpt-6-astra"),
     "CURSOR": ("cursor", "composer-2.5"),
     # pi only accepts provider-qualified IDs (what its ACP agent advertises).
-    "MINIMAX": ("pi", "opencode-go/minimax-m3"),
+    "DEEPSEEK": ("pi", "opencode-go/deepseek-v4.1-flash"),
     "QWEN": ("pi", "local/swift-1.5-qwen-3.8-27b"),
-    "GLM": ("pi", "opencode-go/glm-5.2"),
     "OPUS": ("cursor", "claude-opus-5-5"),
     "HAIKU": ("claude", "claude-haiku-5-5"),
 }
 
 # Canonical route order (cheap → strongest), used for tie-breaking and logs.
-ROUTE_ORDER: tuple[str, ...] = ("MINIMAX", "QWEN", "HAIKU", "CURSOR", "GLM", "CODEX", "OPUS")
+ROUTE_ORDER: tuple[str, ...] = ("DEEPSEEK", "QWEN", "HAIKU", "CURSOR", "CODEX", "OPUS")
 
-# Bare IDs ("glm-5.2") stay valid for explicit user overrides.
+# Bare IDs ("deepseek-v4.1-flash") stay valid for explicit user overrides.
 MODEL_KEY_BY_ID: dict[str, str] = {
     alias: key
     for key, (_, model_id) in REGISTRY.items()
@@ -40,7 +39,7 @@ def fallback_chain(primary: str, eligible: tuple[str, ...]) -> tuple[str, ...]:
     """Routes to try, in order, when `primary` is unavailable (quota, auth, missing tool).
 
     Stronger routes after the primary first, then cheaper ones; never the primary
-    itself, and never MINIMAX unless the primary was MINIMAX (its lane is bounded).
+    itself, and never DEEPSEEK unless the primary was DEEPSEEK (its lane is bounded).
     """
     if primary not in ROUTE_ORDER:
         return ()
@@ -49,7 +48,7 @@ def fallback_chain(primary: str, eligible: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(
         key
         for key in ordered
-        if key in eligible and (key != "MINIMAX" or primary == "MINIMAX")
+        if key in eligible and (key != "DEEPSEEK" or primary == "DEEPSEEK")
     )
 
 @dataclass(frozen=True)
@@ -99,7 +98,7 @@ def has_hard_override(facts: RoutingFacts) -> bool:
         facts.explicit_model
         or facts.user_asked_codex
         or facts.recorded_spec_uncertainty
-        or (facts.is_retry and facts.previous_model_key in {"MINIMAX", "CURSOR", "QWEN"})
+        or (facts.is_retry and facts.previous_model_key in {"DEEPSEEK", "CURSOR", "QWEN"})
     )
 
 
@@ -123,7 +122,7 @@ def eligible_routes(facts: RoutingFacts) -> tuple[str, ...]:
         if key not in facts.unavailable_routes
     ]
     if facts.is_high_risk():
-        routes = [key for key in routes if key != "MINIMAX"]
+        routes = [key for key in routes if key != "DEEPSEEK"]
     return tuple(routes)
 
 
@@ -141,9 +140,9 @@ def _bounded_trivial(facts: RoutingFacts) -> bool:
 def deterministic_default(
     facts: RoutingFacts, eligible: tuple[str, ...]
 ) -> tuple[str, str]:
-    """Deterministic default: bounded trivial → MINIMAX, else QWEN → HAIKU → CURSOR."""
-    if "MINIMAX" in eligible and _bounded_trivial(facts):
-        return "MINIMAX", "bounded trivial change within file/line limits"
+    """Deterministic default: bounded trivial → DEEPSEEK, else QWEN → HAIKU → CURSOR."""
+    if "DEEPSEEK" in eligible and _bounded_trivial(facts):
+        return "DEEPSEEK", "bounded trivial change within file/line limits"
     if "QWEN" in eligible:
         return "QWEN", "no exception matched; default implementation"
     if "HAIKU" in eligible:
@@ -235,21 +234,13 @@ def select_route(
         )
     if facts.recorded_spec_uncertainty:
         return _decision(
-            "GLM",
-            "R-GLM",
+            "DEEPSEEK",
+            "R-DEEPSEEK-SPEC",
             "recorded unresolved specification or architecture uncertainty",
             facts,
             eligible=eligible,
         )
-    if facts.is_retry and facts.previous_model_key in {"MINIMAX", "CURSOR", "QWEN"}:
-        if facts.previous_model_key == "MINIMAX":
-            return _decision(
-                "GLM",
-                "R-RETRY-ESCALATE",
-                "retry after failed MINIMAX attempt revises on GLM",
-                facts,
-                eligible=eligible,
-            )
+    if facts.is_retry and facts.previous_model_key in {"DEEPSEEK", "CURSOR", "QWEN"}:
         if "OPUS" in eligible:
             return _decision(
                 "OPUS",
@@ -295,7 +286,7 @@ def select_route(
             )
     route, reason = deterministic_default(facts, eligible)
     rule_id = {
-        "MINIMAX": "R-MINIMAX",
+        "DEEPSEEK": "R-DEEPSEEK",
         "QWEN": "R-QWEN",
         "HAIKU": "R-HAIKU",
         "CURSOR": "R-CURSOR",

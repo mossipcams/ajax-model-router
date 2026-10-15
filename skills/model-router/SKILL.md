@@ -71,9 +71,8 @@ the decision copies the corresponding exact ID into `MODEL`.
 |---|---|---|---|---|---:|---:|
 | `CODEX` | `gpt-6-astra` | `codex` | — | — | — | — |
 | `CURSOR` | `composer-2.5` | `cursor` | — | — | — | — |
-| `MINIMAX` | `opencode-go/minimax-m3` | `pi` | — | — | — | — |
+| `DEEPSEEK` | `opencode-go/deepseek-v4.1-flash` | `pi` | — | — | — | — |
 | `QWEN` | `local/swift-1.5-qwen-3.8-27b` | `pi` | `local` | `http://127.0.0.1:18000/v1` | 131072 | 8192 |
-| `GLM` | `opencode-go/glm-5.2` | `pi` | — | — | — | — |
 | `OPUS` | `claude-opus-5-5` | `cursor` | — | — | — | — |
 | `HAIKU` | `claude-haiku-5-5` | `claude` | — | — | — | — |
 
@@ -141,10 +140,10 @@ planning with no implementation write).
 | `R-PARENT` | Pure Q&A or architecture planning (no implementation write) | `parent` | none | Local only |
 | `R-EXPLICIT-MODEL` | Explicit user/model override | requested | requested | Always wins over the sensor |
 | `R-CODEX` | User explicitly asked Codex to implement | `codex` | `CODEX` | Always wins over the sensor |
-| `R-GLM` | Recorded unresolved specification or architecture uncertainty | `pi` | `GLM` | Always wins over the sensor |
-| `R-RETRY-ESCALATE` | Retry after failed cheap-model attempt | `pi`/`cursor`/`codex` | `GLM`/`OPUS`/`CODEX` | Always wins over the sensor |
+| `R-DEEPSEEK-SPEC` | Recorded unresolved specification or architecture uncertainty | `pi` | `DEEPSEEK` | Always wins over the sensor |
+| `R-RETRY-ESCALATE` | Retry after failed cheap-model attempt | `cursor`/`codex` | `OPUS`/`CODEX` | Always wins over the sensor |
 | `R-SENSOR` | No exception matched; the sensor names an eligible route at/above the confidence threshold | registry | sensor route key | Fuzzy lane among eligible routes |
-| `R-MINIMAX` | Routine docs, generated cleanup, exact replacements, or named boilerplate; at most 2 files and roughly 60 changed lines; no auth/security/data-loss concerns | `pi` | `MINIMAX` | Deterministic default |
+| `R-DEEPSEEK` | Routine docs, generated cleanup, exact replacements, or named boilerplate; at most 2 files and roughly 60 changed lines; no auth/security/data-loss concerns | `pi` | `DEEPSEEK` | Deterministic default |
 | `R-QWEN` | No exception matched; sensor unavailable, invalid, or low confidence | `pi` | `QWEN` | Default implementation |
 | `R-HAIKU` | QWEN unavailable | `claude` | `HAIKU` | Preferred fallback implementation |
 | `R-CURSOR` | QWEN and HAIKU unavailable | `cursor` | `CURSOR` | Last-resort implementation |
@@ -152,8 +151,14 @@ planning with no implementation write).
 
 Default implementation agent is `pi` / `QWEN`, with `claude` / `HAIKU`, then
 `cursor` / `CURSOR`, as its availability fallbacks. Divert only when an
-exception row matches. Do not divert to MiniMax or GLM just because the change
+exception row matches. Do not divert to DeepSeek just because the change
 is backend, PTY, frontend, multi-file, or under `ajax-web`.
+
+Under the opencode orchestrator the only route is `R-DEEPSEEK` (`pi` / `DEEPSEEK`):
+skip the sensor and every other row, including explicit-model, retry-escalation,
+and fallback rows. DEEPSEEK limits still hold: a high-risk task, or one over 2
+files / ~60 changed lines, ends in `FALLBACK: STOP` with the reason — never
+widen to another model.
 
 `QWEN` size gate: one `QWEN` dispatch has at most 4 files in `SCOPE` and about
 20 tool calls of work. Measured on 125 local runs: 1–4 files timed out 10–14% and
@@ -167,7 +172,7 @@ If the selected tool is unavailable, reroute once via `FALLBACK` to the next
 matching agent; never retry the same unavailable tool. `STOP` only when no
 agent remains. `FALLBACK` is never the selected route itself: `analyze-task`
 emits it plus `FALLBACK_CHAIN` (every other eligible route as `agent/model`,
-stronger routes first; MiniMax only when MiniMax was selected). Pass the chain
+stronger routes first; DeepSeek only when DeepSeek was selected). Pass the chain
 as context `fallback_chain` and `run-transaction` walks it automatically when a
 delegate is unavailable (quota, plan, auth, rate limit, missing CLI;
 `TOOL_UNAVAILABLE` / `MISSING_TOOL`) and left the tree untouched. Each skipped
@@ -331,8 +336,8 @@ Parent-local. No delegate review lane.
 
 Accept when scope held, acceptance is demonstrated, and verification is
 meaningful. Use `REVISE` once for incomplete work inside scope. A failed
-`MINIMAX` round revises on `GLM` with findings; never pay for a second
-`MINIMAX` attempt. Every revision — same tool or cross-tool — sends a full
+`DEEPSEEK` round revises on `OPUS` with findings; never pay for a second
+`DEEPSEEK` attempt. Every revision — same tool or cross-tool — sends a full
 Dispatch prompt assembled by the parent (outcome, scope, acceptance,
 findings, and constraints). Use `DISCARD` for a rejected delta. After two failed
 rounds, `STOP`.
@@ -393,7 +398,7 @@ not generate task features. Ajax deterministic policy retains final authority.
   inference; the sensor sees only compact decision-relevant task information,
   never source files or large repository context.
 - **Validated decision** — the sensor returns a registry route key
-  (`MINIMAX`/`QWEN`/`HAIKU`/`CURSOR`/`GLM`/`CODEX`/`OPUS`), route probabilities, and complexity and
+  (`DEEPSEEK`/`QWEN`/`HAIKU`/`CURSOR`/`CODEX`/`OPUS`), route probabilities, and complexity and
   ambiguity scores (1–5). `RouteDecision` and `ContextRequirements` use typed
   validation; invalid sensor output is rejected.
 - **Deterministic policy** — registry keys select the executor; hard rules

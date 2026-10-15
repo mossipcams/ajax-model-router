@@ -16,7 +16,7 @@ routes, and may ask the **routing sensor** to evaluate those eligible routes
 directly. The sensor is a local **GLiNER** classifier
 (`fastino/GLiNER2.5-Decide` in a router venv, `scripts/setup-gliner`) and
 returns one compact decision: a registry route key
-(`MINIMAX`/`QWEN`/`HAIKU`/`CURSOR`/`GLM`/`CODEX`/`OPUS`), route probabilities, and
+(`DEEPSEEK`/`QWEN`/`HAIKU`/`CURSOR`/`CODEX`/`OPUS`), route probabilities, and
 complexity/ambiguity scores (1–5). The response is validated strictly and fed
 into deterministic policy. The sensor is advisory only — it never chooses the
 final model, never owns hard policy, safety, execution, retries, verification,
@@ -96,12 +96,13 @@ first); hard overrides below always win over the sensor.
 | QWEN unavailable | `claude` / `claude-haiku-5-5`, then `cursor` / `composer-2.5` |
 | Explicit user/model override | the requested model |
 | Explicit Codex ask | `codex` / `gpt-6-astra` |
-| Recorded spec/architecture uncertainty | `pi` / `opencode-go/glm-5.2` |
-| Retry after failed cheap-model attempt | escalate (`GLM` → `OPUS` → `CODEX`) |
-| Shallow docs/boilerplate ≤2 files/~60 lines | `pi` / `opencode-go/minimax-m3` |
-| High-risk (auth/security/session/PTY/data-loss) | never `minimax-m3` |
+| Recorded spec/architecture uncertainty | `pi` / `opencode-go/deepseek-v4.1-flash` |
+| Retry after failed cheap-model attempt | escalate (`OPUS` → `CODEX`) |
+| Shallow docs/boilerplate ≤2 files/~60 lines | `pi` / `opencode-go/deepseek-v4.1-flash` |
+| High-risk (auth/security/session/PTY/data-loss) | never `deepseek-v4.1-flash` |
 | sensor unavailable/invalid/low confidence | existing deterministic default |
 | Pure Q&A / architecture planning | `parent` (no write) |
+| Orchestrator is opencode | `pi` / `opencode-go/deepseek-v4.1-flash` only; high-risk or >2 files → STOP |
 
 Routing events (`routing-events.jsonl`) record eligible routes, selected
 route, route probabilities/confidence, complexity, ambiguity, whether
