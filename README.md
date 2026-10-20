@@ -58,6 +58,8 @@ links the execute helpers (`scripts/run-delegate`, `run-transaction`,
 the target's `scripts/` so a task worktree can run them as written. Re-run
 install for each worktree that needs dispatch.
 
+The canonical checkout must stay on `main` (every skill symlink points at it): after cloning, run `git config core.hooksPath .githooks` once so a stray branch switch is immediately reverted.
+
 Use `--force` only when replacing an existing non-canonical install:
 
 ```bash
