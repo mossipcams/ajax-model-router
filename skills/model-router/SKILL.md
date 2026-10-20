@@ -273,7 +273,10 @@ and when the completion notification arrives post a short progress update
 (result checked, what runs next) before the next dispatch. A foreground
 dispatch blocks the turn and leaves Ajax Chat on one silent command row until
 it ends. Do not poll the output on a timer; the notification re-invokes you.
-Harnesses without background commands run it in the foreground.
+Do not add `&`, `nohup`, or `disown` inside the command — the background option
+already detaches it, and a shell-backgrounded dispatch fires the completion
+notification immediately. Harnesses without background commands run it in the
+foreground.
 
 Kept because removing them causes concrete failures:
 
