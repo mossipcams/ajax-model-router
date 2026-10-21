@@ -114,8 +114,9 @@ chain-of-thought, no raw task contents.
 ## Calibrating Swift budgets
 
 Every run writes a `stats tool_calls=N elapsed=Ns prompt_bytes=B outcome=...` line
-to `run/debug.log`. Swift (`local/` models) gets a soft budget of 30 tool calls in
-its prompt (`LOCAL_TOOL_CALL_BUDGET`) and the default 900s timeout.
+to `run/debug.log`. Swift (`local/` models) gets a soft budget of 80 tool calls
+(60-100+ per local delegation) in its prompt (`LOCAL_TOOL_CALL_BUDGET`) and the
+default 900s timeout.
 
 Measured on 77 logged runs (Oct 6-9 2026): 53 reported, 19 `TIMEOUT`, 5 provider
 failures. Prompt size did not predict timeouts (21-36% in every size bucket, 2-10 KB).

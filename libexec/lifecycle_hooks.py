@@ -46,12 +46,13 @@ ROUTER_REPORT_END
 """
 
 
-# Local models (Swift via pi) run slowly: in 77 logged runs, 13 of 22 runs past 30 tool
-# calls timed out vs 2 of 22 at 10-20. A soft call budget turns a hard-kill timeout
+# Local models (Swift via pi) run slowly and real delegations routinely need 60-100+
+# tool calls, so the soft budget sits well above where early runs started timing out.
+# A soft call budget turns a hard-kill timeout
 # (no report) into a BLOCKED report the parent can escalate. Recalibrate from the
 # `stats` line in debug.log (see README "Calibrating Swift budgets").
 LOCAL_MODEL_PREFIX = "local/"
-LOCAL_TOOL_CALL_BUDGET = 30
+LOCAL_TOOL_CALL_BUDGET = 80
 BUDGET_NOTE = (
     f"Budget: about {LOCAL_TOOL_CALL_BUDGET} tool calls. If you are not close to done "
     "by then, stop, leave the tree consistent, and report BLOCKED with what remains "

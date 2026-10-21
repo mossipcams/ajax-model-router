@@ -238,12 +238,13 @@ def run_acpx_process(command, args, raw, deadline, debug=None):
     if args.model.startswith("local/"):
         # context-fold rewrites history and busts llama.cpp's prefix cache (~40-90s re-prefill),
         # so it must fire late: fold-free turns cost ~7s at 20-40K but ~13-20s past 60K, so a
-        # single fold at ~59K (0.45 of the 131K window) pays back; at 40K it never did.
-        # Two triggers (usage >= FOLD_AT*window, usage > budget cap); user config caps at 40K.
+        # single fold at ~72K (0.55 of the 131K window Pi claims) pays back; earlier folds never did.
+        # Two triggers (usage >= FOLD_AT*window, usage > budget cap); the cap sits under the
+        # llama slot, now 81920.
         env.update(
-            CONTEXTFOLD_BUDGET_CAP="100000",
-            CONTEXTFOLD_FOLD_AT="0.45",
-            CONTEXTFOLD_COLD_FOLD_AT="0.45",
+            CONTEXTFOLD_BUDGET_CAP="76000",
+            CONTEXTFOLD_FOLD_AT="0.55",
+            CONTEXTFOLD_COLD_FOLD_AT="0.55",
         )
     shim_dir = None
     if args.tool == "cursor":

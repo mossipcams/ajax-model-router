@@ -161,7 +161,7 @@ files / ~60 changed lines, ends in `FALLBACK: STOP` with the reason — never
 widen to another model.
 
 `QWEN` size gate: one `QWEN` dispatch has at most 4 files in `SCOPE` and about
-20 tool calls of work. Measured on 125 local runs: 1–4 files timed out 10–14% and
+80 tool calls of work. Measured on 125 local runs: 1–4 files timed out 10–14% and
 finished within ~530s at p90; 5+ files timed out ~30%. Split anything larger into
 sequential slices of at most 4 files, each of which builds and verifies on its own,
 and dispatch each slice as its own `EXECUTION` with only that slice's context. If it
