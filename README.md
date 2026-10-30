@@ -131,8 +131,8 @@ Route tasks past the budget to another model instead of raising it.
 ## Delegate transport
 
 All four delegates (`cursor`, `codex`, `pi`, `claude`) dispatch through
-[acpx](https://github.com/openclaw/acpx) ACP (`npm install -g acpx@0.13.2`, Node
-22.13+). Pin that release and ensure `acpx` is on `PATH`; missing
+[acpx](https://github.com/openclaw/acpx) ACP (`npm install -g acpx`, Node
+22.13+). Last tested release is in `config/acpx-version`; ensure `acpx` is on `PATH`; missing
 `acpx` is a hard stop with no fallback to harness-native CLIs. The runner
 invokes `acpx <profile> exec|prompt --cwd <worktree> --format json --model
 <registry-id>` and extracts `DELEGATE_REPORT` markers from agent output.

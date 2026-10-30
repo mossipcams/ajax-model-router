@@ -2,5 +2,21 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Watch openclaw/acpx releases against the last-tested version",
+      "managerFilePatterns": [
+        "/^config/acpx-version$/"
+      ],
+      "matchStrings": [
+        "^(?<currentValue>\\d+\\.\\d+\\.\\d+)\\s*$"
+      ],
+      "datasourceTemplate": "github-releases",
+      "packageNameTemplate": "openclaw/acpx",
+      "extractVersionTemplate": "^v(?<version>.+)$",
+      "depNameTemplate": "acpx"
+    }
   ]
 }
