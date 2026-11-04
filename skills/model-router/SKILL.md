@@ -273,11 +273,17 @@ task's output file (Claude Code / Claude Agent SDK: the `Monitor` tool, timeout
 at its maximum, re-armed on expiry while the dispatch is still running):
 
 ```bash
-tail -n +1 -f "<task output file>" | grep --line-buffered '"type":"subagent_status"'
+last=0; tail -n +1 -f "<task output file>" | grep --line-buffered '"type":"subagent_status"' | while IFS= read -r l; do case "$l" in *'"state":"waiting_for_permission"'*|*'"state":"stalled"'*|*'"state":"failed"'*|*'"state":"cancelled"'*) echo "$l";; *'"state":"tool_call"'*) now=$(date +%s); if [ $((now-last)) -ge 180 ]; then echo "$l"; last=$now; fi;; esac; done
 ```
 
-End the turn with one line naming what is in flight. On each Monitor event post
-one short progress line (harness, state, detail). When the completion
+The filter drops `running` events ("Generating response", "Tool finished",
+"Planning"), passes at most one `tool_call` event per three minutes, and always
+passes permission waits, stalls, failures, and cancellations. Completion arrives
+as the background task's own notification, so the filter skips `completed`.
+
+End the turn with one line naming what is in flight. On a Monitor event post one
+short progress line only when it reports something not yet said (a new file or
+step, or an attention state); otherwise end the turn without text. When the completion
 notification arrives, stop the monitor (`TaskStop`) and post a short progress
 update (result checked, what runs next) before the next dispatch. A foreground
 dispatch blocks the turn and leaves Ajax Chat on one silent command row until
