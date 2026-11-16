@@ -189,6 +189,9 @@ class SubagentStatusTracker:
         record = parse_jsonl_line(line)
         if record is None:
             return None
+        # Any ACP record is liveness, even when deduped below (repeated
+        # "Generating response" chunks, same-tool updates, usage pings).
+        self.last_event_monotonic = time.monotonic()
         mapped = map_acp_record(record, current_state=self.state)
         if mapped is None:
             return None
