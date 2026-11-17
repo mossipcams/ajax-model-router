@@ -24,6 +24,7 @@ from acpx_events import (
     normalize_record,
     parse_jsonl_line,
 )
+from lifecycle_context import default_timeout_seconds
 from subagent_status import TERMINAL_STATES, SubagentStatusTracker, emit_ndjson
 
 
@@ -657,7 +658,11 @@ def main():
     parser.add_argument("--prompt", type=Path, required=True)
     parser.add_argument("--raw-log", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
-    parser.add_argument("--timeout-seconds", type=float, default=900)
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        help="default: 1800 for local/ models, else 900",
+    )
     parser.add_argument("--term-grace-seconds", type=float, default=5)
     parser.add_argument(
         "--sandbox",
@@ -687,6 +692,8 @@ def main():
         help="seconds without ACP activity before emitting stalled",
     )
     args = parser.parse_args()
+    if args.timeout_seconds is None:
+        args.timeout_seconds = float(default_timeout_seconds(args.model))
     if not 0 < args.timeout_seconds <= 86400:
         parser.error("--timeout-seconds must be between 0 and 86400")
     if not 0 <= args.term_grace_seconds <= 30:

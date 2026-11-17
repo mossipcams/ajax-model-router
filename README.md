@@ -115,13 +115,20 @@ chain-of-thought, no raw task contents.
 
 Every run writes a `stats tool_calls=N elapsed=Ns prompt_bytes=B outcome=...` line
 to `run/debug.log`. Swift (`local/` models) gets a soft budget of 80 tool calls
-(60-100+ per local delegation) in its prompt (`LOCAL_TOOL_CALL_BUDGET`) and the
-default 900s timeout.
+(60-100+ per local delegation) in its prompt (`LOCAL_TOOL_CALL_BUDGET`) and a 1800s default timeout
+(`LOCAL_TIMEOUT_SECONDS`; other models keep 900s).
 
 Measured on 77 logged runs (Oct 6-9 2026): 53 reported, 19 `TIMEOUT`, 5 provider
 failures. Prompt size did not predict timeouts (21-36% in every size bucket, 2-10 KB).
 Tool calls did: 0 of 16 timed out under 10 calls, 13 of 22 at 30+. Successful runs
 took p50 192s, p90 454s; only 4 exceeded 600s, so a longer timeout buys little.
+
+Re-measured on 16 local runs (Nov 12-16 2026): all 4 `TIMEOUT`s were killed mid-work
+(idle 6-55s) at 14-54 tool calls, short of the budget, with slow runs at 17-64s per
+call. At 900s the clock, not the budget, ended them, so local runs now get 1800s.
+Calls far above ~25s usually mean llama-server is re-processing the full prompt each
+turn (open for hybrid Qwen as of Nov 2026, llama.cpp #22746); fix the server, not the
+timeout.
 
 Recalibrate: collect `stats` lines (`grep -h ' stats ' /var/folders/*/*/T/tmp*/run/debug.log`),
 bucket by `tool_calls`, and set the budget at the largest bucket whose timeout rate
