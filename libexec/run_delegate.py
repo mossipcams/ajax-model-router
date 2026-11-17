@@ -651,6 +651,13 @@ def run_acpx(args):
     return code or 0
 
 
+# Local Qwen goes silent while it re-reads a tool result and thinks before streaming;
+# healthy gaps measured 64-420s (median ~150s, Nov 13-16 2026), so 60s flagged
+# working runs as stalled. 300s still flags a real hang early in the 1800s timeout.
+DEFAULT_STALL_SECONDS = 60.0
+LOCAL_STALL_SECONDS = 300.0
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tool", choices=tuple(PROFILE_BY_TOOL), required=True)
@@ -688,12 +695,15 @@ def main():
     parser.add_argument(
         "--stall-seconds",
         type=float,
-        default=60.0,
-        help="seconds without ACP activity before emitting stalled",
+        help="seconds without ACP activity before emitting stalled "
+        "(default: 300 for local/ models, else 60)",
     )
     args = parser.parse_args()
     if args.timeout_seconds is None:
         args.timeout_seconds = float(default_timeout_seconds(args.model))
+    if args.stall_seconds is None:
+        local = args.model.startswith("local/")
+        args.stall_seconds = LOCAL_STALL_SECONDS if local else DEFAULT_STALL_SECONDS
     if not 0 < args.timeout_seconds <= 86400:
         parser.error("--timeout-seconds must be between 0 and 86400")
     if not 0 <= args.term_grace_seconds <= 30:
