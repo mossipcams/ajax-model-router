@@ -34,6 +34,16 @@ REQUIRED_FIELDS = (
 # Top-level prompt overrides that the prompt builder never reads.
 UNSUPPORTED_PROMPT_FIELDS = ("prompt", "prompt_path", "prompt_file")
 
+# Local (Swift/Qwen) runs take 10-25s per tool call when healthy; every 900s timeout
+# was killed mid-work (idle <60s) at 14-54 calls, short of the 80-call budget.
+# 1800s lets the budget, not the clock, end slow runs. See README "Calibrating Swift budgets".
+DEFAULT_TIMEOUT_SECONDS = 900
+LOCAL_TIMEOUT_SECONDS = 1800
+
+
+def default_timeout_seconds(model):
+    return LOCAL_TIMEOUT_SECONDS if model.startswith("local/") else DEFAULT_TIMEOUT_SECONDS
+
 EVIDENCE_NAME = "evidence.json"
 CONTEXT_STATE_NAME = "context.json"
 
@@ -213,7 +223,7 @@ def validate_context(data):
     artifacts.update({key: incoming[key] for key in artifacts if key in incoming})
     ctx["artifacts"] = artifacts
 
-    timeout = data.get("timeout_seconds", 900)
+    timeout = data.get("timeout_seconds", default_timeout_seconds(ctx["model"]))
     if not isinstance(timeout, (int, float)) or not 0 < float(timeout) <= 86400:
         raise ContextError("timeout_seconds must be between 0 and 86400")
     ctx["timeout_seconds"] = float(timeout)
