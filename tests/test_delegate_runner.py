@@ -1122,5 +1122,73 @@ class SwiftReliabilityTests(unittest.TestCase):
         self.assertRegex(debug, r"stats tool_calls=3 elapsed=\d+s prompt_bytes=4 outcome=TIMEOUT")
 
 
+class LocalServerLivenessTests(unittest.TestCase):
+    """A local delegate is ended early when llama-server dies under it."""
+
+    QWEN = "local/swift-1.5-qwen-3.8-27b"
+
+    def start_health_server(self, status):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Health(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                self.send_response(status)
+                self.end_headers()
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Health)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return f"http://127.0.0.1:{server.server_port}/v1"
+
+    def run_quiet_delegate(self, qwen_url, quiet_seconds):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        body = f"import time\ntime.sleep({quiet_seconds})\n"
+        env, _ = install_fake_acpx(tmp, fake_acpx_script(body=body))
+        env.update(
+            AJAX_ROUTER_QWEN_URL=qwen_url,
+            AJAX_ROUTER_LOCAL_LIVENESS_SECONDS="0.2",
+            AJAX_ROUTER_HEALTH_CACHE=str(tmp / "health.json"),
+        )
+        prompt = tmp / "prompt.txt"
+        prompt.write_text("task")
+        report = tmp / "report.yaml"
+        started = time.monotonic()
+        result = subprocess.run(
+            [
+                sys.executable, ROOT / "libexec" / "run_delegate.py", "--tool", "pi",
+                "--model", self.QWEN, "--prompt", prompt, "--raw-log", tmp / "raw.log",
+                "--report", report, "--timeout-seconds", "60", "--term-grace-seconds", "0.2",
+            ],
+            text=True, capture_output=True, env=env,
+        )
+        elapsed = time.monotonic() - started
+        health = json.loads((tmp / "health.json").read_text()) if (tmp / "health.json").exists() else {}
+        return result, report.read_text(), elapsed, health
+
+    def test_dead_server_ends_quiet_run_fast_and_marks_route_down(self):
+        # Nothing listens on port 9: every /health check is refused.
+        result, report, elapsed, health = self.run_quiet_delegate("http://127.0.0.1:9/v1", 30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TYPE: SERVER_DOWN", report)
+        self.assertLess(elapsed, 10)
+        self.assertFalse(health[f"pi/{self.QWEN}"]["ok"])
+
+    def test_loading_server_counts_as_down(self):
+        _, report, elapsed, _ = self.run_quiet_delegate(self.start_health_server(503), 30)
+        self.assertIn("TYPE: SERVER_DOWN", report)
+        self.assertLess(elapsed, 10)
+
+    def test_healthy_server_leaves_quiet_run_alone(self):
+        result, report, _, _ = self.run_quiet_delegate(self.start_health_server(200), 1.5)
+        self.assertEqual(result.returncode, 0, report)
+        self.assertNotIn("SERVER_DOWN", report)
+
+
 if __name__ == "__main__":
     unittest.main()

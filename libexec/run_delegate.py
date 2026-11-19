@@ -24,6 +24,7 @@ from acpx_events import (
     normalize_record,
     parse_jsonl_line,
 )
+import route_health
 from lifecycle_context import default_timeout_seconds
 from subagent_status import TERMINAL_STATES, SubagentStatusTracker, emit_ndjson
 
@@ -223,6 +224,13 @@ def run_acpx_process(command, args, raw, deadline, debug=None):
     stderr_lines = []
     acpx_pid = None
     tracker = None
+    # Local routes: llama-server dies when the GPU is taken for training. Check it
+    # while the delegate is quiet (healthy Qwen goes silent for minutes, so idle
+    # time alone proves nothing) and end the run as soon as the server is gone.
+    route = f"{args.tool}/{args.model}"
+    watch_local = route_health.local_base_url(route) is not None
+    last_liveness = time.monotonic()
+    liveness_failures = 0
     if args.run_id and args.parent_task_id:
         tracker = SubagentStatusTracker(
             args.run_id,
@@ -317,6 +325,27 @@ def run_acpx_process(command, args, raw, deadline, debug=None):
                 line = None
                 if tracker:
                     tracker.maybe_stalled()
+                now = time.monotonic()
+                if (
+                    watch_local
+                    and now - last_activity >= LOCAL_LIVENESS_SECONDS
+                    and now - last_liveness >= LOCAL_LIVENESS_SECONDS
+                ):
+                    last_liveness = now
+                    alive, detail = route_health.local_server_alive(route)
+                    liveness_failures = 0 if alive else liveness_failures + 1
+                    if debug is not None and not alive:
+                        emit_debug(debug, f"local server check failed ({liveness_failures}/2): {detail}")
+                    if liveness_failures >= 2:
+                        terminate_group(process, args.term_grace_seconds)
+                        route_health.record(route, False, f"SERVER_DOWN mid-run: {detail}")
+                        failure = (
+                            f"local model server went down mid-run ({detail}) after "
+                            f"{tool_calls} tool calls"
+                        )
+                        failure_reason = "SERVER_DOWN"
+                        terminal = True
+                        break
             if stream is not None:
                 if line is None:
                     eof.add(stream)
@@ -655,6 +684,9 @@ def run_acpx(args):
 # healthy gaps measured 64-420s (median ~150s, Nov 13-16 2026), so 60s flagged
 # working runs as stalled. 300s still flags a real hang early in the 1800s timeout.
 DEFAULT_STALL_SECONDS = 60.0
+# How long a local delegate may be quiet before we check its server is still up,
+# and the spacing between checks. Two failed checks in a row end the run.
+LOCAL_LIVENESS_SECONDS = float(os.environ.get("AJAX_ROUTER_LOCAL_LIVENESS_SECONDS") or 60.0)
 LOCAL_STALL_SECONDS = 300.0
 
 

@@ -147,9 +147,15 @@ def run_analyze_task(
 
 
 def _known_down_routes() -> set[str]:
-    """Registry keys whose route recently failed (route-health cache, no probing)."""
+    """Registry keys that are down: live probe for local routes, cache for the rest.
+
+    The local probe runs first and records its result, so a QWEN that came back
+    up clears a stale cached failure, and one that went down is skipped now
+    instead of after a failed dispatch.
+    """
     import route_health
 
+    route_health.refresh_local()
     down = route_health.unavailable()
     return {key for key, pair in REGISTRY.items() if "/".join(pair) in down}
 

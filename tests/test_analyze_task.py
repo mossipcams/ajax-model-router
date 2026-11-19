@@ -39,7 +39,7 @@ class AnalyzeTaskTests(unittest.TestCase):
         self.assertEqual(output["explanation"]["analysis_source"], "disabled")
         self.assertTrue(output["explanation"]["fallback_used"])
 
-    def test_sensor_decision_flows_into_execution(self):
+    def test_sensor_decision_does_not_override_qwen(self):
         with mock.patch(
             "semantic.analyze_with_fallback",
             return_value=(_sensor("OPUS", 0.85), None, "sensor"),
@@ -49,11 +49,10 @@ class AnalyzeTaskTests(unittest.TestCase):
                 analyzer=DisabledSemanticAnalyzer(),
             )
         execution = output["execution"]
-        self.assertEqual(execution["AGENT"], "cursor")
-        self.assertEqual(execution["MODEL"], "claude-opus-5-5")
-        self.assertEqual(output["explanation"]["selected_route"], "OPUS")
-        self.assertEqual(output["explanation"]["analysis_source"], "sensor")
-        self.assertEqual(output["decision"]["rule_id"], "R-SENSOR")
+        self.assertEqual(execution["AGENT"], "pi")
+        self.assertEqual(execution["MODEL"], "local/swift-1.5-qwen-3.8-27b")
+        self.assertEqual(output["explanation"]["selected_route"], "QWEN")
+        self.assertEqual(output["decision"]["rule_id"], "R-QWEN")
 
     def test_hard_override_skips_sensor(self):
         output = run_analyze_task(

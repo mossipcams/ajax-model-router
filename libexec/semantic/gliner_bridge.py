@@ -40,7 +40,6 @@ ROUTE_LABELS = {
     "HAIKU": "fast Claude model for small to moderate bounded implementation with a clear spec",
     "CURSOR": "strong model for standard features, UI work, and test writing with moderate scope",
     "CODEX": "top-tier model for complex cross-module work, refactors, investigations, or when the user explicitly asked",
-    "OPUS": "maximum-strength model for repeated failures, the hardest retries, and architecture-level redesigns",
 }
 ROUTE_INSTRUCTION = "Pick the execution route best suited to this coding task."
 TEMPERATURE = 0.6

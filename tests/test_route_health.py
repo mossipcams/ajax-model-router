@@ -62,3 +62,96 @@ class RouteHealthTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+import json  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
+
+
+class _FakeLlama(BaseHTTPRequestHandler):
+    mode = "ok"
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        if self.mode == "loading":
+            self.send_response(503)
+            self.end_headers()
+            return
+        if self.mode == "slow":
+            time.sleep(2)
+        body = json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode()
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+        except BrokenPipeError:
+            pass  # the probe gave up first (slow-server case)
+
+
+class LocalProbeTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), _FakeLlama)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        url = f"http://127.0.0.1:{self.server.server_port}/v1"
+        patcher = mock.patch.dict(os.environ, {
+            "AJAX_ROUTER_HEALTH_CACHE": str(Path(tmp.name) / "health.json"),
+            "AJAX_ROUTER_QWEN_URL": url,
+        })
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        _FakeLlama.mode = "ok"
+
+    def test_up_when_server_generates_a_token(self):
+        ok, detail = route_health.probe_local(route_health.QWEN_ROUTE)
+        self.assertTrue(ok, detail)
+
+    def test_down_while_model_loading(self):
+        _FakeLlama.mode = "loading"
+        ok, detail = route_health.probe_local(route_health.QWEN_ROUTE)
+        self.assertFalse(ok)
+        self.assertIn("503", detail)
+
+    def test_down_when_too_slow_to_generate(self):
+        _FakeLlama.mode = "slow"
+        ok, _ = route_health.probe_local(route_health.QWEN_ROUTE, timeout=0.5)
+        self.assertFalse(ok)
+
+    def test_down_when_nothing_listening(self):
+        self.server.shutdown()
+        self.server.server_close()
+        ok, detail = route_health.probe_local(route_health.QWEN_ROUTE, timeout=1)
+        self.assertFalse(ok)
+        self.assertIn("unreachable", detail)
+
+    def test_refresh_clears_stale_failure_and_records_new_one(self):
+        route_health.record(route_health.QWEN_ROUTE, False, "TIMEOUT")
+        self.assertEqual(route_health.refresh_local(), set())
+        self.assertNotIn(route_health.QWEN_ROUTE, route_health.unavailable())
+        _FakeLlama.mode = "loading"
+        self.assertEqual(route_health.refresh_local(), {route_health.QWEN_ROUTE})
+        self.assertIn(route_health.QWEN_ROUTE, route_health.unavailable())
+
+    def test_generic_probe_uses_http_for_local_route(self):
+        with mock.patch("route_health.subprocess.run") as run:
+            ok, _ = route_health.probe(route_health.QWEN_ROUTE)
+        self.assertTrue(ok)
+        run.assert_not_called()
+
+    def test_routing_skips_qwen_when_probe_fails(self):
+        sys.path.insert(0, str(ROOT / "libexec"))
+        import semantic
+
+        _FakeLlama.mode = "loading"
+        self.assertIn("QWEN", semantic._known_down_routes())
+        _FakeLlama.mode = "ok"
+        self.assertNotIn("QWEN", semantic._known_down_routes())

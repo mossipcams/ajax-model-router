@@ -67,9 +67,9 @@ class AnalyzerTests(unittest.TestCase):
         analyzer = create_analyzer(CFG_GLINER)
         self.assertIsInstance(analyzer, GlinerAnalyzer)
 
-    def test_create_analyzer_defaults_to_gliner(self):
+    def test_create_analyzer_defaults_to_disabled(self):
         analyzer = create_analyzer()
-        self.assertIsInstance(analyzer, GlinerAnalyzer)
+        self.assertIsInstance(analyzer, DisabledSemanticAnalyzer)
 
     def test_disabled_analyzer_raises(self):
         with self.assertRaises(SemanticDisabledError):

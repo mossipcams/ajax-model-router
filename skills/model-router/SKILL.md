@@ -69,12 +69,17 @@ the decision copies the corresponding exact ID into `MODEL`.
 
 | Key | Model ID | Agent | Provider | Base URL | Context | Max output |
 |---|---|---|---|---|---:|---:|
-| `CODEX` | `gpt-6-astra` | `codex` | — | — | — | — |
+| `CODEX` | `gpt-6-astra` | `codex` | — | — | — | — |  ← explicit user ask only; never fallback or retry
 | `CURSOR` | `composer-2.5` | `cursor` | — | — | — | — |
 | `DEEPSEEK` | `opencode-go/deepseek-v4.1-flash` | `pi` | — | — | — | — |
 | `QWEN` | `local/swift-1.5-qwen-3.8-27b` | `pi` | `local` | `http://127.0.0.1:18000/v1` | 131072 | 8192 |
-| `OPUS` | `claude-opus-5-5` | `cursor` | — | — | — | — |
-| `HAIKU` | `claude-haiku-5-5` | `claude` | — | — | — | — |
+| `HAIKU` | `claude-haiku-5-5` | `claude` | — | — | — | — |  ← via Claude Code, never Cursor
+
+Cheap-only policy: Cursor runs only the `CURSOR` registry model (Composer 2.5 standard, never Fast), which
+draws from Cursor's included weekly pool (AA Coding Agent Index Nov 2026: 38 at
+~$0.09/task; cheapest Cursor option, not the strongest). No route, fallback, or retry ever
+selects Claude Opus or GPT Astra; `CODEX` exists only for an explicit user
+ask. Adding a Cursor model requires it to be cheap on price/performance.
 
 ## Execution Decision
 
@@ -141,18 +146,16 @@ planning with no implementation write).
 | `R-EXPLICIT-MODEL` | Explicit user/model override | requested | requested | Always wins over the sensor |
 | `R-CODEX` | User explicitly asked Codex to implement | `codex` | `CODEX` | Always wins over the sensor |
 | `R-DEEPSEEK-SPEC` | Recorded unresolved specification or architecture uncertainty | `pi` | `DEEPSEEK` | Always wins over the sensor |
-| `R-RETRY-ESCALATE` | Retry after failed cheap-model attempt | `cursor`/`codex` | `OPUS`/`CODEX` | Always wins over the sensor |
-| `R-SENSOR` | No exception matched; the sensor names an eligible route at/above the confidence threshold | registry | sensor route key | Fuzzy lane among eligible routes |
-| `R-DEEPSEEK` | Routine docs, generated cleanup, exact replacements, or named boilerplate; at most 2 files and roughly 60 changed lines; no auth/security/data-loss concerns | `pi` | `DEEPSEEK` | Deterministic default |
-| `R-QWEN` | No exception matched; sensor unavailable, invalid, or low confidence | `pi` | `QWEN` | Default implementation |
+| `R-RETRY-ESCALATE` | Retry after a failed attempt | `claude`/`cursor` | `HAIKU`/`CURSOR` | QWEN or DEEPSEEK → HAIKU (CURSOR if HAIKU is down); HAIKU → CURSOR; CURSOR → HAIKU. Never a premium model |
+| `R-QWEN` | No exception matched | `pi` | `QWEN` | Default implementation: always first (local, cheap) |
 | `R-HAIKU` | QWEN unavailable | `claude` | `HAIKU` | Preferred fallback implementation |
 | `R-CURSOR` | QWEN and HAIKU unavailable | `cursor` | `CURSOR` | Last-resort implementation |
 | `R-STOP` | Selected tool unavailable and every fallback exhausted; or task exceeds one bounded behavior | — | — | `FALLBACK: STOP` |
 
 Default implementation agent is `pi` / `QWEN`, with `claude` / `HAIKU`, then
-`cursor` / `CURSOR`, as its availability fallbacks. Divert only when an
-exception row matches. Do not divert to DeepSeek just because the change
-is backend, PTY, frontend, multi-file, or under `ajax-web`.
+`cursor` / `CURSOR`, as its availability fallbacks. QWEN goes first for every
+implementation task, trivial or not; divert only when an exception row above
+it matches. The semantic sensor is disabled and never picks the route.
 
 Under the opencode orchestrator the only route is `R-DEEPSEEK` (`pi` / `DEEPSEEK`):
 skip the sensor and every other row, including explicit-model, retry-escalation,
@@ -364,7 +367,7 @@ Parent-local. No delegate review lane.
 
 Accept when scope held, acceptance is demonstrated, and verification is
 meaningful. Use `REVISE` once for incomplete work inside scope. A failed
-`DEEPSEEK` round revises on `OPUS` with findings; never pay for a second
+`DEEPSEEK` round revises on `HAIKU` with findings; never pay for a second
 `DEEPSEEK` attempt. Every revision — same tool or cross-tool — sends a full
 Dispatch prompt assembled by the parent (outcome, scope, acceptance,
 findings, and constraints). Use `DISCARD` for a rejected delta. After two failed
@@ -378,6 +381,7 @@ Read the runner's failure `TYPE` before choosing the next step:
 | `TIMEOUT` | Delegate was working but the task was too big (`tool_calls`, `idle` in detail) | Never re-run on the same route or raise the timeout; escalate or split. Pass partial edits as revision findings |
 | `BLOCKED` (call budget) | Local model hit its tool-call budget | Same as `TIMEOUT`, but the report says what remains |
 | `MISSING_STRUCTURED_REPORT` | Model ended its turn without a report | One `REVISE` at most |
+| `SERVER_DOWN` | Local model server died mid-run (GPU taken for training) | Runner already resumed the partial edits on the next fallback route; review that route's delta as usual |
 
 DISCARD is a verdict, not permission to reset the worktree. Run
 `scripts/delegate-delta restore "$SNAP"`; it verifies current non-ignored
@@ -426,7 +430,7 @@ not generate task features. Ajax deterministic policy retains final authority.
   inference; the sensor sees only compact decision-relevant task information,
   never source files or large repository context.
 - **Validated decision** — the sensor returns a registry route key
-  (`DEEPSEEK`/`QWEN`/`HAIKU`/`CURSOR`/`CODEX`/`OPUS`), route probabilities, and complexity and
+  (`DEEPSEEK`/`QWEN`/`HAIKU`/`CURSOR`/`CODEX`), route probabilities, and complexity and
   ambiguity scores (1–5). `RouteDecision` and `ContextRequirements` use typed
   validation; invalid sensor output is rejected.
 - **Deterministic policy** — registry keys select the executor; hard rules

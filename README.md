@@ -16,7 +16,7 @@ routes, and may ask the **routing sensor** to evaluate those eligible routes
 directly. The sensor is a local **GLiNER** classifier
 (`fastino/GLiNER2.5-Decide` in a router venv, `scripts/setup-gliner`) and
 returns one compact decision: a registry route key
-(`DEEPSEEK`/`QWEN`/`HAIKU`/`CURSOR`/`CODEX`/`OPUS`), route probabilities, and
+(`DEEPSEEK`/`QWEN`/`HAIKU`/`CURSOR`/`CODEX`), route probabilities, and
 complexity/ambiguity scores (1–5). The response is validated strictly and fed
 into deterministic policy. The sensor is advisory only — it never chooses the
 final model, never owns hard policy, safety, execution, retries, verification,
@@ -94,15 +94,14 @@ first); hard overrides below always win over the sensor.
 
 | Scenario | Agent / model |
 |---|---|
-| Bounded implementation (default) | `pi` / `local/swift-1.5-qwen-3.8-27b` |
+| Any implementation, trivial or not (default) | `pi` / `local/swift-1.5-qwen-3.8-27b` |
 | QWEN unavailable | `claude` / `claude-haiku-5-5`, then `cursor` / `composer-2.5` |
 | Explicit user/model override | the requested model |
-| Explicit Codex ask | `codex` / `gpt-6-astra` |
+| Explicit Codex ask (only way Codex is used) | `codex` / `gpt-6-astra` |
 | Recorded spec/architecture uncertainty | `pi` / `opencode-go/deepseek-v4.1-flash` |
-| Retry after failed cheap-model attempt | escalate (`OPUS` → `CODEX`) |
-| Shallow docs/boilerplate ≤2 files/~60 lines | `pi` / `opencode-go/deepseek-v4.1-flash` |
+| Retry after failed QWEN/DEEPSEEK attempt | `claude` / `claude-haiku-5-5`, then `cursor` / `composer-2.5` |
+| Retry after failed HAIKU / CURSOR attempt | the other one; never Opus or Astra |
 | High-risk (auth/security/session/PTY/data-loss) | never `deepseek-v4.1-flash` |
-| sensor unavailable/invalid/low confidence | existing deterministic default |
 | Pure Q&A / architecture planning | `parent` (no write) |
 | Orchestrator is opencode | `pi` / `opencode-go/deepseek-v4.1-flash` only; high-risk or >2 files → STOP |
 
@@ -134,6 +133,22 @@ Recalibrate: collect `stats` lines (`grep -h ' stats ' /var/folders/*/*/T/tmp*/r
 bucket by `tool_calls`, and set the budget at the largest bucket whose timeout rate
 stays under ~10%. Set the timeout to about 2x the p90 elapsed of reported runs.
 Route tasks past the budget to another model instead of raising it.
+
+## Local Qwen health
+
+The GPU behind local Qwen is often taken for training, so its route is checked
+live instead of trusting the 15-minute health cache:
+
+- **Before routing**, `analyze-task` sends llama-server a 1-token completion
+  (8s timeout, `AJAX_ROUTER_LOCAL_PROBE_TIMEOUT`). Unreachable, loading (503),
+  or too slow means QWEN is skipped and the task goes to HAIKU.
+- **During a run**, once the delegate has been quiet for 60s
+  (`AJAX_ROUTER_LOCAL_LIVENESS_SECONDS`), the runner checks `/health` every 60s.
+  Two failed checks end the run as `SERVER_DOWN`, mark the route down, and the
+  next fallback route resumes the partial edits. Quiet time alone never ends a
+  run; healthy Qwen goes silent for minutes.
+
+`AJAX_ROUTER_QWEN_URL` overrides the server URL (default `http://127.0.0.1:18000/v1`).
 
 ## Delegate transport
 

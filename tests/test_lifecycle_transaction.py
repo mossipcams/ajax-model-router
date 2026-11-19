@@ -528,6 +528,26 @@ class LifecycleTransactionTests(unittest.TestCase):
             self.assertEqual(ctx["artifacts"]["fallback_attempts"], [])
             self.assertEqual(ctx["fallback_chain"], ["codex/model-b"])
 
+    def test_server_down_with_partial_edits_resumes_on_next_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_repo(tmp)
+            snap = Path(tmp) / "snap"
+            snap.mkdir()
+            data = self.base_context(repo, snap, fallback_chain=["claude/model-b"])
+            ctx = hooks.snapshot(hooks.before_execute(ctxlib.validate_context(data)))
+            fake, calls = self._fake_attempts(
+                [("FAILED", "SERVER_DOWN"), ("COMPLETE", "NONE")],
+                touch=lambda: (repo / "src" / "example.py").write_text("VALUE = 9\n"),
+            )
+            with mock.patch("lifecycle_hooks._execute_once", side_effect=fake):
+                with mock.patch("sys.stderr", StringIO()):
+                    ctx = hooks.execute(ctx)
+            self.assertEqual(calls, [("pi", "test-model"), ("claude", "model-b")])
+            prompt = Path(ctx["artifacts"]["prompt_path"]).read_text()
+            self.assertEqual(prompt.count("Resume:"), 1)
+            self.assertEqual(ctx["artifacts"]["fallback_attempts"][0]["reason"], "SERVER_DOWN")
+            self.assertFalse(json.loads(self.health_cache.read_text())["pi/test-model"]["ok"])
+
     def test_execute_does_not_fall_back_on_ordinary_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)

@@ -36,7 +36,8 @@ class BuildPromptTests(unittest.TestCase):
 
 class ExecutionFlagTests(unittest.TestCase):
     def test_execution_flag_prints_only_block(self):
-        with mock.patch("semantic._load_cli_payload", return_value={"task": "fix typo"}):
+        with mock.patch("semantic._load_cli_payload", return_value={"task": "fix typo"}), \
+                mock.patch("semantic._known_down_routes", return_value=set()):
             out = io.StringIO()
             with redirect_stdout(out):
                 analyze_task_main(["--execution"])

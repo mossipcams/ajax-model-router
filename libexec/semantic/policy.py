@@ -1,8 +1,8 @@
 """Deterministic routing policy — the sensor is advisory; it never picks the final model.
 
-Pipeline: facts → hard constraints (eligibility) → optional sensor decision over
-eligible routes → deterministic fallback when the sensor is absent/invalid/low
-confidence → hard overrides and escalation always win.
+Pipeline: facts → hard constraints (eligibility) → hard overrides → QWEN first,
+then HAIKU, then CURSOR. QWEN is local and cheap, so nothing diverts away from
+it except an explicit user ask, recorded spec uncertainty, or retry escalation.
 """
 
 from __future__ import annotations
@@ -15,17 +15,32 @@ from semantic.schema import RouteDecision
 
 # Registry keys — model IDs live only in the SKILL.md registry table.
 REGISTRY: dict[str, tuple[str, str]] = {
+    # Explicit user ask only: never in fallback chains or retry escalation.
     "CODEX": ("codex", "gpt-6-astra"),
+    # Cursor runs only cheap models. Composer 2.5 (standard, not Fast) draws from
+    # Cursor's included weekly pool. AA Coding Agent Index, Nov 2026: 38 at ~$0.09
+    # per task in Cursor CLI, the cheapest Cursor option by more than 10x.
     "CURSOR": ("cursor", "composer-2.5"),
     # pi only accepts provider-qualified IDs (what its ACP agent advertises).
     "DEEPSEEK": ("pi", "opencode-go/deepseek-v4.1-flash"),
     "QWEN": ("pi", "local/swift-1.5-qwen-3.8-27b"),
-    "OPUS": ("cursor", "claude-opus-5-5"),
+    # Haiku runs through Claude Code, never Cursor.
     "HAIKU": ("claude", "claude-haiku-5-5"),
 }
 
 # Canonical route order (cheap → strongest), used for tie-breaking and logs.
-ROUTE_ORDER: tuple[str, ...] = ("DEEPSEEK", "QWEN", "HAIKU", "CURSOR", "CODEX", "OPUS")
+ROUTE_ORDER: tuple[str, ...] = ("DEEPSEEK", "QWEN", "HAIKU", "CURSOR", "CODEX")
+
+# Routes only an explicit user ask may select; never reached by fallback or retry.
+EXPLICIT_ONLY: frozenset[str] = frozenset({"CODEX"})
+
+# Retry after a failed attempt moves to the next cheap route, never to a premium one.
+RETRY_NEXT: dict[str, tuple[str, ...]] = {
+    "DEEPSEEK": ("HAIKU", "CURSOR"),
+    "QWEN": ("HAIKU", "CURSOR"),
+    "HAIKU": ("CURSOR",),
+    "CURSOR": ("HAIKU",),
+}
 
 # Bare IDs ("deepseek-v4.1-flash") stay valid for explicit user overrides.
 MODEL_KEY_BY_ID: dict[str, str] = {
@@ -39,7 +54,8 @@ def fallback_chain(primary: str, eligible: tuple[str, ...]) -> tuple[str, ...]:
     """Routes to try, in order, when `primary` is unavailable (quota, auth, missing tool).
 
     Stronger routes after the primary first, then cheaper ones; never the primary
-    itself, and never DEEPSEEK unless the primary was DEEPSEEK (its lane is bounded).
+    itself, never DEEPSEEK unless the primary was DEEPSEEK (its lane is bounded),
+    and never an explicit-only route (CODEX) unless it was the primary.
     """
     if primary not in ROUTE_ORDER:
         return ()
@@ -48,7 +64,9 @@ def fallback_chain(primary: str, eligible: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(
         key
         for key in ordered
-        if key in eligible and (key != "DEEPSEEK" or primary == "DEEPSEEK")
+        if key in eligible
+        and (key != "DEEPSEEK" or primary == "DEEPSEEK")
+        and key not in EXPLICIT_ONLY
     )
 
 @dataclass(frozen=True)
@@ -98,7 +116,7 @@ def has_hard_override(facts: RoutingFacts) -> bool:
         facts.explicit_model
         or facts.user_asked_codex
         or facts.recorded_spec_uncertainty
-        or (facts.is_retry and facts.previous_model_key in {"DEEPSEEK", "CURSOR", "QWEN"})
+        or (facts.is_retry and facts.previous_model_key in RETRY_NEXT)
     )
 
 
@@ -126,29 +144,16 @@ def eligible_routes(facts: RoutingFacts) -> tuple[str, ...]:
     return tuple(routes)
 
 
-def _bounded_trivial(facts: RoutingFacts) -> bool:
-    """Existing deterministic cheap-lane test (no semantic input needed)."""
-    if facts.changed_file_count == 0 and facts.diff_line_count == 0:
-        return False
-    if facts.changed_file_count > 2:
-        return False
-    if facts.diff_line_count > 60:
-        return False
-    return True
-
-
 def deterministic_default(
     facts: RoutingFacts, eligible: tuple[str, ...]
 ) -> tuple[str, str]:
-    """Deterministic default: bounded trivial → DEEPSEEK, else QWEN → HAIKU → CURSOR."""
-    if "DEEPSEEK" in eligible and _bounded_trivial(facts):
-        return "DEEPSEEK", "bounded trivial change within file/line limits"
+    """QWEN first (local, cheap), then HAIKU, then CURSOR, then anything eligible."""
     if "QWEN" in eligible:
-        return "QWEN", "no exception matched; default implementation"
+        return "QWEN", "default implementation: local QWEN first"
     if "HAIKU" in eligible:
         return "HAIKU", "QWEN unavailable; fallback implementation"
     if "CURSOR" in eligible:
-        return "CURSOR", "QWEN unavailable; fallback implementation"
+        return "CURSOR", "QWEN and HAIKU unavailable; fallback implementation"
     if eligible:
         return eligible[0], "only remaining eligible route"
     return "CURSOR", "no eligible routes; safe default"
@@ -193,12 +198,10 @@ def select_route(
     sensor_fallback_reason: str | None = None,
     confidence_threshold: float = 0.60,
 ) -> RoutingDecision:
-    """Apply hard constraints, then the sensor's eligible-route pick, then overrides.
+    """Hard overrides first, then QWEN-first availability order.
 
-    The sensor's route is used only when it names an eligible route at or above
-    the confidence threshold; otherwise the existing deterministic default
-    applies. Hard overrides (explicit model/agent, Codex ask, spec uncertainty,
-    retry escalation) always win over the sensor.
+    `sensor` and `confidence_threshold` are accepted for caller compatibility
+    but never change the route: QWEN is always tried first when eligible.
     """
     eligible = eligible_routes(facts)
 
@@ -240,53 +243,21 @@ def select_route(
             facts,
             eligible=eligible,
         )
-    if facts.is_retry and facts.previous_model_key in {"DEEPSEEK", "CURSOR", "QWEN"}:
-        if "OPUS" in eligible:
-            return _decision(
-                "OPUS",
-                "R-RETRY-ESCALATE",
-                "retry after failed implementation attempt escalates to OPUS",
-                facts,
-                eligible=eligible,
-            )
-        return _decision(
-            "CODEX",
-            "R-RETRY-ESCALATE",
-            "OPUS unavailable; retry escalates to CODEX",
-            facts,
-            eligible=eligible,
-        )
+    if facts.is_retry and facts.previous_model_key in RETRY_NEXT:
+        for key in RETRY_NEXT[facts.previous_model_key]:
+            if key in eligible:
+                return _decision(
+                    key,
+                    "R-RETRY-ESCALATE",
+                    f"retry after failed {facts.previous_model_key} attempt moves to {key}",
+                    facts,
+                    eligible=eligible,
+                )
+        # No cheap escalation target is up: fall through to the default order.
 
-    # Fuzzy step: the sensor's pick among eligible routes.
-    if (
-        sensor is not None
-        and sensor.route in eligible
-        and sensor.confidence >= confidence_threshold
-    ):
-        return _decision(
-            sensor.route,
-            "R-SENSOR",
-            (
-                f"sensor route {sensor.route} (confidence {sensor.confidence:.2f}, "
-                f"complexity {sensor.complexity}, ambiguity {sensor.ambiguity})"
-            ),
-            facts,
-            eligible=eligible,
-            sensor=sensor,
-        )
-
-    # Deterministic fallback (disabled, unavailable, invalid, low confidence).
-    if sensor is not None and sensor_fallback_reason is None:
-        if sensor.route not in eligible:
-            sensor_fallback_reason = f"sensor route {sensor.route} not eligible"
-        else:
-            sensor_fallback_reason = (
-                f"sensor confidence {sensor.confidence:.2f} below threshold "
-                f"{confidence_threshold:.2f}"
-            )
+    # The sensor is no longer consulted for the pick: QWEN always goes first.
     route, reason = deterministic_default(facts, eligible)
     rule_id = {
-        "DEEPSEEK": "R-DEEPSEEK",
         "QWEN": "R-QWEN",
         "HAIKU": "R-HAIKU",
         "CURSOR": "R-CURSOR",

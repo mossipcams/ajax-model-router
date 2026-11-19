@@ -77,12 +77,9 @@ class RoutingExplainTests(unittest.TestCase):
         self.assertEqual(explanation["analysis_source"], "sensor")
         self.assertEqual(explanation["sensor"]["route"], "OPUS")
         self.assertEqual(explanation["sensor"]["confidence"], 0.85)
-        self.assertEqual(explanation["route_confidence"], 0.85)
-        self.assertEqual(explanation["route_probabilities"]["OPUS"], 0.85)
-        self.assertEqual(explanation["complexity"], 3)
-        self.assertEqual(explanation["ambiguity"], 2)
-        self.assertFalse(explanation["fallback_used"])
-        self.assertIsNone(explanation["fallback_reason"])
+        # Sensor output is still logged, but the route stays QWEN-first.
+        self.assertEqual(explanation["selected_route"], "QWEN")
+        self.assertIsNone(explanation["route_confidence"])
 
     def test_explanation_records_fallback_reason(self):
         facts = RoutingFacts(user_request="design cache layer", diff_line_count=120)

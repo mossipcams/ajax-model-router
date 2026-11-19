@@ -58,7 +58,7 @@ forbid_text "$ROUTER" "R-SIZE-SPLIT" "removed size-split ceremony"
 forbid_text "$ROUTER" "GROK" "no Grok registry or route"
 forbid_text "$ROUTER" "grok" "no Grok model id"
 
-for key in CODEX CURSOR DEEPSEEK QWEN OPUS HAIKU; do
+for key in CODEX CURSOR DEEPSEEK QWEN HAIKU; do
   model_id="$(awk -F'`' -v key="$key" '$2 == key {print $4; exit}' "$ROOT/$ROUTER")"
   if [[ -z "$model_id" ]]; then
     echo "missing: model registry key $key" >&2
@@ -73,12 +73,15 @@ require_text "$ROUTER" "Pure Q&A or architecture planning" "LOCAL/parent only fo
 forbid_text "$ROUTER" '`R-LOCAL-TINY`' "removed tiny-local write shortcut"
 
 uncertainty_line="$(grep -nF 'Recorded unresolved specification or architecture uncertainty' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
-cheap_line="$(grep -nF 'Routine docs, generated cleanup, exact replacements, or named boilerplate' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
-cursor_line="$(grep -nF 'No exception matched; sensor unavailable, invalid, or low confidence' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
-if [[ -z "$uncertainty_line" || -z "$cheap_line" || -z "$cursor_line" || "$uncertainty_line" -ge "$cheap_line" || "$cheap_line" -ge "$cursor_line" ]]; then
-  echo "wrong-order: DeepSeek-SPEC → DeepSeek → CURSOR-default must hold" >&2
+qwen_line="$(grep -nF '| `R-QWEN` | No exception matched |' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
+haiku_line="$(grep -nF '| `R-HAIKU` |' "$ROOT/$ROUTER" | head -1 | cut -d: -f1 || true)"
+if [[ -z "$uncertainty_line" || -z "$qwen_line" || -z "$haiku_line" || "$uncertainty_line" -ge "$qwen_line" || "$qwen_line" -ge "$haiku_line" ]]; then
+  echo "wrong-order: DeepSeek-SPEC → QWEN-default → HAIKU must hold" >&2
   failures=$((failures + 1))
 fi
+forbid_text "$ROUTER" '`R-SENSOR`' "sensor no longer picks routes"
+forbid_text "$ROUTER" '`claude-opus' "cheap-only: no Opus route"
+forbid_text "libexec/semantic/policy.py" '"OPUS"' "cheap-only: no Opus registry key"
 
 for adapter in cursor-delegate pi-delegate codex-delegate claude-delegate; do
   file="skills/$adapter/SKILL.md"

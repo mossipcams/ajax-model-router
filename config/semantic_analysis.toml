@@ -3,7 +3,8 @@
 # degrades gracefully to deterministic routing.
 # Set up the local venv + model with `scripts/setup-gliner`.
 [semantic]
-enabled = true
+# Disabled: routing is QWEN-first; the sensor no longer picks routes.
+enabled = false
 model = "fastino/GLiNER2.5-Decide"
 python = ".venv/bin/python"
 timeout_ms = 20000

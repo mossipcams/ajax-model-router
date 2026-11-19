@@ -59,9 +59,17 @@ BUDGET_NOTE = (
     "in CONCERNS.\n"
 )
 RESUME_NOTE = (
-    "Resume: an earlier attempt was cut off by a provider error and the worktree may "
-    "hold its partial edits. Inspect them, keep what is good, and finish.\n\n"
+    "Resume: an earlier attempt was cut off (provider error or its model server went "
+    "down) and the worktree may hold its partial edits. Inspect them, keep what is "
+    "good, and finish.\n\n"
 )
+
+
+def _add_resume_note(ctx):
+    prompt = Path(ctx["artifacts"]["prompt_path"])
+    text = prompt.read_text()
+    if RESUME_NOTE not in text:
+        prompt.write_text(text.replace(PROMPT_TAIL, RESUME_NOTE + PROMPT_TAIL, 1))
 
 
 class HookError(RuntimeError):
@@ -234,7 +242,11 @@ def _task_label(ctx):
 
 
 # Report concern types meaning the tool never got to work (quota, auth, missing CLI).
-UNAVAILABLE_TYPES = frozenset({"TOOL_UNAVAILABLE", "MISSING_TOOL"})
+UNAVAILABLE_TYPES = frozenset({"TOOL_UNAVAILABLE", "MISSING_TOOL", "SERVER_DOWN"})
+# The local model server died under the delegate (GPU taken for training). Its
+# partial edits are worth keeping, so the next route resumes them instead of
+# the run stopping the way it does for other failures that touched the tree.
+RESUMABLE_TYPES = frozenset({"SERVER_DOWN"})
 
 
 def _failure_type(ctx):
@@ -327,8 +339,7 @@ def execute(ctx):
                     {"agent": ctx["agent"], "model": ctx["model"], "reason": "PROVIDER_ERROR", **kept}
                 )
                 if changed:
-                    prompt = Path(ctx["artifacts"]["prompt_path"])
-                    prompt.write_text(prompt.read_text().replace(PROMPT_TAIL, RESUME_NOTE + PROMPT_TAIL, 1))
+                    _add_resume_note(ctx)
                 sys.stderr.write(f"[ajax-router] {route} provider error; retrying once\n")
                 continue
             reason = "PROVIDER_ERROR"
@@ -343,8 +354,11 @@ def execute(ctx):
         while ctx.get("fallback_chain") and ctx["fallback_chain"][0] in down:
             skipped = ctx["fallback_chain"].pop(0)
             sys.stderr.write(f"[ajax-router] skipping {skipped}: recently unavailable\n")
-        if not reason or not ctx.get("fallback_chain") or changed:
+        resumable = reason in RESUMABLE_TYPES
+        if not reason or not ctx.get("fallback_chain") or (changed and not resumable):
             break
+        if changed and resumable:
+            _add_resume_note(ctx)
         agent, model = _parse_route(ctx["fallback_chain"].pop(0))
         attempt = len(ctx["artifacts"]["fallback_attempts"])
         kept = _keep_attempt_logs(ctx, attempt)

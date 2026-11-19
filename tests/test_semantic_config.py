@@ -15,7 +15,7 @@ from semantic.config import load_semantic_config  # noqa: E402
 class SemanticConfigTests(unittest.TestCase):
     def test_default_config_values(self):
         cfg = load_semantic_config()
-        self.assertTrue(cfg.enabled)
+        self.assertFalse(cfg.enabled)
         self.assertEqual(cfg.model, "fastino/GLiNER2.5-Decide")
         self.assertEqual(cfg.python, ".venv/bin/python")
         self.assertEqual(cfg.timeout_ms, 20000)
