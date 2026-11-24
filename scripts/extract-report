@@ -9,7 +9,9 @@ set -euo pipefail
 raw="$1"
 output="$2"
 # Resolve through symlinks so worktree installs still find canonical scripts.
-ROOT="$(cd "$(dirname "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
+SRC="${BASH_SOURCE[0]}"
+while [[ -L "$SRC" ]]; do LINK="$(readlink "$SRC")"; [[ "$LINK" == /* ]] && SRC="$LINK" || SRC="$(dirname "$SRC")/$LINK"; done
+ROOT="$(cd "$(dirname "$SRC")/.." && pwd -P)"
 
 failed_report() {
   local reason="$1" summary="$2"

@@ -11,7 +11,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 VENV="$ROOT/.venv"
 
 # Read model + python path from the semantic config (defaults match config.py).
-read -r MODEL PYBIN < <(python3 - "$ROOT/config/semantic_analysis.toml" <<'PY'
+read -r MODEL PYBIN < <("$ROOT/libexec/python" - "$ROOT/config/semantic_analysis.toml" <<'PY'
 import sys
 from pathlib import Path
 try:
@@ -30,7 +30,7 @@ echo "==> venv:     $VENV"
 
 if [ ! -x "$VENV/bin/python" ]; then
   echo "==> creating venv"
-  python3 -m venv "$VENV"
+  "$ROOT/libexec/python" -m venv "$VENV"
 fi
 
 echo "==> installing gliner2"

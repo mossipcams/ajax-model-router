@@ -2,5 +2,7 @@
 set -euo pipefail
 
 # Resolve through symlinks so worktree installs still find canonical libexec.
-ROOT="$(cd "$(dirname "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
-exec python3 "$ROOT/libexec/router_state.py" capture "$@"
+SRC="${BASH_SOURCE[0]}"
+while [[ -L "$SRC" ]]; do LINK="$(readlink "$SRC")"; [[ "$LINK" == /* ]] && SRC="$LINK" || SRC="$(dirname "$SRC")/$LINK"; done
+ROOT="$(cd "$(dirname "$SRC")/.." && pwd -P)"
+exec "$ROOT/libexec/python" "$ROOT/libexec/router_state.py" capture "$@"
