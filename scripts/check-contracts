@@ -2,7 +2,9 @@
 # Contract pins for the thin outcome-focused router control plane.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")")/.." && pwd -P)"
+SRC="${BASH_SOURCE[0]}"
+while [[ -L "$SRC" ]]; do LINK="$(readlink "$SRC")"; [[ "$LINK" == /* ]] && SRC="$LINK" || SRC="$(dirname "$SRC")/$LINK"; done
+ROOT="$(cd "$(dirname "$SRC")/.." && pwd -P)"
 ROUTER="skills/model-router/SKILL.md"
 failures=0
 
@@ -171,7 +173,7 @@ if ! bash -n "$ROOT"/scripts/*; then
   echo "failed: shell syntax" >&2
   failures=$((failures + 1))
 fi
-if ! python3 -m unittest discover -s "$ROOT/tests" -p 'test_*.py'; then
+if ! "$ROOT/libexec/python" -m unittest discover -s "$ROOT/tests" -p 'test_*.py'; then
   echo "failed: behavioral contracts" >&2
   failures=$((failures + 1))
 fi

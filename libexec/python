@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Exec the first Python >= 3.11 (tomllib). macOS /usr/bin/python3 is 3.9, and
+# delegates may run with a bare PATH, so also check the usual Homebrew paths.
+set -euo pipefail
+
+for py in python3 /opt/homebrew/bin/python3 /usr/local/bin/python3; do
+  if command -v "$py" >/dev/null 2>&1 \
+    && "$py" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+    exec "$py" "$@"
+  fi
+done
+
+echo "error: Python >= 3.11 required; none found (checked python3 on PATH, /opt/homebrew/bin/python3, /usr/local/bin/python3)" >&2
+exit 1
