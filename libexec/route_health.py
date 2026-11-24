@@ -48,11 +48,27 @@ def local_base_url(route: str) -> str | None:
     return LOCAL_BASE_URLS.get(route)
 
 
+def local_headers() -> dict[str, str]:
+    """Bearer auth for llama-server, from the `local` provider in Pi's models.json.
+
+    Pi's apiKey is an env var name or a literal; without it llama-server
+    answers 401 and the probe would mark a healthy server down.
+    """
+    try:
+        provider = json.loads((Path.home() / ".pi/agent/models.json").read_text())["providers"]["local"]
+        key = provider.get("apiKey") or ""
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {}
+    key = os.environ.get(key, key)
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
 def loaded_model(base: str, timeout: float = 2.0) -> str | None:
     """Name of the model llama-server has loaded, from /props; None on any error."""
     root = base[: -len("/v1")] if base.endswith("/v1") else base
+    request = urllib.request.Request(f"{root}/props", headers=local_headers())
     try:
-        with urllib.request.urlopen(f"{root}/props", timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             props = json.loads(response.read() or b"{}")
         return os.path.basename(props.get("model_path") or "") or props.get("model_alias") or None
     except Exception:  # best-effort label for the probe detail; never fail the probe
@@ -80,7 +96,7 @@ def probe_local(route: str, timeout: float | None = None) -> tuple[bool, str]:
     request = urllib.request.Request(
         f"{base}/chat/completions",
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **local_headers()},
         method="POST",
     )
     started = time.monotonic()
