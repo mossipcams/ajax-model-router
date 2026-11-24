@@ -25,14 +25,20 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from semantic.policy import BASE_URLS, REGISTRY  # noqa: E402
+
 TTL_SECONDS = 15 * 60
 PROBE_TIMEOUT_SECONDS = 90
 PROBE_PROMPT = "Reply with exactly: ok"
 
-# Local OpenAI-compatible servers, by agent/model route. Mirrors the Base URL
+# Local OpenAI-compatible servers, by agent/model route, from the Base URL
 # column of the SKILL.md registry. AJAX_ROUTER_QWEN_URL overrides the default.
-QWEN_ROUTE = "pi/local/swift-1.5-qwen-3.8-27b"
-LOCAL_BASE_URLS = {QWEN_ROUTE: "http://127.0.0.1:18000/v1"}
+QWEN_ROUTE = "/".join(REGISTRY["QWEN"])
+# `current` is an alias, not a model: llama-server runs with `--alias current`
+# and Pi's models.json lists `current` under provider `local`, so swapping the
+# GGUF never touches the router or Pi.
+LOCAL_BASE_URLS = {"/".join(REGISTRY[key]): url for key, url in BASE_URLS.items()}
 LOCAL_PROBE_TIMEOUT_SECONDS = 8.0
 
 
@@ -40,6 +46,17 @@ def local_base_url(route: str) -> str | None:
     if route == QWEN_ROUTE and os.environ.get("AJAX_ROUTER_QWEN_URL"):
         return os.environ["AJAX_ROUTER_QWEN_URL"].rstrip("/")
     return LOCAL_BASE_URLS.get(route)
+
+
+def loaded_model(base: str, timeout: float = 2.0) -> str | None:
+    """Name of the model llama-server has loaded, from /props; None on any error."""
+    root = base[: -len("/v1")] if base.endswith("/v1") else base
+    try:
+        with urllib.request.urlopen(f"{root}/props", timeout=timeout) as response:
+            props = json.loads(response.read() or b"{}")
+        return os.path.basename(props.get("model_path") or "") or props.get("model_alias") or None
+    except Exception:  # best-effort label for the probe detail; never fail the probe
+        return None
 
 
 def probe_local(route: str, timeout: float | None = None) -> tuple[bool, str]:
@@ -80,7 +97,9 @@ def probe_local(route: str, timeout: float | None = None) -> tuple[bool, str]:
         return False, f"non-JSON reply from {base}"
     if not payload.get("choices"):
         return False, f"no completion from {base}"
-    return True, f"ok in {time.monotonic() - started:.1f}s"
+    detail = f"ok in {time.monotonic() - started:.1f}s"
+    name = loaded_model(base)
+    return True, f"{detail} ({name})" if name else detail
 
 
 def local_server_alive(route: str, timeout: float = 2.0) -> tuple[bool, str]:
@@ -204,9 +223,6 @@ def check_all(routes: list[str]) -> dict[str, tuple[bool, str]]:
 
 
 def main(argv=None) -> int:
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from semantic.policy import REGISTRY
-
     routes = ["/".join(REGISTRY[key]) for key in REGISTRY]
     results = check_all(routes)
     for key in REGISTRY:

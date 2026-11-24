@@ -72,7 +72,7 @@ the decision copies the corresponding exact ID into `MODEL`.
 | `CODEX` | `gpt-6-astra` | `codex` | — | — | — | — |  ← explicit user ask only; never fallback or retry
 | `CURSOR` | `composer-2.5` | `cursor` | — | — | — | — |
 | `DEEPSEEK` | `opencode-go/deepseek-v4.1-flash` | `pi` | — | — | — | — |
-| `QWEN` | `local/swift-1.5-qwen-3.8-27b` | `pi` | `local` | `http://127.0.0.1:18000/v1` | 131072 | 8192 |
+| `QWEN` | `local/current` | `pi` | `local` | `http://127.0.0.1:18000/v1` | server | server |  ← alias; whatever llama-server has loaded
 | `HAIKU` | `claude-haiku-5-5` | `claude` | — | — | — | — |  ← via Claude Code, never Cursor
 
 Cheap-only policy: Cursor runs only the `CURSOR` registry model (Composer 2.5 standard, never Fast), which

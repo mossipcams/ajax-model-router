@@ -8,25 +8,38 @@ it except an explicit user ask, recorded spec uncertainty, or retry escalation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from semantic.facts import RoutingFacts
 from semantic.schema import RouteDecision
 
-# Registry keys — model IDs live only in the SKILL.md registry table.
-REGISTRY: dict[str, tuple[str, str]] = {
-    # Explicit user ask only: never in fallback chains or retry escalation.
-    "CODEX": ("codex", "gpt-6-astra"),
-    # Cursor runs only cheap models. Composer 2.5 (standard, not Fast) draws from
-    # Cursor's included weekly pool. AA Coding Agent Index, Nov 2026: 38 at ~$0.09
-    # per task in Cursor CLI, the cheapest Cursor option by more than 10x.
-    "CURSOR": ("cursor", "composer-2.5"),
-    # pi only accepts provider-qualified IDs (what its ACP agent advertises).
-    "DEEPSEEK": ("pi", "opencode-go/deepseek-v4.1-flash"),
-    "QWEN": ("pi", "local/swift-1.5-qwen-3.8-27b"),
-    # Haiku runs through Claude Code, never Cursor.
-    "HAIKU": ("claude", "claude-haiku-5-5"),
-}
+# Model IDs live only in the SKILL.md Model Registry table (with per-row notes);
+# this reads it so the router never carries its own copy.
+REGISTRY_TABLE = Path(__file__).resolve().parents[2] / "skills" / "model-router" / "SKILL.md"
+
+
+def load_registry(path: Path = REGISTRY_TABLE) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
+    """(key -> (agent, model ID), key -> base URL) from the registry table rows."""
+    text = path.read_text()
+    section = text.partition("## Model Registry")[2].partition("\n## ")[0]
+    registry: dict[str, tuple[str, str]] = {}
+    base_urls: dict[str, str] = {}
+    for line in section.splitlines():
+        if not line.startswith("| `"):
+            continue
+        key, model_id, agent, _provider, base_url = (
+            cell.strip().strip("`") for cell in line.split("|")[1:6]
+        )
+        registry[key] = (agent, model_id)
+        if base_url.startswith("http"):
+            base_urls[key] = base_url
+    if not registry:
+        raise RuntimeError(f"no Model Registry rows in {path}")
+    return registry, base_urls
+
+
+REGISTRY, BASE_URLS = load_registry()
 
 # Canonical route order (cheap → strongest), used for tie-breaking and logs.
 ROUTE_ORDER: tuple[str, ...] = ("DEEPSEEK", "QWEN", "HAIKU", "CURSOR", "CODEX")
@@ -42,7 +55,7 @@ RETRY_NEXT: dict[str, tuple[str, ...]] = {
     "CURSOR": ("HAIKU",),
 }
 
-# Bare IDs ("deepseek-v4.1-flash") stay valid for explicit user overrides.
+# Bare IDs (the part after "provider/") stay valid for explicit user overrides.
 MODEL_KEY_BY_ID: dict[str, str] = {
     alias: key
     for key, (_, model_id) in REGISTRY.items()

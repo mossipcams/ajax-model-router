@@ -32,7 +32,7 @@ class AnalyzeTaskTests(unittest.TestCase):
         )
         execution = output["execution"]
         self.assertEqual(execution["AGENT"], "pi")
-        self.assertEqual(execution["MODEL"], "local/swift-1.5-qwen-3.8-27b")
+        self.assertEqual(execution["MODEL"], "local/current")
         self.assertIn("RISK", execution)
         self.assertIn("REASON", execution)
         self.assertIn("FALLBACK", execution)
@@ -50,7 +50,7 @@ class AnalyzeTaskTests(unittest.TestCase):
             )
         execution = output["execution"]
         self.assertEqual(execution["AGENT"], "pi")
-        self.assertEqual(execution["MODEL"], "local/swift-1.5-qwen-3.8-27b")
+        self.assertEqual(execution["MODEL"], "local/current")
         self.assertEqual(output["explanation"]["selected_route"], "QWEN")
         self.assertEqual(output["decision"]["rule_id"], "R-QWEN")
 

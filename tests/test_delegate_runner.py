@@ -1125,7 +1125,7 @@ class SwiftReliabilityTests(unittest.TestCase):
 class LocalServerLivenessTests(unittest.TestCase):
     """A local delegate is ended early when llama-server dies under it."""
 
-    QWEN = "local/swift-1.5-qwen-3.8-27b"
+    QWEN = "local/current"
 
     def start_health_server(self, status):
         import threading

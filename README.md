@@ -92,18 +92,21 @@ Deterministic policy retains final authority. The sensor's route probabilities a
 the primary fuzzy signal among *eligible* routes (hard constraints applied
 first); hard overrides below always win over the sensor.
 
-| Scenario | Agent / model |
+Routes name registry keys; model IDs live only in the Model Registry table in
+`skills/model-router/SKILL.md`.
+
+| Scenario | Registry key |
 |---|---|
-| Any implementation, trivial or not (default) | `pi` / `local/swift-1.5-qwen-3.8-27b` |
-| QWEN unavailable | `claude` / `claude-haiku-5-5`, then `cursor` / `composer-2.5` |
+| Any implementation, trivial or not (default) | `QWEN` |
+| QWEN unavailable | `HAIKU`, then `CURSOR` |
 | Explicit user/model override | the requested model |
-| Explicit Codex ask (only way Codex is used) | `codex` / `gpt-6-astra` |
-| Recorded spec/architecture uncertainty | `pi` / `opencode-go/deepseek-v4.1-flash` |
-| Retry after failed QWEN/DEEPSEEK attempt | `claude` / `claude-haiku-5-5`, then `cursor` / `composer-2.5` |
+| Explicit Codex ask (only way Codex is used) | `CODEX` |
+| Recorded spec/architecture uncertainty | `DEEPSEEK` |
+| Retry after failed QWEN/DEEPSEEK attempt | `HAIKU`, then `CURSOR` |
 | Retry after failed HAIKU / CURSOR attempt | the other one; never Opus or Astra |
-| High-risk (auth/security/session/PTY/data-loss) | never `deepseek-v4.1-flash` |
+| High-risk (auth/security/session/PTY/data-loss) | never `DEEPSEEK` |
 | Pure Q&A / architecture planning | `parent` (no write) |
-| Orchestrator is opencode | `pi` / `opencode-go/deepseek-v4.1-flash` only; high-risk or >2 files → STOP |
+| Orchestrator is opencode | `DEEPSEEK` only; high-risk or >2 files → STOP |
 
 Routing events (`routing-events.jsonl`) record eligible routes, selected
 route, route probabilities/confidence, complexity, ambiguity, whether

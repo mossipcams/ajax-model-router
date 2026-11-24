@@ -109,7 +109,7 @@ class RoutingExplainTests(unittest.TestCase):
         for key in ("AGENT", "MODEL", "RISK", "REASON", "FALLBACK"):
             self.assertIn(key, block)
         self.assertEqual(block["AGENT"], "pi")
-        self.assertEqual(block["MODEL"], "local/swift-1.5-qwen-3.8-27b")
+        self.assertEqual(block["MODEL"], "local/current")
 
     def test_execution_block_omits_empty_scope_verify(self):
         facts = RoutingFacts(user_request="fix typo")

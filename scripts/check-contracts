@@ -81,7 +81,7 @@ if [[ -z "$uncertainty_line" || -z "$qwen_line" || -z "$haiku_line" || "$uncerta
 fi
 forbid_text "$ROUTER" '`R-SENSOR`' "sensor no longer picks routes"
 forbid_text "$ROUTER" '`claude-opus' "cheap-only: no Opus route"
-forbid_text "libexec/semantic/policy.py" '"OPUS"' "cheap-only: no Opus registry key"
+forbid_text "$ROUTER" '| `OPUS` |' "cheap-only: no Opus registry key"
 
 for adapter in cursor-delegate pi-delegate codex-delegate claude-delegate; do
   file="skills/$adapter/SKILL.md"
